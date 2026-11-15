@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: atview:; media-src 'self' blob:; frame-src 'self' atview:" />
+  <title>BantoDesk</title>
+  <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="panel.css" />
+  <link rel="stylesheet" href="remote-ui.css" />
+  <link rel="stylesheet" href="conversation.css" />
+  <link rel="stylesheet" href="notify.css" />
+  <link rel="stylesheet" href="settings.css" />
+  <link rel="stylesheet" href="backlog.css" />
+  <link rel="stylesheet" href="dashboard.css" />
+  <link rel="stylesheet" href="agents-view.css" />
+  <link rel="stylesheet" href="viewer.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div id="folder" title="フォルダを切り替え" data-sc="folder">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M1.75 4.25a1 1 0 0 1 1-1h3.1l1.4 1.5h5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9.5a1 1 0 0 1-1-1z"/></svg>
+        <span id="folder-name"></span>
+        <span id="dev-badge" hidden>DEV</span>
+        <svg class="caret" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5 5 6.5 8 3.5"/></svg>
+      </div>
+      <div id="tabs"></div>
+      <!-- renderer.js (owner: core, UIUX U6): tabs that do not fit — "▾ N" opens the list -->
+      <button id="tabs-more" class="tabs-more" hidden></button>
+      <!-- renderer.js (owner: core) -->
+      <button id="newtab" class="icon-btn" title="新しいセッション" data-sc="newTab" data-usage="topbar.new-tab">
+        <svg width="14" height="14" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+      </button>
+      <!-- renderer.js (owner: core): "new release, restarts when idle" (src/main/autorestart.js) -->
+      <span id="update-note" hidden></span>
+      <div id="spacer"></div>
+      <!-- remote-ui.js (owner: remote): shown on the bar only while remote is on (UIUX U6, style.css); else from ⋯ -->
+      <button id="remote-btn" class="pill" title="リモート（スマホから）"></button>
+      <!-- renderer.js (owner: core): integrated dashboard window (manager agent) -->
+      <button id="dashboard-btn" class="icon-btn" title="ダッシュボード" data-usage="topbar.dashboard">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2" y="2.5" width="5" height="5" rx="1"/><rect x="9" y="2.5" width="5" height="5" rx="1"/><rect x="2" y="9.5" width="5" height="4" rx="1"/><rect x="9" y="9.5" width="5" height="4" rx="1"/></svg>
+      </button>
+      <!-- renderer.js (owner: core, UIUX U6): ⋯ その他 — viewer, 待ちの一覧, cheat sheet, remote, new session options -->
+      <button id="more-btn" class="icon-btn" title="その他" data-usage="topbar.more">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" stroke="none"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg>
+      </button>
+      <!-- renderer.js (owner: core): ⚙ 設定 (settings.js) -->
+      <button id="settings-btn" class="icon-btn" title="設定" data-usage="topbar.settings">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.1"/><path d="M8 1.6v1.8M8 12.6v1.8M14.4 8h-1.8M3.4 8H1.6M12.5 3.5l-1.27 1.27M4.77 11.23 3.5 12.5M12.5 12.5l-1.27-1.27M4.77 4.77 3.5 3.5"/><circle cx="8" cy="8" r="4.4"/></svg>
+      </button>
+      <button id="toggle-panel" class="icon-btn" title="サイドパネル" data-usage="topbar.panel">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M10 3v10"/></svg>
+      </button>
+    </header>
+    <div id="content">
+      <!-- renderer.js (owner: core): panes live here -->
+      <main id="terminals"></main>
+      <!-- panel.js (owner: panel): renders everything inside #panel -->
+      <aside id="panel"></aside>
+    </div>
+  </div>
+  <!-- shared: each module appends its own modals/popovers here -->
+  <div id="overlay-root"></div>
+  <script src="../../node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="../../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
+  <script src="../../node_modules/dockview-core/dist/dockview-core.js"></script>
+  <script src="labels.js"></script>
+  <script src="usage.js"></script>
+  <script src="pricing.js"></script>
+  <script src="panel.js"></script>
+  <script src="stale-agents.js"></script>
+  <script src="cheatsheet.js"></script>
+  <script src="remote-ui.js"></script>
+  <script src="../../node_modules/marked/lib/marked.umd.js"></script>
+  <script src="../../node_modules/dompurify/dist/purify.min.js"></script>
+  <script src="../../node_modules/@highlightjs/cdn-assets/highlight.min.js"></script>
+  <script src="../../node_modules/@highlightjs/cdn-assets/languages/powershell.min.js"></script>
+  <script src="sounds.js"></script>
+  <script src="notify.js"></script>
+  <script src="autosend.js"></script>
+  <script src="backlog.js"></script>
+  <script src="handoff.js"></script>
+  <script src="settings.js"></script>
+  <script src="progress-view.js"></script>
+  <script src="agents-view.js"></script>
+  <script src="dashboard.js"></script>
+  <script src="paths.js"></script>
+  <script src="composer.js"></script>
+  <script src="conversation.js"></script>
+  <script src="viewer-xlsx.js"></script>
+  <script src="viewer.js"></script>
+  <script src="edit-drop.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

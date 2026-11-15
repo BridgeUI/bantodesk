@@ -1,0 +1,495 @@
+:root {
+  --crust: #11111b;
+  --mantle: #181825;
+  --base: #1e1e2e;
+  --surface0: #313244;
+  --surface1: #45475a;
+  --overlay: #6c7086;
+  --subtext: #a6adc8;
+  --text: #cdd6f4;
+  --blue: #89b4fa;
+  --mauve: #cba6f7;
+  --green: #a6e3a1;
+  --peach: #fab387;
+  --red: #f38ba8;
+  --teal: #94e2d5;
+  --yellow: #f9e2af;
+  /* UX1 (docs/ux-journey.md §5.6): the typefaces, set only here. The macOS names come first; Windows has none of them, so it
+     falls through to the same fonts as before (Segoe / Meiryo UI, Cascadia / Consolas). ui-monospace is macOS-only in Chromium.
+     --font-code = --font-mono with Cascadia Code (ligatures) on Windows, where the code blocks used it before. */
+  --font-ui: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Segoe UI Variable Text", "Segoe UI", "Meiryo UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, "Hiragino Sans", "Cascadia Mono", Consolas, monospace;
+  --font-code: ui-monospace, "SF Mono", Menlo, "Hiragino Sans", "Cascadia Code", Consolas, monospace;
+  --topbar-h: 40px; /* the top bar (main.js TITLE_BAR: the overlay height / the traffic lights' y) */
+}
+
+html { color-scheme: dark; }
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--crust);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surface1); border-radius: 8px; border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--overlay); background-clip: content-box; border: 3px solid transparent; }
+::-webkit-scrollbar-corner { background: transparent; } /* UX1 (mac-polish 9): not the white square where 2 scrollbars meet */
+/* UX1 (mac-polish 24): macOS: a thin scrollbar like the system's (8px, 2px from the edge); Windows keeps the 12px one */
+:root[data-os="darwin"] ::-webkit-scrollbar { width: 8px; height: 8px; }
+:root[data-os="darwin"] ::-webkit-scrollbar-thumb { border: 2px solid transparent; background-clip: content-box; }
+:root[data-os="darwin"] ::-webkit-scrollbar-thumb:hover { border: 2px solid transparent; background-clip: content-box; }
+
+#app { display: flex; flex-direction: column; height: 100vh; }
+
+/* ---- top bar: title bar + tabs in one row ---- */
+#topbar {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--topbar-h);
+  padding: 0 8px 0 14px;
+  width: env(titlebar-area-width, 100%);
+  -webkit-app-region: drag;
+  flex: none;
+}
+/* UX1 (mac-polish 1, 2, 10): macOS has no overlay (main.js TITLE_BAR), the traffic lights sit at x 14..68: keep the bar's left
+   clear of them and use the whole width (env(titlebar-area-width) was "window - lights", which left 72px empty on the right) */
+:root[data-os="darwin"] #topbar { padding-left: env(titlebar-area-x, 78px); width: 100%; }
+:root[data-os="darwin"][data-fullscreen] #topbar { padding-left: 14px; }
+#topbar > * { -webkit-app-region: no-drag; }
+#spacer { flex: 1; -webkit-app-region: drag; align-self: stretch; }
+
+#folder {
+  display: flex; align-items: center; gap: 7px;
+  color: var(--subtext);
+  padding: 0 12px 0 0;
+  margin-right: 4px;
+  border-right: 1px solid var(--surface0);
+  height: 18px;
+  -webkit-app-region: no-drag;
+  cursor: pointer;
+  border-radius: 6px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+#folder:hover { color: var(--text); }
+#folder .caret { opacity: .6; }
+#folder svg { color: var(--mauve); }
+#dev-badge { padding: 1px 6px; border-radius: 5px; background: rgba(250, 179, 135, .16); color: var(--peach); font-size: 10px; font-weight: 700; letter-spacing: .08em; }
+
+#tabs { display: flex; gap: 4px; overflow-x: auto; min-width: 0; padding: 4px 0; flex: 0 1 auto; }
+#tabs::-webkit-scrollbar { display: none; }
+/* UIUX U6 (依頼-56): tabs shrink to a min width (name cut with …) before they overflow; the current tab keeps more */
+#tabs > .tab { flex: 0 1 auto; min-width: 112px; }
+#tabs > .tab.active { min-width: 160px; }
+#tabs > .tab .label { min-width: 0; flex: 0 1 auto; }
+#tabs > .tab .close { flex: none; }
+/* inactive tabs: × only on hover, so a narrow tab keeps room for its name */
+#tabs > .tab:not(.active) .close { width: 0; overflow: hidden; }
+#tabs > .tab:not(.active):hover .close { width: 18px; }
+/* 完了 tabs at the right end, faded (CSS order only: the tab order in sessions.json stays the opened / dragged order) */
+#tabs > .tab[data-rest="done"] { order: 1; }
+#tabs > .tab[data-rest="done"]:not(.active) { opacity: .6; }
+#tabs > .tab.drop-before { box-shadow: inset 2px 0 0 var(--blue); }
+#tabs > .tab.drop-after { box-shadow: inset -2px 0 0 var(--blue); }
+/* "▾ N": the tabs that do not fit */
+.tabs-more {
+  flex: none; height: 24px; padding: 0 8px; border-radius: 7px;
+  border: 1px solid var(--surface0); background: none; color: var(--subtext);
+  font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.tabs-more:hover { color: var(--text); border-color: var(--surface1); }
+.tabs-more[hidden] { display: none; }
+.popover.tabs-more-pop { width: 340px; max-height: min(70vh, 520px); overflow-y: auto; }
+.tabs-more-item { display: flex; align-items: center; gap: 8px; }
+.tabs-more-item .mi-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.tabs-more-item.on .mi-text { color: var(--blue); }
+/* UX3 (mac-polish 15): wide enough for the longest item on one line */
+.popover.more-pop { width: max-content; min-width: 300px; max-width: min(420px, calc(100vw - 16px)); }
+.popover.more-pop .mi-text { white-space: nowrap; }
+/* Remote: on the bar only while it is on (or has an error, or was opened from ⋯) */
+#remote-btn:not(.rmt-on):not(.rmt-err):not(.rmt-peek) { display: none; }
+
+.tab {
+  display: flex; align-items: center; gap: 8px;
+  height: 28px; box-sizing: border-box;
+  padding: 0 8px 0 12px;
+  border-radius: 8px;
+  color: var(--subtext);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: background .12s, color .12s;
+}
+.tab:hover { background: rgba(205, 214, 244, .06); color: var(--text); }
+.tab.active { background: var(--base); color: var(--text); box-shadow: inset 0 0 0 1px var(--surface0); }
+.tab.visible { box-shadow: inset 0 0 0 1px rgba(69, 71, 90, .6); }
+.tab .label { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.tab[data-status="exited"] .label { opacity: .55; }
+.tab-rename {
+  width: 170px; height: 20px; box-sizing: border-box; padding: 0 6px;
+  font: inherit; font-size: 12.5px; color: var(--text);
+  background: var(--crust); border: 1px solid var(--blue); border-radius: 5px; outline: none;
+}
+.wt-badge {
+  flex: none; padding: 0 6px; border-radius: 5px; line-height: 16px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  background: rgba(148, 226, 213, .12); color: var(--teal);
+  max-width: 120px; overflow: hidden; text-overflow: ellipsis;
+}
+.wt-badge[hidden] { display: none; }
+/* session memory (pty:mem) from the setting 重いセッションの目安 (memThreshold, default 800 MB): click = tab menu with 再起動 */
+.mem-badge {
+  flex: none; padding: 0 6px; border-radius: 5px; line-height: 16px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  background: rgba(250, 179, 135, .12); color: var(--peach);
+}
+.mem-badge[hidden] { display: none; }
+
+/* ---- status dot (tabs + pane headers) ---- */
+.dot { width: 7px; height: 7px; border-radius: 50%; background: transparent; flex: none; }
+[data-status="starting"] > .dot { box-shadow: inset 0 0 0 1.5px var(--overlay); }
+[data-status="idle"] > .dot { background: var(--surface1); }
+[data-status="running"] > .dot { background: var(--blue); animation: dot-pulse 1.4s ease-in-out infinite; }
+[data-status="asking"] > .dot { background: var(--peach); box-shadow: 0 0 7px var(--peach); }
+[data-status="exited"] > .dot { background: var(--red); }
+/* resting tabs (PROGRESS 35 完了 / 31 休止中): claude stopped by the app, opens with --resume */
+.tab[data-rest="done"] > .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--green); }
+.tab[data-rest="idle"] > .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--overlay); }
+.unseen[data-status="idle"] > .dot { background: var(--green); box-shadow: 0 0 7px var(--green); }
+@keyframes dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(137, 180, 250, .7); opacity: 1; }
+  50% { box-shadow: 0 0 0 4px rgba(137, 180, 250, 0); opacity: .65; }
+}
+.tab .close {
+  display: grid; place-items: center;
+  width: 18px; height: 18px; border-radius: 5px;
+  color: var(--overlay);
+  font-size: 14px; line-height: 1;
+}
+.tab .close:hover { background: var(--surface0); color: var(--red); }
+
+.icon-btn {
+  display: grid; place-items: center;
+  width: 28px; height: 28px;
+  background: none; border: none; border-radius: 8px;
+  color: var(--subtext); cursor: pointer;
+  flex: none;
+}
+.icon-btn:hover { background: rgba(205, 214, 244, .08); color: var(--text); }
+.icon-btn.small { width: 18px; margin-left: -6px; }
+.icon-btn.on { color: var(--blue); }
+.icon-btn svg { display: block; }
+
+.pill {
+  display: flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 10px; margin-right: 4px;
+  border: 1px solid var(--surface0); border-radius: 999px;
+  background: none; color: var(--subtext);
+  font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.pill:hover { color: var(--text); border-color: var(--surface1); }
+.pill #auto-yes-state { font-size: 10px; letter-spacing: .06em; opacity: .8; }
+.pill.on { background: rgba(249, 226, 175, .14); border-color: rgba(249, 226, 175, .55); color: var(--yellow); }
+.pill.on svg { filter: drop-shadow(0 0 4px var(--yellow)); }
+
+/* ---- folder picker ---- */
+body.picker { overflow-y: auto; }
+#picker-drag { position: fixed; top: 0; left: 0; height: var(--topbar-h); width: env(titlebar-area-width, 100%); -webkit-app-region: drag; }
+:root[data-os="darwin"] #picker-drag { width: 100%; } /* UX1 (mac-polish 16) */
+#picker { padding: 56px 32px 32px; max-width: 640px; margin: 0 auto; }
+#picker h1 { font-size: 26px; font-weight: 700; margin: 6px 0 8px; }
+#picker .lead { color: var(--subtext); margin: 0 0 22px; line-height: 1.6; }
+.primary {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; height: 44px; border: none; border-radius: 12px;
+  background: linear-gradient(135deg, var(--mauve), var(--blue)); color: var(--crust);
+  font: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
+  box-shadow: 0 6px 20px rgba(137, 180, 250, .22);
+}
+.primary:hover { filter: brightness(1.08); }
+.recent-head { margin: 28px 0 10px; }
+#recent { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.recent-item {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+  background: var(--mantle); border: 1px solid var(--surface0); border-radius: 12px;
+  cursor: pointer; outline: none;
+  transition: border-color .12s, background .12s, transform .12s;
+}
+.recent-item:hover, .recent-item:focus-visible { border-color: var(--mauve); background: var(--base); transform: translateY(-1px); }
+.recent-text { min-width: 0; flex: 1; }
+.recent-name { font-size: 14px; font-weight: 650; }
+.recent-path { margin-top: 2px; font-family: var(--font-mono); font-size: 11px; color: var(--overlay); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.open-badge { flex: none; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: .08em; background: rgba(166, 227, 161, .14); color: var(--green); }
+#recent .empty { color: var(--overlay); padding: 8px 2px; line-height: 1.6; }
+/* temp / edit sessions (roadmap 9 / 19) */
+.picker-row { display: flex; gap: 10px; margin-top: 10px; }
+.secondary {
+  flex: 1; height: 36px; border-radius: 10px; border: 1px solid var(--surface1);
+  background: var(--mantle); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.secondary:hover { border-color: var(--mauve); background: var(--base); }
+#kept { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+#kept-wrap[hidden] { display: none; }
+
+/* ---- edit band (edit window: working copy of one file, renderer.js) ---- */
+#edit-band {
+  flex: none; display: flex; align-items: center; gap: 8px; min-width: 0;
+  padding: 5px 12px; background: rgba(203, 166, 247, .08); border-top: 1px solid var(--surface0); border-bottom: 1px solid var(--surface0);
+  font-size: 12px; color: var(--subtext);
+}
+#edit-band .eb-label { flex: none; font-weight: 700; color: var(--mauve); }
+#edit-band .eb-path { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 11px; color: var(--text); }
+#edit-band .eb-state { flex: none; padding: 1px 8px; border-radius: 999px; font-weight: 700; font-size: 11px; background: var(--surface0); color: var(--subtext); }
+#edit-band .eb-state[data-s="changed"] { background: rgba(137, 180, 250, .16); color: var(--blue); }
+#edit-band .eb-state[data-s="warn"] { background: rgba(250, 179, 135, .16); color: var(--peach); }
+#edit-band .eb-state[data-s="ok"] { background: rgba(166, 227, 161, .14); color: var(--green); }
+#edit-band .eb-msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--overlay); }
+#edit-band .eb-spacer { flex: 1; }
+#edit-band button {
+  flex: none; height: 24px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--surface1);
+  background: var(--mantle); color: var(--text); font: inherit; font-size: 12px; cursor: pointer;
+}
+#edit-band button:hover { border-color: var(--mauve); }
+#edit-band button.eb-primary { border-color: rgba(203, 166, 247, .6); color: var(--mauve); font-weight: 700; }
+#edit-band button:disabled { opacity: .5; cursor: default; }
+body.temp-mode #edit-band.temp { background: rgba(148, 226, 213, .07); }
+
+/* ---- UA3: the problem band over the conversation (renderer.js openProblemBand, docs/usage-analytics.md §5) ---- */
+#problem-band {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0;
+  padding: 7px 12px; background: rgba(250, 179, 135, .09); border-top: 1px solid rgba(250, 179, 135, .35); border-bottom: 1px solid rgba(250, 179, 135, .35);
+  font-size: 12.5px; color: var(--text);
+}
+#problem-band[hidden] { display: none; }
+#problem-band[data-kind="error"], #problem-band[data-kind="failed"] { background: rgba(243, 139, 168, .09); border-color: rgba(243, 139, 168, .38); }
+#problem-band[data-kind="resolved"] { background: rgba(166, 227, 161, .08); border-color: rgba(166, 227, 161, .3); }
+#problem-band .pb-icon { flex: none; font-weight: 700; color: var(--peach); }
+#problem-band[data-kind="error"] .pb-icon, #problem-band[data-kind="failed"] .pb-icon { color: var(--red); }
+#problem-band[data-kind="resolved"] .pb-icon { color: var(--green); }
+#problem-band .pb-line { min-width: 0; flex: 0 1 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+#problem-band .pb-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+#problem-band .pb-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--subtext); }
+#problem-band .pb-note[hidden] { display: none; }
+#problem-band .pb-spacer { flex: 1; }
+#problem-band button {
+  flex: none; height: 26px; padding: 0 11px; border-radius: 7px; border: 1px solid var(--surface1);
+  background: var(--mantle); color: var(--text); font: inherit; font-size: 12px; cursor: pointer;
+}
+#problem-band button:hover { border-color: var(--peach); }
+#problem-band button.pb-primary { border-color: rgba(250, 179, 135, .7); color: var(--peach); font-weight: 700; }
+#problem-band[data-kind="resolved"] button.pb-primary { border-color: rgba(166, 227, 161, .7); color: var(--green); }
+#problem-band button.pb-back { color: var(--subtext); }
+#problem-band button.pb-close { width: 26px; padding: 0; color: var(--overlay); }
+
+/* ---- UA3: slim session screen (renderer.js SessionSlim): no side panel button, no pane header while one pane shows ---- */
+body.slim #toggle-panel { display: none; }
+body.slim:not(.split) #terminals .dv-groupview:not(.assist-group) .dv-tabs-and-actions-container { display: none; }
+#edit-band.temp .eb-label { color: var(--teal); }
+.edit-diff-pop { position: fixed; z-index: 60; top: 90px; left: 50%; transform: translateX(-50%); width: min(900px, 90vw); max-height: 70vh; display: flex; flex-direction: column; background: var(--mantle); border: 1px solid var(--surface1); border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, .5); }
+.edit-diff-pop .ed-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--surface0); font-weight: 700; }
+.edit-diff-pop .ed-head span { flex: 1; }
+.edit-diff-pop pre { margin: 0; padding: 10px 12px; overflow: auto; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; white-space: pre; }
+.edit-diff-pop .ed-add { color: var(--green); }
+.edit-diff-pop .ed-del { color: var(--red); }
+.edit-diff-pop .ed-hunk { color: var(--mauve); }
+
+/* ---- content: dock layout (dockview) with terminal panes + assist panel ---- */
+#content { flex: 1; min-height: 0; display: flex; padding: 0 8px 8px; }
+
+#terminals { flex: 1; min-width: 0; min-height: 0; position: relative; }
+
+/* dockview theme: catppuccin-mocha, aligned with the app's own variables */
+#terminals.dockview-theme-catppuccin-mocha {
+  --dv-background-color: var(--crust);
+  --dv-group-view-background-color: var(--base);
+  --dv-tabs-and-actions-container-background-color: var(--mantle);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--base);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--base);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--mantle);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--mantle);
+  --dv-activegroup-visiblepanel-tab-color: var(--text);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--subtext);
+  --dv-activegroup-hiddenpanel-tab-color: var(--overlay);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--overlay);
+  --dv-separator-border: var(--surface0);
+  --dv-paneview-header-border-color: var(--surface0);
+  --dv-drag-over-background-color: rgba(137, 180, 250, .14);
+  --dv-drag-over-border-color: var(--blue);
+  --dv-active-sash-color: var(--blue);
+  --dv-tabs-and-actions-container-height: 30px;
+  --dv-tabs-and-actions-container-font-size: 12px;
+  font-family: inherit;
+}
+
+.pane { position: relative; display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; background: var(--base); }
+.pane.focused { box-shadow: inset 0 0 0 1px rgba(137, 180, 250, .55); }
+
+/* pane header = dockview tab: status dot, label, badge, status, close */
+.pane-tab {
+  display: flex; align-items: center; gap: 7px; height: 100%; box-sizing: border-box; min-width: 0;
+  padding: 0 6px 0 10px; max-width: 420px; white-space: nowrap; font-size: 12px; cursor: grab;
+}
+/* UX3 (mac-polish 14・17): a narrow pane shrinks its header tabs (… in the title) before dockview's "∨ N" takes them;
+   the title gives way first, the status keeps its words */
+#terminals .dv-tabs-container > .dv-tab { flex-shrink: 1; min-width: 64px; overflow: hidden; }
+#terminals .dv-tab > .pane-tab { max-width: 100%; }
+.pane-tab > * { flex: none; }
+.pane-label { flex: 0 1 auto; min-width: 2em; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.pane-status { font-size: 10.5px; color: var(--overlay); }
+.pane-tab[data-status="asking"] .pane-status { color: var(--peach); }
+.pane-tab[data-status="running"] .pane-status { color: var(--blue); }
+.pane-status.has-wait { cursor: pointer; overflow: hidden; text-overflow: ellipsis; max-width: 220px; flex: 0 1 auto; min-width: 3.5em; }
+.pane-status.has-wait:hover { text-decoration: underline dotted; }
+.pane-tab .pane-status.wait-warn { color: var(--peach); font-weight: 700; }
+.tab.wait-warn > .dot { box-shadow: 0 0 0 2px rgba(250, 179, 135, .75); }
+.tab.wait-warn .label { color: var(--peach); }
+.pane-tab[data-status="none"] .pane-label { font-weight: 400; color: var(--overlay); }
+.pane-close { margin-left: 2px; width: 16px; height: 16px; border-radius: 4px; display: grid; place-items: center; color: var(--overlay); cursor: pointer; font-size: 13px; line-height: 1; }
+.pane-close:hover { background: var(--surface0); color: var(--text); }
+
+.pane-body { position: relative; flex: 1; min-height: 0; }
+.pane-body > .term { position: absolute; inset: 0; padding: 10px 2px 8px 12px; }
+.pane-empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 0 16px; text-align: center; color: var(--overlay); font-size: 12px; }
+.pane-empty[hidden] { display: none; }
+/* AT-139: a project window with no tab (no claude started by itself) */
+.pane-empty > .no-tabs { display: none; }
+body.no-tabs .pane-empty > .pane-empty-text { display: none; }
+body.no-tabs .pane-empty > .no-tabs { display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 460px; }
+.no-tabs-title { color: var(--text); font-size: 14px; }
+.no-tabs-sub { color: var(--overlay); font-size: 12px; line-height: 1.6; }
+.no-tabs-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 6px; }
+.no-tabs-btn { padding: 6px 14px; border: 1px solid var(--surface1, #45475a); border-radius: 8px; background: var(--surface0, #313244); color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.no-tabs-btn:hover { border-color: var(--blue); }
+.no-tabs-btn.nt-new { background: transparent; }
+.pane.drop::after {
+  content: ""; position: absolute; inset: 4px; pointer-events: none;
+  border: 2px dashed var(--blue); border-radius: 10px;
+  background: rgba(137, 180, 250, .08);
+}
+.term-stash { display: none; }
+.xterm .xterm-viewport { background-color: transparent !important; }
+
+/* assist panel (#panel, rendered by panel.js) lives inside a dockview panel */
+.assist-host { width: 100%; height: 100%; overflow: hidden; }
+/* assist sections (renderer.js, roadmap 12): one dock panel per Panel.SECTIONS entry, content by panel.js */
+.section-host { width: 100%; height: 100%; overflow-y: auto; overflow-x: hidden; background: var(--mantle); box-sizing: border-box; }
+#panel {
+  width: 100%; height: 100%; box-sizing: border-box;
+  padding: 16px; overflow-y: auto;
+  background: var(--mantle);
+}
+#content > #panel { display: none; } /* before the dock is built */
+
+.eyebrow { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--overlay); font-weight: 700; }
+.empty { color: var(--overlay); padding: 14px 4px; line-height: 1.6; }
+
+/* ---- modal / popover base (shared look for overlay-root children) ---- */
+.popover {
+  position: fixed; z-index: 1000; box-sizing: border-box;
+  min-width: 300px; max-width: 390px; padding: 6px;
+  background: var(--mantle); color: var(--text);
+  border: 1px solid var(--surface0); border-radius: 12px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, .55);
+}
+.modal-backdrop { position: fixed; inset: 0; z-index: 900; background: rgba(17, 17, 27, .6); display: grid; place-items: center; }
+.modal {
+  box-sizing: border-box; max-width: min(760px, calc(100vw - 48px)); max-height: calc(100vh - 80px); overflow: auto;
+  background: var(--mantle); border: 1px solid var(--surface0); border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .6); padding: 18px;
+}
+
+.menu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 8px 10px; border: none; border-radius: 8px;
+  background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.menu-item:hover, .menu-item:focus-visible { background: var(--surface0); outline: none; }
+.mi-text { flex: 1; }
+.mi-hint { font-size: 10.5px; color: var(--overlay); letter-spacing: 0; text-transform: none; font-weight: 500; }
+.menu-sep { height: 1px; margin: 6px 4px; background: var(--surface0); }
+.menu-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 4px 10px 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .1em; color: var(--overlay);
+}
+
+/* what a waiting session waits for (renderer.js openWaitPop): commands and the tail of their output */
+.popover.wait-pop { max-width: min(620px, calc(100vw - 16px)); width: 560px; max-height: calc(100vh - 16px); overflow-y: auto; padding: 6px 8px 8px; }
+.wp-text { padding: 2px 6px 6px; font-size: 12px; line-height: 1.5; color: var(--subtext); overflow-wrap: anywhere; }
+.wp-text.wait-warn { color: var(--peach); }
+.wp-alert { margin: 2px 6px 4px; padding: 4px 8px; border-radius: 6px; background: rgba(250, 179, 135, .12); color: var(--peach); font-size: 11.5px; overflow-wrap: anywhere; }
+.wp-none { padding: 4px 6px; font-size: 11.5px; color: var(--overlay); }
+.wp-item { margin: 4px 0 0; padding: 6px; border-top: 1px solid var(--surface0); }
+.wp-cmd, .wp-tail { font-family: var(--font-mono); font-size: 11.5px; }
+.wp-cmd { color: var(--teal); overflow-wrap: anywhere; white-space: pre-wrap; max-height: 5.5em; overflow-y: auto; }
+.wp-who { font-size: 12px; color: var(--text); overflow-wrap: anywhere; }
+.wp-meta { display: flex; align-items: center; gap: 8px; margin-top: 3px; font-size: 10.5px; color: var(--overlay); }
+.wp-proc { flex: 1; min-width: 0; }
+.wp-proc.p-gone { color: var(--peach); }
+.wp-btn { flex: none; padding: 1px 8px; border: 1px solid var(--surface1); border-radius: 6px; background: none; color: var(--subtext); font: inherit; cursor: pointer; }
+.wp-btn:hover { background: var(--surface0); color: var(--text); }
+.wp-tail { margin: 6px 0 0; padding: 6px 8px; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--crust); border: 1px solid var(--surface0); border-radius: 6px; color: var(--text); }
+.wp-file { margin-top: 2px; font-size: 10px; color: var(--overlay); }
+
+.wt-box { padding: 6px 10px 8px; }
+.wt-caption { font-size: 11px; color: var(--subtext); margin-bottom: 6px; }
+.wt-row { display: flex; gap: 6px; }
+.wt-input {
+  flex: 1; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 8px;
+  font-family: var(--font-mono); font-size: 12px; color: var(--text);
+  background: var(--crust); border: 1px solid var(--surface1); border-radius: 7px; outline: none;
+}
+.wt-input:focus { border-color: var(--blue); }
+.wt-go {
+  height: 28px; padding: 0 12px; border: none; border-radius: 7px; cursor: pointer;
+  background: var(--blue); color: var(--crust); font: inherit; font-weight: 700;
+}
+.wt-go:hover { filter: brightness(1.08); }
+.wt-err { margin-top: 4px; font-size: 11px; color: var(--red); min-height: 0; }
+.wt-err:empty { display: none; }
+
+.hist-list { max-height: min(52vh, 460px); overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.hist-item {
+  display: block; width: 100%; padding: 7px 10px; border: none; border-radius: 8px;
+  background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.hist-item:hover, .hist-item:focus-visible { background: var(--surface0); outline: none; }
+.hist-item.disabled { opacity: .5; cursor: default; }
+.hist-item.disabled:hover { background: none; }
+.hist-title { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-meta { display: flex; gap: 8px; align-items: center; margin-top: 2px; font-size: 10.5px; color: var(--overlay); white-space: nowrap; overflow: hidden; }
+.hist-cwd { font-family: var(--font-mono); color: var(--teal); overflow: hidden; text-overflow: ellipsis; }
+.hist-badge { flex: none; padding: 0 6px; border-radius: 999px; background: rgba(166, 227, 161, .14); color: var(--green); font-weight: 700; }
+.hist-badge.other { background: rgba(250, 179, 135, .14); color: var(--peach); }
+.hist-empty { padding: 10px; color: var(--overlay); font-size: 12px; }
+
+/* assist section tabs (roadmap 12): six short tabs must fit a ~320px column */
+.assist-group .dv-tab { padding-left: 7px !important; padding-right: 7px !important; font-size: 11.5px; }
+#terminals .assist-group .dv-tabs-container > .dv-tab { min-width: 58px; } /* 3 characters stay readable; the rest go to "∨ N" */
+#terminals .dv-default-tab { min-width: 0; }
+#terminals .dv-default-tab-content { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assist-group .dv-default-tab-action { width: 0; overflow: hidden; margin: 0; }
+.assist-group .dv-tab:hover .dv-default-tab-action { width: auto; }
+
+/* automatic restart after a release (renderer.js, src/main/autorestart.js) */
+#update-note { font-size: 11.5px; color: var(--peach); white-space: nowrap; margin-right: 6px; -webkit-app-region: no-drag; }
+#update-note[hidden] { display: none; }
+
+/* UX2: notes that do not stop the screen (renderer.js toast, in place of window.alert) */
+.at-toasts {
+  position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 10000;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none;
+  max-width: min(640px, calc(100vw - 32px));
+}
+.at-toast {
+  background: var(--surface0); color: var(--text); border: 1px solid var(--surface1); border-radius: 8px;
+  padding: 8px 14px; font-size: 12.5px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35); overflow-wrap: anywhere;
+  animation: at-toast-in 0.15s ease-out;
+}
+@keyframes at-toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }

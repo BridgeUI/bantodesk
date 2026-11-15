@@ -1,0 +1,43 @@
+/* Notifications (renderer.js attention rings on tabs / panes). Owner: core. Colours: style.css :root. */
+
+/* session tabs and panes with an unread notice */
+.tab[data-unread="input"] .dot { background: var(--yellow) !important; box-shadow: 0 0 0 3px rgba(249, 226, 175, .25); }
+.tab[data-unread="error"] .dot { background: var(--red) !important; box-shadow: 0 0 0 3px rgba(243, 139, 168, .25); }
+.tab[data-unread="done"] .dot { background: var(--green) !important; box-shadow: 0 0 0 3px rgba(166, 227, 161, .25); }
+.pane[data-unread]:not([data-unread=""])::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 6;
+  border: 2px solid var(--green); border-radius: 2px;
+  animation: nt-pulse 1.6s ease-in-out 3;
+}
+.pane[data-unread="input"]::after { border-color: var(--yellow); }
+.pane[data-unread="error"]::after { border-color: var(--red); }
+@keyframes nt-pulse { 50% { opacity: .35; } }
+
+/* the 通知 dock panel */
+.notify-host { width: 100%; height: 100%; overflow: hidden; background: var(--mantle); }
+.nt-panel { display: flex; flex-direction: column; height: 100%; font-size: 12.5px; color: var(--text); }
+.nt-head { display: flex; gap: 6px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--surface0); flex: none; }
+.nt-title { flex: 1; color: var(--subtext); font-weight: 600; }
+.nt-btn { font: inherit; font-size: 11.5px; color: var(--text); background: var(--surface0); border: 1px solid var(--surface1); border-radius: 5px; padding: 2px 8px; cursor: pointer; }
+.nt-btn:hover:not(:disabled) { background: var(--surface1); }
+.nt-btn:disabled { opacity: .45; cursor: default; }
+.nt-btn.on { border-color: var(--blue); }
+.nt-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px; }
+.nt-empty { color: var(--overlay); text-align: center; padding: 24px 0; }
+.nt-item { display: flex; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.nt-item:hover { background: var(--surface0); }
+.nt-item.read { opacity: .55; }
+.nt-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; background: var(--green); }
+.nt-item.k-input .nt-dot { background: var(--yellow); }
+.nt-item.k-error .nt-dot { background: var(--red); }
+.nt-main { min-width: 0; flex: 1; }
+.nt-top { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.nt-kind-label { font-size: 11px; color: var(--subtext); flex: none; }
+.nt-tab { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.nt-time { font-size: 11px; color: var(--overlay); flex: none; }
+.nt-body { color: var(--subtext); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+.nt-settings { padding: 8px 10px; border-bottom: 1px solid var(--surface0); display: flex; flex-direction: column; gap: 6px; flex: none; }
+.nt-row { display: flex; align-items: center; gap: 8px; }
+.nt-row-label { width: 110px; color: var(--subtext); flex: none; }
+.nt-kind { display: inline-flex; gap: 8px; align-items: center; }
+.nt-select { font: inherit; font-size: 12px; color: var(--text); background: var(--base); border: 1px solid var(--surface1); border-radius: 5px; padding: 2px 4px; }

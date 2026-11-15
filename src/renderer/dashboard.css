@@ -1,0 +1,531 @@
+/* Integrated dashboard page (dashboard.js), manager window only (body.dash-mode). Owner: core. No cards:
+   one table-like list of folders, rows split by hairlines, state shown by coloured dots and words. */
+
+/* window layout: the page on the left, the manager agent's session as a column on the right */
+body.dash-mode #content { gap: 0; }
+body.dash-mode #dashboard { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--base); border-radius: 10px; overflow: hidden; }
+body.dash-mode #terminals { flex: 1; min-width: 0; min-height: 0; width: auto; }
+/* the right column: 「PMO に相談」 heading + the PMO's session (renderer.js buildPmoColumn; setupDashSplit sets the width) */
+#dash-chat { flex: none; width: 420px; min-height: 0; display: flex; flex-direction: column; }
+.dash-pmo-head { flex: none; padding: 6px 10px 7px; cursor: text; user-select: none; }
+.dash-pmo-title { font-size: 13px; font-weight: 600; letter-spacing: .02em; color: var(--text); }
+/* the draggable border between the page and the column (renderer.js setupDashSplit): 8px hit area, 2px line on hover */
+.dash-split { flex: none; width: 8px; cursor: col-resize; position: relative; touch-action: none; }
+.dash-split::after { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; border-radius: 1px; background: transparent; transition: background .12s; }
+.dash-split:hover::after, body.dash-resizing .dash-split::after { background: var(--blue); }
+body.dash-resizing { cursor: col-resize; user-select: none; }
+body.dash-resizing iframe, body.dash-resizing #terminals, body.dash-resizing #dashboard { pointer-events: none; }
+body.dash-mode #tabs, body.dash-mode #newtab, body.dash-mode #dashboard-btn,
+body.dash-mode #toggle-panel, body.dash-mode #folder .caret { display: none; }
+.dashboard-host { width: 100%; height: 100%; background: var(--mantle); }
+
+#dashboard { font-size: 13px; color: var(--text); }
+.dbx-head { flex: none; padding: 12px 24px 0; border-bottom: 1px solid var(--surface0); }
+.dbx-top { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.dbx-title { font-size: 15px; font-weight: 600; letter-spacing: .02em; flex: none; }
+/* the band (U2): 動いている N / 上限 M · PMO · スマホ · ⚙ — small quiet chips, coloured only when something is off */
+.dbx-band { display: flex; gap: 6px; align-items: center; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+.dbx-chip { display: inline-flex; align-items: baseline; gap: 6px; font: inherit; font-size: 11.5px; line-height: 1.6; color: var(--subtext); background: none; border: 1px solid var(--surface1); border-radius: 999px; padding: 0 9px; white-space: nowrap; }
+button.dbx-chip { cursor: pointer; }
+button.dbx-chip:hover, .dbx-chip.on { border-color: var(--blue); color: var(--text); }
+.dbx-chip.over { color: var(--peach); border-color: var(--peach); }
+.dbx-chip.busy .dbx-wrlabel { color: var(--blue); }
+.dbx-chip.dbx-remote.on { color: var(--green); border-color: var(--green); }
+.dbx-own .dbx-wrlabel { margin-right: 0; }
+.dbx-newrow { display: flex; gap: 8px; align-items: stretch; margin-top: 10px; }
+.dbx-new {
+  display: block; flex: 1; min-width: 0; box-sizing: border-box; resize: none; field-sizing: content; min-height: 38px; max-height: 160px;
+  font: inherit; font-size: 13px; line-height: 1.5; color: var(--text);
+  background: var(--mantle); border: 1px solid var(--surface0); border-radius: 8px; padding: 8px 12px; outline: none;
+}
+.dbx-new:focus { border-color: var(--blue); }
+.dbx-new::placeholder { color: var(--overlay); }
+.dbx-send { flex: none; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--text); background: var(--surface0); border: 1px solid var(--surface1); border-radius: 8px; padding: 0 14px; cursor: pointer; }
+.dbx-send:hover { border-color: var(--blue); }
+/* ⚙ settings (置き場所・止まりの見張り) */
+.dbx-settings { margin-top: 8px; padding: 8px 12px; border: 1px solid var(--surface0); border-radius: 8px; background: var(--mantle); display: flex; flex-direction: column; gap: 6px; }
+.dbx-settings > .dbx-link { align-self: flex-start; }
+/* tabs */
+/* MP4 7: the tab names stay on one line; when the page is narrow the row scrolls sideways (thin bar on hover) */
+.dbx-tabs { display: flex; gap: 2px; margin-top: 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.dbx-tabs::-webkit-scrollbar { display: none; }
+.dbx-tab { flex: none; white-space: nowrap; font: inherit; font-size: 13px; color: var(--subtext); background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 12px 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.dbx-tab:hover { color: var(--text); }
+.dbx-tab.on { color: var(--text); font-weight: 600; border-bottom-color: var(--mauve); }
+.dbx-badge { font-size: 10.5px; font-weight: 600; min-width: 16px; text-align: center; padding: 0 5px; border-radius: 999px; background: var(--surface0); color: var(--subtext); font-variant-numeric: tabular-nums; }
+.dbx-badge.hot { background: var(--yellow); color: var(--crust, #11111b); }
+/* folder filter (all tabs) + text filter / view switch */
+.dbx-filters { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 8px 0 9px; }
+.dbx-fchip { font: inherit; font-size: 11.5px; color: var(--subtext); background: none; border: 1px solid var(--surface1); border-radius: 999px; padding: 1px 10px; cursor: pointer; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-fchip:hover { color: var(--text); }
+.dbx-fchip.on { color: var(--text); border-color: var(--text); }
+.dbx-filter { margin-left: auto; width: 180px; font: inherit; font-size: 12px; color: var(--text); background: var(--mantle); border: 1px solid var(--surface0); border-radius: 6px; padding: 2px 8px; outline: none; }
+.dbx-filter:focus { border-color: var(--blue); }
+.dbx-views { margin-left: auto; display: inline-flex; border: 1px solid var(--surface1); border-radius: 6px; overflow: hidden; }
+.dbx-views button { font: inherit; font-size: 11.5px; color: var(--subtext); background: none; border: 0; padding: 1px 10px; cursor: pointer; }
+.dbx-views button.on { background: var(--surface0); color: var(--text); }
+.dbx-workroot { display: flex; align-items: baseline; gap: 0; color: var(--overlay); font-size: 11.5px; min-width: 0; }
+.dbx-wrlabel { flex: none; margin-right: 8px; }
+.dbx-leftsel { font: inherit; font-size: 11.5px; color: var(--text); background: var(--surface0); border: 1px solid var(--surface1); border-radius: 4px; }
+.dbx-wrpath { color: var(--subtext); margin-right: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dbx-workroot .dbx-link { flex: none; }
+.dbx-workroot .dbx-link:hover { color: var(--text); }
+/* session memory (roadmap 22): quiet figure, orange over the mark "重いセッションの目安" with 再起動 */
+.dbx-own { display: inline-flex; align-items: baseline; color: var(--subtext); font-size: 11.5px; }
+.dbx-mem { flex: none; white-space: nowrap; color: var(--overlay); font-size: 11px; font-variant-numeric: tabular-nums; }
+.dbx-mem.heavy { color: var(--peach); font-weight: 600; }
+.dbx-restart { margin-left: 6px; font-weight: 400; }
+.dbx-restart:hover { color: var(--text); }
+.dbx-restart:disabled { color: var(--overlay); cursor: default; }
+
+.dbx-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 24px 24px; container: dbx-body / inline-size; }
+/* MP4 9: the corner where two scrollbars meet: the page's colour, not a white square */
+#dashboard ::-webkit-scrollbar-corner { background: var(--base); }
+.dbx-sec { margin-top: 14px; }
+.dbx-empty { color: var(--overlay); padding: 18px 0; }
+.dbx-none { color: var(--surface1); font-size: 12px; }
+.dbx-time { color: var(--overlay); font-size: 11px; flex: none; white-space: nowrap; }
+.dbx-link { font: inherit; font-size: 11.5px; color: var(--blue); background: none; border: 0; padding: 0; cursor: pointer; }
+.dbx-link.dim { color: var(--overlay); }
+.dbx-link:hover { color: var(--red); }
+
+/* folder cards (プロジェクト tab, U2): name · band · counts | task rows | PMO の見立て (slot) */
+.dbx-cards { display: flex; flex-direction: column; gap: 10px; }
+.dbx-card { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(260px, 2.6fr) minmax(0, 1.3fr); gap: 0 20px; align-items: start; padding: 12px 14px; border: 1px solid var(--surface0); border-radius: 8px; background: var(--mantle); }
+.dbx-card:has(> .dbx-outlook.empty) { grid-template-columns: minmax(170px, 1fr) minmax(260px, 3.9fr); }
+.dbx-card.drop { border-color: var(--blue); }
+.dbx-outlook.empty { display: none; }
+.dbx-outlook-t { color: var(--overlay); font-size: 11.5px; font-weight: 600; }
+.dbx-outlook-b { color: var(--subtext); font-size: 12.5px; line-height: 1.5; margin-top: 2px; }
+@media (max-width: 1300px) {
+  .dbx-card { grid-template-columns: minmax(150px, 1fr) minmax(220px, 2.6fr); }
+  .dbx-outlook { grid-column: 1 / -1; margin-top: 8px; }
+}
+/* MP4 9: a narrow page (800px window): name / counts on top, the task rows under them at the card's full width */
+@container dbx-body (max-width: 680px) {
+  .dbx-card, .dbx-card:has(> .dbx-outlook.empty) { grid-template-columns: minmax(0, 1fr); }
+  .dbx-card > .dbx-fcell { margin-bottom: 10px; }
+  .dbx-card > .dbx-qcell, .dbx-card > .dbx-outlook { grid-column: 1; }
+}
+.dbx-pband { display: flex; height: 4px; margin: 6px 0 0 16px; border-radius: 2px; overflow: hidden; background: var(--surface0); max-width: 220px; }
+.dbx-pband .seg.done { background: var(--green); }
+.dbx-pband .seg.active { background: var(--blue); }
+.dbx-pband .seg.pending { background: var(--surface1); }
+.dbx-pband .seg.failed { background: var(--red); }
+.dbx-folder.closed { opacity: .62; }
+.dbx-folder.closed:hover { opacity: 1; }
+.dbx-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--surface1); margin-right: 8px; flex: none; transform: translateY(-1px); }
+.k-input > .dbx-fcell .dbx-dot, .dbx-sess.k-input .dbx-dot { background: var(--yellow); }
+.k-error > .dbx-fcell .dbx-dot, .dbx-sess.k-error .dbx-dot { background: var(--red); }
+.k-busy > .dbx-fcell .dbx-dot, .dbx-sess.k-busy .dbx-dot { background: var(--blue); } /* UX6 §5.5.6: no breathing dot, the colour says 動作中 */
+.k-done > .dbx-fcell .dbx-dot, .dbx-sess.k-done .dbx-dot { background: var(--green); }
+.k-idle > .dbx-fcell .dbx-dot, .dbx-sess.k-idle .dbx-dot { background: var(--overlay); }
+.dbx-fcell { min-width: 0; }
+.dbx-fname { font: inherit; font-size: 14px; font-weight: 600; color: var(--text); background: none; border: 0; padding: 0; cursor: pointer; display: flex; align-items: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-fname:hover { color: var(--blue); }
+.dbx-fmeta { color: var(--overlay); font-size: 11.5px; margin: 2px 0 0 16px; }
+/* UIUX U8: 「すべて完了」 / 「見直し中」 on a folder card */
+.dbx-alldone { display: inline-block; margin: 4px 0 0 16px; padding: 1px 8px; border-radius: 9px; font-size: 11.5px; color: var(--green, #40a02b); border: 1px solid currentColor; }
+.dbx-alldone.reviewing { color: var(--blue, #1e66f5); }
+.dbx-alldone.stopped { color: var(--peach, #fe640b); }
+
+.dbx-qcell { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.dbx-slabel { font: inherit; color: var(--text); background: none; border: 0; padding: 0; cursor: pointer; display: flex; align-items: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-slabel:hover { color: var(--blue); }
+.dbx-sstate { font-size: 11.5px; color: var(--subtext); flex: none; }
+.dbx-sess.k-input .dbx-sstate { color: var(--yellow); }
+.dbx-sess.k-error .dbx-sstate { color: var(--red); }
+.dbx-sess.k-busy .dbx-sstate { color: var(--blue); }
+.dbx-sess.k-done .dbx-sstate { color: var(--green); }
+/* 完了 (PROGRESS 35): the app stopped its claude after 作業完了; 休止中 (31) */
+.dbx-sess.k-fin .dbx-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--green); }
+.dbx-sess.k-fin .dbx-sstate { color: var(--green); }
+.dbx-sess.k-fin .dbx-slabel { opacity: .7; }
+.dbx-sess.k-rest .dbx-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--overlay); }
+.dbx-sess .dbx-time { margin-left: auto; }
+.dbx-qacts .dbx-mem { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.dbx-stext { color: var(--subtext); font-size: 12px; margin-left: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-sess.k-input .dbx-stext { color: var(--text); white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.dbx-optn { color: var(--overlay); margin-right: 4px; }
+
+/* task rows in a card: 「AT-3」 見出し 状態 (marks, 取り消す / 会話を開く on hover). With a session the row is .dbx-sess. */
+.dbx-task { min-width: 0; }
+/* MP4 18: one grid per row with fixed state / model / action columns, so they line up across the rows of a card:
+   [place] [AT-3] title [marks] state model [actions] (dashboard.js taskRow puts the marks / actions in one cell each) */
+.dbx-q { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto 88px 104px 108px; column-gap: 8px; align-items: baseline; min-width: 0; font-size: 12.5px; color: var(--subtext); }
+.dbx-q > .dbx-qpos { grid-column: 1; }
+.dbx-q > .dbx-qmark { grid-column: 2; }
+.dbx-q > .dbx-qtext { grid-column: 3; justify-self: start; max-width: 100%; }
+.dbx-q > .dbx-qmarks { grid-column: 4; display: flex; gap: 8px; align-items: baseline; min-width: 0; max-width: 16em; overflow: hidden; }
+.dbx-q > .dbx-qst { grid-column: 5; margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
+.dbx-q > .dbx-qmodel { grid-column: 6; margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
+.dbx-q > .dbx-qacts { grid-column: 7; display: flex; gap: 6px; align-items: baseline; justify-content: flex-end; min-width: 0; white-space: nowrap; }
+.dbx-qmarks > .dbx-qwhy { max-width: none; min-width: 0; flex: 0 1 auto; }
+/* narrow rows: the model under the title (same column for every row), the state and actions stay on the line */
+@container dbx-body (max-width: 680px) {
+  .dbx-q { grid-template-columns: auto auto minmax(0, 1fr) auto 84px 96px; }
+  .dbx-q > .dbx-qmodel { grid-column: 3 / -1; grid-row: 2; }
+  .dbx-q > .dbx-qacts { grid-column: 6; }
+  .dbx-q > .dbx-qmarks { max-width: 9em; }
+}
+.dbx-qmark { flex: none; min-width: 14px; color: var(--overlay); font-variant-numeric: tabular-nums; font-size: 11.5px; white-space: nowrap; }
+.dbx-qtext { font: inherit; color: inherit; background: none; border: 0; padding: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
+button.dbx-qtext { cursor: pointer; }
+button.dbx-qtext:hover { color: var(--blue); }
+/* AT-6: model / effort of a task's session (small); the PMO's own choice stands out */
+.dbx-qmodel { flex: none; font-size: 10px; color: var(--overlay); opacity: 0.75; white-space: nowrap; margin-left: 6px; }
+.dbx-qmodel.own { color: var(--yellow, var(--overlay)); opacity: 1; }
+.dbx-modelin { width: 16em; font: inherit; font-size: 12px; color: var(--text); background: transparent; border: 1px solid var(--surface1, #444); border-radius: 4px; padding: 1px 6px; }
+.dbx-effortsel { font: inherit; font-size: 12px; margin-left: 6px; }
+.dbx-modelerr { color: var(--red); font-size: 11px; }
+.dbx-qst { flex: none; margin-left: auto; font-size: 11px; color: var(--overlay); white-space: nowrap; }
+.dbx-qst.warn { color: var(--peach); }
+.dbx-q.st-active { color: var(--text); }
+.dbx-q.st-active .dbx-qst { color: var(--blue); }
+.dbx-q.st-done .dbx-qst { color: var(--green); }
+.dbx-q.st-done { color: var(--overlay); }
+.dbx-q.st-failed, .dbx-q.st-failed .dbx-qmark, .dbx-q.st-failed .dbx-qst { color: var(--red); }
+.dbx-sess .dbx-q { color: var(--text); }
+.dbx-sess.k-fin .dbx-q { color: var(--overlay); }
+/* why a routed item does not start yet / what the running one waits for (sched:plan, src/main/sched.js) */
+.dbx-qwhy { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--overlay); }
+.dbx-q .dbx-qdrop, .dbx-q .dbx-qopen { flex: none; font-size: 11px; opacity: 0; }
+.dbx-q:hover .dbx-qdrop, .dbx-q .dbx-qdrop:focus-visible, .dbx-q:hover .dbx-qopen, .dbx-q .dbx-qopen:focus-visible { opacity: 1; }
+.dbx-task.dbx-sess .dbx-stext, .dbx-task.dbx-sess .dbx-turnlink, .dbx-task.dbx-sess .dbx-swait, .dbx-task .dbx-swait-wrap { margin-left: 22px; }
+/* PMO stale mark ("止まって 2日"): quiet text, no badge (dashboard:stale) */
+.dbx-stale { flex: none; font-size: 11px; color: var(--peach); opacity: 0.8; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dbx-stale-more { color: var(--peach); opacity: 0.7; }
+
+/* pre-answered QA (qa:list): a quiet "QA 3問" mark on the line, the table opens under the row */
+.dbx-qamark { flex: none; font: inherit; font-size: 11px; background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dbx-qamark.open { color: var(--peach); }
+.dbx-qamark.answered { color: var(--green); opacity: 0.8; }
+.dbx-qamark:hover, .dbx-qamark.on { text-decoration: underline; opacity: 1; }
+.dbx-qa { grid-column: 1 / -1; flex: 1 0 100%; box-sizing: border-box; min-width: 0; margin: 10px 0 2px; padding-left: 16px; border-left: 2px solid var(--surface0); }
+.dbx-qa-head { display: flex; gap: 14px; align-items: baseline; min-width: 0; margin-bottom: 4px; }
+.dbx-qa-title { font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dbx-qa-table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }
+.dbx-qa-table th { text-align: left; font-weight: normal; font-size: 11px; color: var(--overlay); padding: 4px 12px 4px 0; border-bottom: 1px solid var(--surface0); }
+.dbx-qa-table th:nth-child(1) { width: 16%; }
+.dbx-qa-table th:nth-child(2) { width: 26%; }
+.dbx-qa-table th:nth-child(3) { width: 26%; }
+.dbx-qa-table td { vertical-align: top; padding: 6px 12px 6px 0; border-bottom: 1px solid var(--surface0); line-height: 1.5; word-break: break-word; }
+.dbx-qa-topic { color: var(--text); }
+.dbx-qa-hyp, .dbx-qa-q { color: var(--subtext); }
+.dbx-qa-input {
+  display: block; width: 100%; box-sizing: border-box; resize: none; field-sizing: content; max-height: 160px;
+  font: inherit; font-size: 12.5px; line-height: 1.5; color: var(--text);
+  background: transparent; border: 0; border-bottom: 1px solid var(--surface1); padding: 0 0 1px; outline: none;
+}
+.dbx-qa-input:focus { border-bottom-color: var(--blue); }
+.dbx-qa-input::placeholder { color: var(--overlay); }
+.dbx-qa-bar { display: flex; gap: 14px; align-items: baseline; margin-top: 6px; font-size: 12px; }
+.dbx-qa-save { font: inherit; font-size: 12px; font-weight: 600; color: var(--blue); background: none; border: 0; padding: 0; cursor: pointer; }
+.dbx-qa-save:hover { text-decoration: underline; }
+.dbx-qa-note { color: var(--red); font-size: 11.5px; }
+
+/* request rows (依頼 tab, あなたの番): state · 依頼-N · date · → folder AT-n / title / flow; ⋯ menu */
+.dbx-inbox { display: flex; flex-wrap: wrap; gap: 0 14px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--surface0); }
+.dbx-ist { flex: none; width: 64px; font-size: 11.5px; color: var(--subtext); }
+.dbx-inbox.st-new .dbx-ist { color: var(--peach); }
+.dbx-inbox.st-asking .dbx-ist { color: var(--yellow); }
+.dbx-inbox.st-routed .dbx-ist { color: var(--blue); }
+.dbx-inbox.st-done .dbx-ist { color: var(--green); }
+.dbx-inbox.st-failed .dbx-ist { color: var(--red); }
+.dbx-imid { flex: 1; min-width: 0; }
+.dbx-ino { color: var(--overlay); font-size: 11px; margin-right: 8px; font-variant-numeric: tabular-nums; }
+.dbx-idate { flex: none; color: var(--overlay); font-size: 11px; font-variant-numeric: tabular-nums; }
+.dbx-inote { color: var(--overlay); font-size: 11.5px; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-ititle { line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-iflow { font-size: 11.5px; color: var(--overlay); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-iflow-t.st-active { color: var(--blue); font-weight: 600; }
+.dbx-iflow-t.st-done { color: var(--green); }
+.dbx-iflow-t.st-failed { color: var(--red); }
+.dbx-pmo { flex: none; font-size: 10.5px; letter-spacing: 0.04em; color: var(--mauve); border: 1px solid var(--surface1); border-radius: 4px; padding: 0 4px; cursor: default; }
+.dbx-pmo.dbx-app { color: var(--subtext0); }
+.dbx-pmo.dbx-ses { color: var(--teal, var(--subtext0)); background: none; font: inherit; font-size: 10.5px; cursor: pointer; } /* U7: a session's proposal, click = that session */
+.dbx-pmo.dbx-ses:hover { border-color: var(--teal, var(--subtext0)); }
+.dbx-inbox.st-hold { opacity: 0.6; }
+.dbx-inbox.st-hold .dbx-ist { color: var(--overlay); }
+.dbx-inbox.st-done, .dbx-inbox.st-dropped { color: var(--subtext); }
+/* MP4 21: fixed cells (folder | date | marks | ⋯), empty ones kept (dashboard.js inboxRow), so the dates line up */
+.dbx-iside { flex: none; display: grid; grid-template-columns: 150px 66px 112px 20px; column-gap: 10px; align-items: baseline; }
+.dbx-iside > .dbx-idate { white-space: nowrap; }
+.dbx-imarks { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; min-width: 0; }
+.dbx-ifolder { color: var(--blue); font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-iside > .dbx-imenu { justify-self: end; }
+@container dbx-body (max-width: 680px) {
+  .dbx-inbox { gap: 0 10px; }
+  .dbx-ist { width: 52px; }
+  .dbx-iside { grid-template-columns: 76px 64px 84px 18px; column-gap: 6px; }
+}
+.dbx-imenu { font-size: 14px; line-height: 1; padding: 0 4px; }
+.dbx-imenu.on { color: var(--text); }
+.dbx-imenu-list { flex: 1 0 100%; display: flex; gap: 16px; justify-content: flex-end; padding: 4px 0 2px; }
+/* 依頼 tab: 対応中 / 対応履歴, folded status groups */
+.dbx-reqsw { display: flex; gap: 6px; margin-top: 10px; }
+.dbx-group { margin-top: 10px; }
+.dbx-group-head { font: inherit; font-size: 12px; color: var(--subtext); background: none; border: 0; padding: 2px 0; cursor: pointer; display: inline-flex; align-items: baseline; gap: 6px; }
+.dbx-group-head:hover { color: var(--text); }
+.dbx-caret { width: 10px; color: var(--overlay); }
+.dbx-group-n { color: var(--overlay); font-variant-numeric: tabular-nums; }
+.dbx-group.k-hot > .dbx-group-head { color: var(--yellow); }
+.dbx-group.k-bad > .dbx-group-head { color: var(--red); }
+.dbx-more, .dbx-past-btn { display: inline-block; margin-top: 6px; }
+.dbx-past-btn { margin-top: 12px; }
+/* folder progress (PROGRESS.md, progress-view.js): one quiet line under the folder name, the table under the row */
+.pgv-line { display: flex; gap: 8px; align-items: baseline; max-width: 100%; min-width: 0; margin: 3px 0 0 16px; padding: 0; font: inherit; font-size: 11.5px; color: var(--overlay); background: none; border: 0; cursor: pointer; text-align: left; }
+.pgv-line:hover .pgv-count, .pgv-line.on .pgv-count { text-decoration: underline; }
+.pgv-count { flex: none; white-space: nowrap; }
+.pgv-count b { font-weight: 600; color: var(--subtext); font-variant-numeric: tabular-nums; }
+.pgv-doing { color: var(--blue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pgv-wait { color: var(--yellow); white-space: nowrap; }
+.pgv-alldone { color: var(--green); white-space: nowrap; }
+.pgv-panel { grid-column: 1 / -1; box-sizing: border-box; min-width: 0; margin: 10px 0 2px; padding-left: 16px; border-left: 2px solid var(--surface0); }
+.pgv-table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }
+.pgv-table th { text-align: left; font-weight: normal; font-size: 11px; color: var(--overlay); padding: 4px 12px 4px 0; border-bottom: 1px solid var(--surface0); }
+.pgv-table th:nth-child(1) { width: 32px; }
+.pgv-table th:nth-child(2) { width: 34%; }
+.pgv-table th:nth-child(3) { width: 72px; }
+.pgv-table th:nth-child(5) { width: 84px; }
+.pgv-table td { vertical-align: top; padding: 5px 12px 5px 0; border-bottom: 1px solid var(--surface0); line-height: 1.5; word-break: break-word; color: var(--subtext); }
+.pgv-table td.pgv-item { color: var(--text); }
+.pgv-n, .pgv-upd { font-variant-numeric: tabular-nums; color: var(--overlay) !important; }
+.pgv-r-done .pgv-state { color: var(--green); }
+.pgv-table .pgv-r-done td.pgv-item { color: var(--subtext); }
+.pgv-r-doing .pgv-state { color: var(--blue); }
+.pgv-r-wait .pgv-state { color: var(--yellow); }
+.pgv-r-hold .pgv-state, .pgv-r-todo .pgv-state, .pgv-r-other .pgv-state { color: var(--overlay); }
+.pgv-foot { margin-top: 4px; font-size: 11px; color: var(--overlay); }
+
+/* Proposal parts (dashboard.js proposalBar / noticeMd): on the あなたの番 cards (U3). */
+.dbx-ntc { padding: 7px 0; border-bottom: 1px solid var(--surface0); }
+.dbx-ntc-md { margin: 4px 0 0 66px; color: var(--subtext); font-size: 12.5px; line-height: 1.55; word-break: break-word; max-height: 18em; overflow: auto; }
+.dbx-ntc-md > :first-child { margin-top: 0; }
+.dbx-ntc-md > :last-child { margin-bottom: 0; }
+.dbx-ntc-md p, .dbx-ntc-md ul, .dbx-ntc-md ol { margin: 0 0 4px; }
+.dbx-ntc-md ul, .dbx-ntc-md ol { padding-left: 18px; }
+.dbx-ntc-md code { font-family: var(--font-mono); font-size: 12px; color: var(--text); }
+.dbx-ntc-md a { color: var(--blue); }
+.dbx-ntc-bar { display: flex; gap: 14px; align-items: baseline; margin: 6px 0 0 66px; }
+.dbx-ntc-input {
+  flex: 1; min-width: 0; max-width: 520px; resize: none; field-sizing: content; max-height: 8em;
+  font: inherit; font-size: 12.5px; line-height: 1.5; color: var(--text);
+  background: transparent; border: 0; border-bottom: 1px solid var(--surface1); padding: 0 0 1px; outline: none;
+}
+.dbx-ntc-input:focus { border-bottom-color: var(--blue); }
+.dbx-ntc-input::placeholder { color: var(--overlay); }
+.dbx-ntc-go-btn { font: inherit; font-size: 12px; font-weight: 600; color: var(--green); background: none; border: 0; padding: 0; cursor: pointer; flex: none; }
+.dbx-ntc-go-btn:hover { text-decoration: underline; }
+
+/* PMO の記録 (U4, dashboard.js logBody / logRow): time | kind | folder + title, one line each; a click unfolds the detail.
+   No read / unread. bad (refused / failed) = a quiet red dot. */
+.dbx-log-kinds { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.dbx-log { display: flex; flex-direction: column; }
+.dbx-log-row { border-bottom: 1px solid var(--surface0); }
+.dbx-log-head { display: flex; gap: 12px; align-items: baseline; width: 100%; min-width: 0; padding: 6px 0; font: inherit; color: inherit; background: none; border: 0; text-align: left; }
+button.dbx-log-head { cursor: pointer; }
+button.dbx-log-head:hover .dbx-log-title { color: var(--text); }
+.dbx-log-time { flex: none; width: 72px; font-variant-numeric: tabular-nums; }
+.dbx-log-tag { flex: none; min-width: 4.5em; text-align: center; box-sizing: border-box; font-size: 11px; color: var(--subtext); background: var(--surface0); border-radius: 4px; padding: 0 6px; white-space: nowrap; }
+.dbx-log-row.k-warn .dbx-log-tag { color: var(--peach); }
+.dbx-log-row.k-done .dbx-log-tag { color: var(--green); }
+.dbx-log-title { flex: 0 1 auto; min-width: 0; color: var(--subtext); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-log-row.open .dbx-log-title { color: var(--text); }
+.dbx-log-go { color: var(--text); cursor: pointer; }
+.dbx-log-go:hover { color: var(--blue); text-decoration: underline; }
+.dbx-log-bad { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--red); opacity: 0.8; align-self: center; }
+.dbx-log-row .dbx-ntc-md { margin: 0 0 8px 84px; }
+.dbx-log-more { margin-top: 8px; align-self: flex-start; }
+.dbx-settings.in-modal { margin-top: 0; padding: 0; border: 0; background: none; }
+.dbx-flash { animation: dbx-flash 1.6s ease-in-out; }
+@media (prefers-reduced-motion: reduce) { .dbx-flash { animation-duration: 0ms; } }
+@keyframes dbx-flash { 0%, 100% { background: transparent; } 25% { background: rgba(203, 166, 247, 0.14); } }
+
+/* あなたの番 (U3, dashboard.js turnBody / attnCard): one card per attention item, seq order. Red only when dangerous. */
+.dbx-attns { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.dbx-attn { padding: 10px 14px 12px; border: 1px solid var(--surface1); border-radius: 8px; background: var(--mantle); min-width: 0; }
+.dbx-attn.danger { border-color: var(--red); box-shadow: inset 3px 0 0 var(--red); }
+.dbx-attn-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.dbx-attn-why { flex: none; font-size: 11.5px; color: var(--subtext); border: 1px solid var(--surface1); border-radius: 4px; padding: 0 6px; cursor: default; }
+.dbx-attn.danger .dbx-attn-why { color: var(--red); border-color: var(--red); }
+.dbx-attn-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dbx-attn-folder { color: var(--subtext); flex: none; }
+.dbx-attn-age { margin-left: auto; flex: none; }
+.dbx-attn-open { flex: none; }
+.dbx-attn-title { margin: 6px 0 0; font-weight: 600; }
+.dbx-attn-text { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; color: var(--subtext); }
+.dbx-attn-bar { display: flex; gap: 8px; margin-top: 8px; }
+.dbx-attn-dismiss { font: inherit; font-size: 12.5px; color: var(--text); background: var(--surface0); border: 1px solid var(--surface1); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+.dbx-attn-dismiss:hover { border-color: var(--blue); }
+.dbx-attn .dbx-wrow.in-card { padding: 0; border-top: 0; }
+.dbx-attn .dbx-wrow.in-card.danger { box-shadow: none; padding-left: 0; }
+.dbx-attn .dbx-wrow.in-card > *, .dbx-attn .dbx-wrow.in-card .dbx-wait-ans { margin-left: 0; }
+.dbx-attn .dbx-ntc { padding: 0; border-bottom: 0; }
+.dbx-attn .dbx-ntc-md, .dbx-attn .dbx-ntc-bar { margin-left: 0; }
+.dbx-attn .dbx-ntc-input { max-width: none; } /* MP4 19: 進める / 却下 at the card's right edge */
+.dbx-attn .dbx-qa { margin: 6px 0 0; padding-left: 0; border-left: 0; }
+.dbx-attn-done { margin-top: 12px; }
+
+/* セッションの確認 rows (dashboard.js waitRow): inside the あなたの番 cards (in-card) */
+.dbx-wait-done { display: flex; gap: 10px; align-items: baseline; font-size: 12px; color: var(--subtext); padding: 3px 0; min-width: 0; }
+.dbx-wait-ok { color: var(--green); flex: none; }
+.dbx-wait-q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dbx-wait-now { color: var(--overlay); flex: none; margin-left: auto; }
+.dbx-wrow { padding: 10px 0 8px; border-top: 1px solid var(--surface0); }
+.dbx-wait-where { color: var(--subtext); flex: none; }
+.dbx-wait-hidden { font-size: 11px; color: var(--mauve); border: 1px solid var(--surface1); border-radius: 4px; padding: 0 5px; flex: none; }
+.dbx-wait-qtext { margin: 6px 0 0 17px; white-space: pre-wrap; word-break: break-word; }
+.dbx-wait-qtabs { margin: 4px 0 0 17px; color: var(--overlay); font-size: 11.5px; }
+.dbx-wait-hint { margin: 4px 0 0 17px; color: var(--overlay); font-size: 12px; }
+.dbx-wait-note { margin: 4px 0 0 17px; font-size: 12px; color: var(--subtext); }
+.dbx-wait-note.bad { color: var(--peach); }
+.dbx-wait-danger { margin: 4px 0 0 17px; font-size: 12px; color: var(--red); font-weight: 600; }
+.dbx-wrow.danger { box-shadow: inset 3px 0 0 var(--red); padding-left: 8px; }
+.dbx-wait-ctx { margin: 4px 0 0 17px; font-size: 12px; color: var(--overlay); }
+.dbx-wait-ctx summary { cursor: pointer; }
+.dbx-wait-ctx pre, .dbx-wait-screen {
+  margin: 4px 0 0; padding: 6px 8px; max-height: 220px; overflow: auto; background: var(--crust, #11111b); border-radius: 6px;
+  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.4; color: var(--subtext); white-space: pre;
+}
+.dbx-wait-screen { margin-left: 17px; }
+.dbx-wait-ans { margin: 8px 0 0 17px; }
+.dbx-wait-opts, .dbx-wait-checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.dbx-wait-opt, .dbx-wait-send {
+  font: inherit; font-size: 12.5px; color: var(--text); background: var(--surface0); border: 1px solid var(--surface1); border-radius: 6px;
+  padding: 3px 10px; cursor: pointer; text-align: left; max-width: 100%;
+}
+.dbx-wait-opt:hover, .dbx-wait-send:hover { border-color: var(--blue); }
+.dbx-wait-opt:disabled, .dbx-wait-send:disabled { opacity: .5; cursor: default; }
+.dbx-wait-opt.danger { color: var(--red); }
+.dbx-wait-opt.danger { border-color: var(--red); }
+.dbx-wait-check { display: inline-flex; align-items: center; gap: 2px; padding: 3px 10px 3px 6px; background: var(--surface0); border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+.dbx-wait-free { display: flex; gap: 6px; margin-top: 6px; align-items: flex-start; }
+.dbx-wait-text {
+  flex: 1; min-width: 0; resize: none; field-sizing: content; max-height: 120px; font: inherit; font-size: 12.5px; color: var(--text);
+  background: var(--base); border: 1px solid var(--surface1); border-radius: 6px; padding: 4px 8px; outline: none;
+}
+.dbx-wait-text:focus { border-color: var(--blue); }
+.dbx-wait-bar { margin-top: 6px; }
+.dbx-wait-send { color: var(--blue); }
+/* update reserved after a release (src/main/autorestart.js): 今すぐ更新 / 後で */
+.dbx-update { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 12px; color: var(--peach); }
+.dbx-update .dbx-upd-text { flex: 0 1 auto; }
+.dbx-update button { font: inherit; font-size: 11.5px; padding: 1px 8px; border-radius: 4px; border: 1px solid var(--surface1); background: var(--surface0); color: var(--text); cursor: pointer; }
+.dbx-update button:hover { border-color: var(--peach); }
+.dbx-update.postponed { color: var(--overlay); }
+
+/* what a waiting session waits for (session.wait, main's waits.js): a quiet line, peach when flagged; 「出力」 opens
+   the tail of its commands' output under the session */
+.dbx-swait { display: flex; align-items: baseline; gap: 8px; margin-left: 16px; font-size: 11.5px; color: var(--overlay); min-width: 0; }
+.dbx-swait.warn { color: var(--peach); font-weight: 600; }
+.dbx-swait-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-swait .dbx-link { flex: none; font-weight: 400; }
+.dbx-swait .dbx-link:hover { color: var(--text); }
+.dbx-tail { margin: 4px 0 4px 16px; padding: 6px 8px; background: var(--crust); border: 1px solid var(--surface0); border-radius: 8px; }
+.dbx-tail-head { display: flex; align-items: baseline; gap: 8px; font-size: 11px; color: var(--overlay); min-width: 0; }
+.dbx-tail-head + .dbx-tail-text, .dbx-tail-head + .dbx-none, .dbx-tail-head + .dbx-tail-err { margin-top: 4px; }
+.dbx-tail-text + .dbx-tail-head { margin-top: 8px; }
+.dbx-tail-cmd { flex: 1; min-width: 0; font-family: var(--font-mono); color: var(--teal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-tail-meta { flex: none; }
+.dbx-tail-meta.warn { color: var(--peach); }
+.dbx-tail-head .dbx-link { flex: none; }
+.dbx-tail-head .dbx-link:hover { color: var(--text); }
+.dbx-tail-text { margin: 0; max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 11px; color: var(--text); }
+.dbx-tail-err { font-size: 11px; color: var(--peach); }
+
+/* setting 「待ちの見張り」 (header, under 新しい作業の置き場所) */
+.dbx-wcfg { align-items: center; flex-wrap: wrap; row-gap: 4px; }
+.dbx-wcfg-f { display: inline-flex; align-items: center; margin-right: 14px; white-space: nowrap; }
+.dbx-wcfg-input {
+  width: 56px; height: 22px; box-sizing: border-box; padding: 0 4px; margin: 0 2px; text-align: right;
+  font: inherit; color: var(--text); background: var(--crust); border: 1px solid var(--surface1); border-radius: 5px; outline: none;
+}
+.dbx-wcfg-input:focus { border-color: var(--blue); }
+.dbx-wcfg-note { color: var(--green); }
+.dbx-wcfg-note.bad { color: var(--peach); }
+/* inside a status group the group head already says the state (docs/ui-copy.md: not twice) */
+.dbx-group .dbx-inbox .dbx-ist { display: none; }
+.dbx-ititle-edit { justify-content: flex-start; align-items: baseline; }
+.dbx-ititle-input { flex: 1; max-width: 420px; font: inherit; font-size: 12.5px; color: var(--text); background: var(--base); border: 1px solid var(--surface1); border-radius: 6px; padding: 2px 8px; outline: none; }
+.dbx-ititle-input:focus { border-color: var(--blue); }
+
+/* 新しいセッション (UIUX U5, dashboard.js startPanel): the picker window's parts on top of the tab. .big while no session is open */
+.dbx-newsess { color: var(--text); }
+.dbx-start { margin: 10px 0 14px; padding: 12px 14px; border: 1px solid var(--surface1); border-radius: 10px; background: var(--mantle); }
+.dbx-start.big { padding: 22px 26px; margin-top: 16px; border-color: var(--blue); }
+.dbx-start-head { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.dbx-start-title { font-size: 13.5px; font-weight: 600; flex: none; }
+.dbx-start.big .dbx-start-title { font-size: 17px; }
+.dbx-start-lead { color: var(--subtext); font-size: 12.5px; min-width: 0; }
+.dbx-start-close { margin-left: auto; flex: none; font: inherit; font-size: 15px; line-height: 1; color: var(--overlay); background: none; border: none; cursor: pointer; padding: 2px 4px; }
+.dbx-start-close:hover { color: var(--text); }
+.dbx-start-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.dbx-start-btn { font: inherit; font-size: 12.5px; color: var(--text); background: var(--surface0); border: 1px solid var(--surface1); border-radius: 8px; padding: 5px 14px; cursor: pointer; }
+.dbx-start-btn:hover { border-color: var(--blue); }
+.dbx-start-btn.is-primary { background: var(--blue); color: var(--crust); border-color: var(--blue); font-weight: 600; }
+.dbx-start.big .dbx-start-btn { padding: 8px 18px; font-size: 13px; }
+.dbx-start-new { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.dbx-start-label { font-size: 12px; color: var(--subtext); flex: none; }
+.dbx-start-name { font: inherit; font-size: 12.5px; color: var(--text); background: var(--crust); border: 1px solid var(--surface1); border-radius: 6px; padding: 4px 8px; width: 240px; max-width: 100%; outline: none; }
+.dbx-start-name:focus { border-color: var(--blue); }
+.dbx-start-where { font-size: 11.5px; color: var(--overlay); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dbx-start-note { margin-top: 6px; font-size: 12px; color: var(--subtext); }
+.dbx-start-note.bad { color: var(--red); }
+.dbx-start-sub { margin-top: 14px; font-size: 11px; letter-spacing: .06em; color: var(--overlay); }
+.dbx-start-list { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 2px 12px; }
+.dbx-start-item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; min-width: 0; }
+.dbx-start-item:hover, .dbx-start-item:focus { background: var(--surface0); outline: none; }
+.dbx-start-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.dbx-start-name1 { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-start-path { font-size: 11px; color: var(--overlay); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-start-open { flex: none; font-size: 10.5px; color: var(--green); border: 1px solid var(--green); border-radius: 999px; padding: 0 6px; }
+/* MP4 22: 関係図 (agents-view.js) inside the dashboard: no box wider than its column */
+#dashboard .agv-lane, #dashboard .agv-lane-b { min-width: 0; }
+#dashboard .agv-box { min-width: 0; max-width: 100%; box-sizing: border-box; }
+#dashboard .agv-box-h > * { min-width: 0; }
+@container dbx-body (max-width: 680px) { #dashboard .agv-lane-h { width: 96px; } }
+.dbx-start-empty { margin-top: 12px; font-size: 12px; color: var(--overlay); }
+
+/* queue order on the cards (docs/queue-order.md): the waiting tasks in the order they are sent, 次に始まる, ↑ ↓,
+   the PMO's last reorder, the user's lock and 「PMO に順番を見直してもらう」 */
+.dbx-qnext { margin: 0 0 10px; font-size: 12px; color: var(--subtext); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-qnext.none { color: var(--overlay); }
+.dbx-queue { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin-top: 2px; padding-top: 6px; border-top: 1px dashed var(--surface0); }
+.dbx-qhead { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; min-width: 0; font-size: 11.5px; color: var(--overlay); }
+.dbx-qtitle { flex: none; color: var(--subtext); }
+.dbx-qlock { flex: none; white-space: nowrap; color: var(--yellow, var(--peach)); }
+.dbx-qask { flex: none; margin-left: auto; font-size: 11.5px; }
+.dbx-qpmo { font-size: 11.5px; color: var(--overlay); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dbx-qask-box { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dbx-qask-in { flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px; color: var(--text); background: var(--mantle); border: 1px solid var(--surface1); border-radius: 6px; padding: 2px 8px; outline: none; }
+.dbx-qask-in:focus { border-color: var(--blue); }
+.dbx-qask-go { flex: none; font: inherit; font-size: 11.5px; color: var(--text); background: var(--surface0); border: 1px solid var(--surface1); border-radius: 6px; padding: 1px 10px; cursor: pointer; }
+.dbx-qask-go:hover { border-color: var(--blue); }
+.dbx-qnote { font-size: 11.5px; color: var(--green); }
+.dbx-qnote.bad { color: var(--red); }
+.dbx-qpos { flex: none; min-width: 14px; text-align: right; font-size: 11px; color: var(--overlay); font-variant-numeric: tabular-nums; }
+.dbx-qitem.next .dbx-qpos, .dbx-qst.next { color: var(--blue); }
+.dbx-qitem.next .dbx-q { color: var(--text); }
+.dbx-qinfo { margin-left: 22px; font-size: 11px; color: var(--overlay); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dbx-q .dbx-qmove { flex: none; font-size: 11px; padding: 0 2px; opacity: 0; }
+.dbx-q:hover .dbx-qmove, .dbx-q .dbx-qmove:focus-visible { opacity: 1; }
+.dbx-q .dbx-qmove:disabled { opacity: 0 !important; cursor: default; }
+/* UX7 (docs/ux-journey.md §6, docs/mac-polish.md J3): 「ほか N 件」 / 「畳む」 under a long list, PROGRESS chips, PMO log runs */
+.dbx-morebar { display: flex; gap: 12px; align-items: baseline; }
+.dbx-morebar .dbx-more { margin-top: 4px; }
+.dbx-fold { margin-top: 4px; }
+.dbx-card-more { margin-left: 16px; }
+.dbx-past-head { font-size: 12px; }
+.dbx-log-run { border-bottom: 1px solid var(--surface0); }
+.dbx-log-runhead .dbx-log-title { color: var(--subtext); }
+.dbx-log-runrows { padding-left: 16px; border-left: 2px solid var(--surface0); margin-bottom: 6px; }
+.dbx-log-runrows .dbx-log-row:last-child { border-bottom: 0; }
+.pgv-chips { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-bottom: 6px; }
+.pgv-chip { font: inherit; font-size: 11px; color: var(--subtext); background: none; border: 1px solid var(--surface1); border-radius: 999px; padding: 0 8px; cursor: pointer; white-space: nowrap; }
+.pgv-chip:hover { color: var(--text); }
+.pgv-chip.on { color: var(--text); border-color: var(--text); }
+.pgv-none { font-size: 12px; color: var(--overlay); padding: 4px 0; }
+.pgv-morebar { display: flex; gap: 12px; margin-top: 4px; }
+.pgv-more { font: inherit; font-size: 11.5px; color: var(--overlay); background: none; border: 0; padding: 0; cursor: pointer; }
+.pgv-more:hover { color: var(--text); text-decoration: underline; }

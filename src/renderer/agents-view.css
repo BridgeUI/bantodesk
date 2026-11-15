@@ -1,0 +1,85 @@
+/* The dashboard's エージェント tab (agents-view.js, roadmap 13). Owner: core. Same quiet look as dashboard.css:
+   hairlines, coloured dots and words; boxes only for sessions in the 関係図 view (each is one claude). */
+.dbx-views { display: flex; gap: 2px; margin-left: 14px; }
+.dbx-views button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--subtext); font: inherit; font-size: 12.5px; padding: 3px 8px; cursor: pointer; }
+.dbx-views button.on { color: var(--text); border-bottom-color: var(--blue); }
+.dbx-views button:hover { color: var(--text); }
+
+.agv { padding-bottom: 30px; }
+.agv-bar { display: flex; align-items: center; gap: 12px; padding: 4px 0 10px; font-size: 12px; color: var(--subtext); flex-wrap: wrap; }
+.agv-sw { display: flex; }
+.agv-sw button { background: var(--surface0); border: 0; color: var(--subtext); font: inherit; padding: 3px 10px; cursor: pointer; }
+.agv-sw button:first-child { border-radius: 4px 0 0 4px; }
+.agv-sw button:last-child { border-radius: 0 4px 4px 0; }
+.agv-sw button.on { background: var(--surface1); color: var(--text); }
+.agv-chk { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.agv-sp { flex: 1; }
+.agv-tot { color: var(--overlay); font-variant-numeric: tabular-nums; }
+.agv-tot b { font-weight: 600; color: var(--subtext); margin: 0 3px 0 10px; }
+.agv-tot .agv-t-wait b { color: var(--peach); }
+.agv-empty { color: var(--overlay); padding: 20px 0; }
+
+.agv-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.agv-s-run { background: var(--green); }
+.agv-s-wait { background: var(--peach); box-shadow: 0 0 0 3px rgba(250, 179, 135, .18); }
+.agv-s-idle { background: var(--surface1); }
+.agv-s-done { background: transparent; border: 1.5px solid var(--surface1); }
+.agv-s-err { background: var(--red); }
+.agv-t-run { color: var(--green); }
+.agv-t-wait { color: var(--peach); }
+.agv-t-idle, .agv-t-done { color: var(--overlay); }
+.agv-t-err { color: var(--red); }
+.agv-num { color: var(--overlay); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.agv-cnt { display: block; font-weight: normal; font-size: 11px; color: var(--overlay); }
+.agv-link { background: none; border: 0; padding: 0; color: var(--blue); font: inherit; font-size: 11.5px; cursor: pointer; }
+.agv-link:hover { text-decoration: underline; }
+.agv-hid { color: var(--overlay); font-size: 11.5px; }
+
+/* 関係図 */
+.agv-lanes { display: flex; flex-direction: column; gap: 14px; }
+.agv-lane { display: flex; gap: 12px; align-items: flex-start; }
+.agv-lane-h { width: 140px; flex: none; padding-top: 6px; color: var(--subtext); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agv-lane-b { display: flex; flex-wrap: wrap; gap: 10px; flex: 1; align-items: flex-start; min-width: 0; }
+.agv-box { background: var(--mantle); border: 1px solid var(--surface0); border-radius: 6px; padding: 8px 10px; width: 300px; max-width: 100%; }
+.agv-b-wait { border-color: rgba(250, 179, 135, .6); }
+.agv-b-err { border-color: rgba(243, 139, 168, .5); }
+.agv-box.agv-small { opacity: .55; width: auto; max-width: 240px; padding: 4px 10px; }
+.agv-box-h { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.agv-title { flex: 1; min-width: 0; background: none; border: 0; padding: 0; color: var(--text); font: inherit; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agv-title:hover { color: var(--blue); }
+.agv-now { font-size: 11.5px; color: var(--subtext); margin: 3px 0 0 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agv-grp { margin: 7px 0 0 3px; padding-left: 10px; border-left: 1px solid var(--surface1); }
+.agv-grp-h { font-size: 11px; color: var(--overlay); margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agv-team { color: var(--mauve); }
+.agv-pills { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.agv-pill { display: flex; align-items: center; gap: 5px; font: inherit; font-size: 11.5px; color: var(--subtext); background: var(--base); border: 1px solid var(--surface0); border-radius: 10px; padding: 1px 8px 1px 6px; max-width: 140px; cursor: pointer; }
+.agv-pill span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agv-pill:hover, .agv-pill.on { border-color: var(--blue); color: var(--text); }
+.agv-pill.agv-sub { border-style: dashed; }
+.agv-p-done { opacity: .55; }
+.agv-p-err { border-color: rgba(243, 139, 168, .5); }
+.agv-detail { margin: 8px 0 0 3px; padding: 6px 0 0 10px; border-left: 1px solid var(--blue); font-size: 12px; color: var(--subtext); display: flex; flex-direction: column; gap: 3px; }
+.agv-d-h { display: flex; align-items: center; gap: 7px; }
+.agv-d-h b { color: var(--text); font-weight: 600; }
+.agv-d-what { line-height: 1.45; word-break: break-word; }
+.agv-detail .agv-link { align-self: flex-start; }
+
+/* 一覧 */
+.agv-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12.5px; }
+.agv-table th { text-align: left; font-weight: normal; font-size: 11px; color: var(--overlay); padding: 4px 10px 4px 0; border-bottom: 1px solid var(--surface0); }
+.agv-table td { padding: 4px 10px 4px 0; border-bottom: 1px solid rgba(49, 50, 68, .6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+.agv-table tr.agv-folder td { padding-top: 12px; color: var(--subtext); font-weight: 600; border-bottom: 1px solid var(--surface0); }
+.agv-table tr.agv-folder .agv-cnt { display: inline; margin-left: 10px; font-size: 11.5px; }
+.agv-table tr.agv-agent td, .agv-table tr.agv-teamrow td { color: var(--subtext); }
+.agv-table tr.agv-r-done td { opacity: .55; }
+.agv-table td.agv-now { margin: 0; font-size: 12px; }
+.agv-nm { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.agv-nm span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.agv-kind { font-size: 10.5px; color: var(--overlay); border: 1px solid var(--surface0); border-radius: 3px; padding: 0 4px; flex: none; }
+.agv-kind.agv-team { border-color: rgba(203, 166, 247, .35); }
+.agv-mono { font-family: var(--font-mono); font-size: 11.5px; }
+
+/* what an idle session waits for (session.wait): short form in the box, peach when flagged */
+.agv-wait { color: var(--subtext); }
+.agv-wait.warn { color: var(--peach); font-weight: 600; }
+.agv-wait-warn .agv-now { color: var(--peach); }
