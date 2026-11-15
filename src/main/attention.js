@@ -25,8 +25,9 @@ const oneLine = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n
 const mins = (ms) => `${Math.max(1, Math.round(ms / 60000))}分`;
 
 // ---- what the PMO may press (U3 QA 1: network, outside the folder and deleting temporary files are fine) ------------
-// stuck.classify is the base rule. Its reasons are tested in a fixed order (組織 → 秘密情報 → 削除 → git → ネットワーク →
-// 取り返しのつかない操作 → フォルダの外), so a reason tells which earlier ones did not match. Only the later rules are
+// stuck.classify is the base rule. Its reasons are tested in a fixed order (組織 → 秘密情報 → リポジトリ・remote〈AT-135〉→ 削除 →
+// git → ネットワーク → 取り返しのつかない操作 → フォルダの外), so a reason tells which earlier ones did not match (a ネットワーク
+// reason is never a gh repo create / remote change: those stop at リポジトリ・remote and are not widened). Only the later rules are
 // checked again here, with the stuck.js DENY patterns themselves (stuck.RULES; no copies here).
 const { GIT_RE, IRREV_RE, DELETE_RE } = stuck.RULES;
 // a delete command and its arguments (up to the end of the command)

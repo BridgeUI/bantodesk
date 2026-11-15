@@ -89,7 +89,7 @@ contextBridge.exposeInMainWorld('api', {
   // backlog start rules across folders (src/main/sched.js): limit / resources / touches / after
   schedPlan: (o) => ipcRenderer.invoke('sched:plan', o), // { waiting: [{ id, kind, touches, after }], limit?, thresholds? } -> { start: id[], reasons: { [id]: { code, text } } }
   schedState: () => ipcRenderer.invoke('sched:state'), // -> { limit, thresholds, resources, running, waiting }
-  schedAlert: (o) => ipcRenderer.invoke('sched:alert', o), // { backlogId, kind: 'stalled'|'deadlock'|'aborted'|'resumed', text } -> boolean (told now)
+  schedAlert: (o) => ipcRenderer.invoke('sched:alert', o), // { backlogId, kind: 'stalled'|'deadlock'|'aborted'|'resumed', text, reply? (stalled: the last reply's tail) } -> boolean (told now)
   onSchedChanged: on('sched:changed'), // same shape as schedState() (only when it changed)
   // queue order on the dashboard cards (docs/queue-order.md, src/main/queueorder.js)
   queueOrder: (o) => ipcRenderer.invoke('queue:order', o), // { folders?: string[] } -> { limit, running, free, hold, next, line, folders: [...] } | null

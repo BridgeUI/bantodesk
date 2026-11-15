@@ -58,6 +58,9 @@ function asPermission(p) {
 const DENY = [
   ['組織の管理設定による確認', /managed (settings|policy)|organi[sz]ation|enterprise|管理設定|組織/i],
   ['秘密情報（.env・鍵・パスワード）', /(^|[\\/\s"'`])\.env\b|\bcredential|\bsecrets?\b|password|passwd|\btokens?\b|api[_ -]?key|id_rsa|id_ed25519|\.pem\b|\.pfx\b|\.p12\b|\.npmrc\b|\.netrc\b/i],
+  // AT-135: the ask rules claude-cmd.js REPO_ASK_BASH. Before 削除 / git /
+  // ネットワーク: attention.pmoVerdict presses a ネットワーク dialog (gh), so these must never get that reason.
+  ['リポジトリの作成・公開の状態・remote の変更', /\bgh\s+(?:\S+\s+)*?repo\s+(create|edit|delete|rename|archive|unarchive|fork)\b|\bgh\s+api\b[^\n]*(?:-X\s*|--method[=\s]+)(POST|PATCH|PUT|DELETE)\b|\bgh\s+api\b[^\n]*\s(-f|-F|--field|--raw-field|--input)[\s=]|\bgit\s+(?:-C\s+\S+\s+)?remote\s+(add|set-url|rename|remove|rm)\b|\bgit\s+(?:-C\s+\S+\s+)?config\b[^\n]*\bremote\.|\bgit\s+(?:-C\s+\S+\s+)?push\b[^\n]*(\s(--mirror|--all|-u|--set-upstream)\b|:\/\/|\bgit@)/i],
   ['削除', /\brm\b|\brmdir\b|\brd\b|\bdel\b|\berase\b|Remove-Item|\bri\s|\bunlink|rimraf|\bdelete\b|\bdeleting\b|削除|\bshred\b|Clear-Content|\btruncate\b|\bgit\s+rm\b/i],
   ['取り返しのつかない git の操作', /\bgit\s+(push|reset|clean|checkout\s+(--|\.)|restore|rebase|filter-branch|filter-repo|branch\s+-[dD]|stash\s+(drop|clear)|commit\s+--amend|tag\s+-d|reflog|gc|update-ref|replace)\b|--force\b|--hard\b/i],
   ['ネットワークへの送信', /\b(curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm|ssh|scp|sftp|ftp|rsync|telnet|ncat|Send-MailMessage|Start-BitsTransfer|net\s+use)\b|\bnc\s|https?:\/\/|\bgh\s|\bnpm\s+publish|\bWebFetch\b|\bWeb ?Search\b|\bFetch\b/i],

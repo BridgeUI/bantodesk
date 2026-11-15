@@ -169,7 +169,7 @@ async function main() {
   // ---- M: wiring ----
   const main = fs.readFileSync(path.join(root, 'src', 'main.js'), 'utf8');
   ok('M1 main.js: the patrol interval from the settings (triage.patrolEveryMs), tests via _EVERY_MS with the e2e mark', /triage\.patrolEveryMs\(loadManagerSettings\(\)\)/.test(main) && /e2e && Number\(process\.env\.AGENT_TERMINAL_PATROL_EVERY_MS\)/.test(main) && !/tick\(pmo\.PATROL_EVERY_MS\)/.test(main));
-  ok('M2 runPatrol runs triageRound and the PMO only on d.report || t.wake', /triage\.triageRound\(/.test(main) && /if \(d\.report \|\| t\.wake\)/.test(main) && /triage\.formatTriage\(t\)/.test(main));
+  ok('M2 runPatrol runs triageRound and the PMO only on d.report || t.wake (|| a new 見回りの検出, tmp/patrol)', /triage\.triageRound\(/.test(main) && /if \(d\.report \|\| t\.wake( \|\| gapWake)?\)/.test(main) && /triage\.formatTriage\(t\)/.test(main));
   ok('M3 the patrol, the progress check and the waits opinion (依頼-187) share haikuRunner (one at a time, memory)', (main.match(/haikuRunner\(\)\.run\(/g) || []).length === 3 && /memOk: \(\) => !schedMon\(\)\.over\(/.test(main));
   const pc = fs.readFileSync(path.join(root, 'src', 'main', 'progress-check.js'), 'utf8');
   ok('M4 progress-check.js uses triage.runClaude (no own spawn)', /triage\.runClaude\(/.test(pc) && !/require\('child_process'\)/.test(pc));

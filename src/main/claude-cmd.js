@@ -97,7 +97,26 @@ const ASK_BASH = [
   'rm -rf /', 'rm -rf ~', 'rm -rf ~/', 'rm -fr /', 'rm -fr ~', 'rm -fr ~/', 'rm -rf /*', 'rm -fr /*', 'rm -rf ~/*', 'rm -fr ~/*', 'rm *.git', 'rm *.git/*', 'rm *index.lock*',
   // a push that rewrites or deletes the remote's history
   'git push *--force*', 'git push *-f', 'git push *-f *', 'git push -f*', 'git push *--delete*', 'git push *--mirror*', 'git push * :*',
+  // AT-135: making a repository, changing who can see it, and pointing the work
+  // folder at another remote need the user. Ask, not the SEC5 deny:
+  // the OSS release uses gh repo create --public with the user's OK. stuck.js REPO_RE keeps the
+  // PMO from pressing these dialogs.
+  ...REPO_ASK_BASH(),
 ];
+// gh repo create / edit (--visibility) / delete / rename / archive / fork, gh api calls that write (-X / --method other
+// than GET, or fields, which make gh send a POST), git remote add / set-url / rename / remove, remote.* in git config,
+// and pushes that copy everything, set an upstream or go to a URL. Matched per subcommand and case-sensitively.
+function REPO_ASK_BASH() {
+  const gh = ['create', 'edit', 'delete', 'rename', 'archive', 'unarchive', 'fork'].flatMap((c) => [`gh repo ${c}*`, `gh * repo ${c}*`]);
+  const methods = ['POST', 'PATCH', 'PUT', 'DELETE', 'post', 'patch', 'put', 'delete'];
+  const api = [
+    ...methods.flatMap((m) => [`gh api *-X ${m}*`, `gh api *-X${m}*`, `gh api *--method ${m}*`, `gh api *--method=${m}*`]),
+    ...['-f', '-F', '--field', '--raw-field', '--input'].flatMap((f) => [`gh api * ${f} *`, `gh api * ${f}=*`]),
+  ];
+  const remote = ['add', 'set-url', 'rename', 'remove', 'rm'].flatMap((c) => [`git remote ${c}*`, `git -C * remote ${c}*`]);
+  const push = ['git push *--all*', 'git push -u*', 'git push * -u*', 'git push *--set-upstream*', 'git push *://*', 'git push *git@*', 'git -C * push *'];
+  return [...gh, ...api, ...remote, 'git config *remote.*', 'git -C * config *remote.*', ...push];
+}
 function TEMP_FORMS(tmp = os.tmpdir()) {
   const forms = new Set([tmp]);
   try {

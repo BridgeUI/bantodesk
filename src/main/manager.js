@@ -15,7 +15,7 @@ const models = require('./models');
 const Labels = require('../renderer/labels'); // words / headings shared with the screens (UIUX U1, docs/ui-copy.md)
 const { isInside, norm } = require('./sessions');
 
-const CLAUDE_MD_VERSION = 35; // 35: 使い方の集計を月に 1 回読んで 1 件の提案に（UA2）。34: 識別子を bantodesk に（BN3、docs/naming.md 3.3: 先頭の印、.bantodesk/outbox）。33: アプリの表示の名前を BantoDesk に（BN1、docs/naming.md 3.2）。32: 画面の語「あなたの番」→「要対応」（UXW）に合わせる（前の版の語も同じ意味と 1 行）。31: 見回りはアプリが 5 分ごと（設定）・前さばきは haiku、PMO は自分の定期の見回り（CronCreate）を置かない（PM1 段 1）。30: サブエージェントのモデルの使い分け（PM1 段 2）と終わらない待ちの誤報の見込み。29: カードからの順番の見直しは reorder で片付ける。28: UX9 (qa と route を同じ回に・asking で待たない・提案の既定の案と期限・前決めの許可)
+const CLAUDE_MD_VERSION = 36; // 36: 見回りの検出（アプリがコードで見つけた止まり方 7 種の行と打ち手）。35: 使い方の集計を月に 1 回読んで 1 件の提案に（UA2）。34: 識別子を bantodesk に（BN3、docs/naming.md 3.3: 先頭の印、.bantodesk/outbox）。33: アプリの表示の名前を BantoDesk に（BN1、docs/naming.md 3.2）。32: 画面の語「あなたの番」→「要対応」（UXW）に合わせる（前の版の語も同じ意味と 1 行）。31: 見回りはアプリが 5 分ごと（設定）・前さばきは haiku、PMO は自分の定期の見回り（CronCreate）を置かない（PM1 段 1）。30: サブエージェントのモデルの使い分け（PM1 段 2）と終わらない待ちの誤報の見込み。29: カードからの順番の見直しは reorder で片付ける。28: UX9 (qa と route を同じ回に・asking で待たない・提案の既定の案と期限・前決めの許可)
 // BN3: the first line reads "<!-- bantodesk manager vN -->"; the former "agent-terminal manager vN" is still read (compat)
 const VERSION_RE = /<!--\s*(?:bantodesk|agent-terminal) manager v(\d+)\s*-->/; // BN3 compat
 const USER_MARKER = '<!-- ここから下は自由に追記できます（アプリはこの行より下を書き換えません） -->';
@@ -137,6 +137,15 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
   更新日から 1 日以上たった確認待ちがあるとき）。行の括弧の中は、アプリが分かる止まっている理由（順番待ち（N 番目、上限・資源・範囲の重なり）/
   前提待ち（id が pending・active）/ 前提が failed / failed の note / 保留: note / 質問の回答待ち / QA 未回答）。
   同じものは続けて挙がらない（解消して戻ったら、また挙がる）。前に手を打ったものでも、棚卸しで残っていれば打ち手を変える。
+- 見回りの検出: アプリが見回りのたびにコードで見つけた止まり方を「見回りの検出（アプリがコードで見つけた事実。…）:」の行で知らせる
+  （各行 \`[新] <種類> [フォルダ名] <事実>\`。haiku には回していない事実なので、そのまま手を打ってよい。同じものは続けて挙がらない）。種類と打ち手:
+  - 始まらない: 待ち行列の先頭で始まらない理由が無いのに 3 分以上始まらない。projects.json とそのフォルダの窓を確かめ、reorder で並べ直すか、同じ内容で振り直す（重ねて振らないよう、直前に始まっていないかを見る）。
+  - 終わらない見張り: \`tail -f\`・打ち切りの無い \`until\`/\`while\` の見張りを裏に置いた、または作業完了の後もコマンドが残っている。nudge で「打ち切り時間を付けて置き直す・要らない見張りは止める」と伝える。作業完了のタブなら止めてよいと伝え、残りを直す作業を振る。
+  - 上限で入らなかった依頼: セッションの propose が 24 時間の上限（30 件）などで依頼に入らず outbox/failed/ に落ちた（上限が近いときも出る）。ファイルを読み、要るものは自分で create / route に起こす（同じものがあれば重ねない）。
+  - 続きを送れなかった作業: 「再起動の後に続きを送れません」で failed になった。行の未コミットの変更の数を見て、git status とトランスクリプトで進み具合を確かめ、続きを振り直す（変更は消さない）。
+  - 待つ相手がいない: 印なしの知らせに付く。最後の返答は返事を待つと書いているが、waits は none。待っても何も来ないので、nudge で「担当の結果をいま確かめて続けるか、作業完了・作業中断で終える」と伝える。
+  - 未コミットのたまり: どの作業も動いていないのに未コミットの変更が 10 件以上・2 時間以上残っている。持ち主の作業を git log と PROGRESS.md で見当を付け、コミットか片付けの作業を振る（自分で消さない）。
+  - 期限切れの提案: notices.json の proposal が期限を過ぎ、答えが無い。PMO から の決まりどおり、既定の案で route（または update）し、同じ key の info で置き換える。
 - 積み残しの取り込み: この PC でフォルダを初めて開いたとき（そのフォルダのバックログが空で、前に取り込んでいない）、アプリが
   そのフォルダの PROGRESS.md の 進行中・確認待ち・保留・未着手 の行と、docs/roadmap.md の PROGRESS.md に無い行を、1 行 1 件で
   依頼に hold（source app、note「取り込みの候補（…）」、本文の末尾に「取り込みの印: <フォルダ>|PROGRESS.md#<番号>」）で出し、

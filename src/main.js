@@ -79,6 +79,7 @@ const winIcon = require('./main/winicon'); // DOCKID: the dashboard window's ico
 const stuck = require('./main/stuck'); // roadmap 27: prompts that stopped a session (manager answer action)
 const waits = require('./main/waits'); // PROGRESS 40: what idle sessions wait for, waits that never end
 const waitHints = require('./main/wait-hints'); // PM1 段 2: 誤報の見込み under the manager's waits block
+const patrolGapsMod = require('./main/patrol-gaps'); // 見回りの検出
 const attention = require('./main/attention'); // UIUX U3: 「あなたの番」 (what only the user can decide)
 const AutoSend = require('./renderer/autosend'); // the backlog's auto send after API errors (a stopped PMO -> あなたの番)
 const tempSessions = require('./main/tempsessions'); // roadmap 9 / 19: temp + edit windows (block "temp / edit sessions" below)
@@ -1467,7 +1468,13 @@ ipcMain.handle('sched:alert', (e, o) => {
   if (schedAlerted.has(once)) return false;
   schedAlerted.add(once);
   const name = path.basename(s.workDir) || s.workDir;
-  const detail = oneLineText(o.text, 300);
+  // 見回りの検出 (6): the last reply says it waits, but waits has nothing to wait on for this item
+  let lonely = '';
+  if (o.kind === 'stalled' && typeof o.reply === 'string') {
+    const we = waitEntries.find((e) => e && e.backlogId === id && e.role !== 'manager');
+    lonely = patrolGapsMod.noTarget(o.reply.slice(-400), we ? we.wait : null);
+  }
+  const detail = oneLineText([o.text, lonely].filter(Boolean).join(' '), 400);
   const what =
     o.kind === 'deadlock'
       ? 'チームが互いの返事を待って止まっている可能性があります'
@@ -1475,7 +1482,7 @@ ipcMain.handle('sched:alert', (e, o) => {
         ? '作業が完了の印のないまま終わりました'
         : '作業が完了の印のないまま止まっています';
   const title = `「${name}」の${what}（${id}）`;
-  schedNotes.set(id, { line: `「${name}」の ${id}: ${what}${detail ? ` — ${detail}` : ''}`.slice(0, 300), at: Date.now() });
+  schedNotes.set(id, { line: `「${name}」の ${id}: ${what}${detail ? ` — ${detail}` : ''}`.slice(0, 420), at: Date.now() });
   schedTellManager();
   if (notices) {
     notices.add({
@@ -1681,6 +1688,72 @@ function syncPatrolNotice(findings) {
     console.warn('[main] patrol notice failed', err);
   }
 }
+// 見回りの検出 (src/main/patrol-gaps.js): the ways work stopped that the patrol missed, found by
+// code (no model). Reads only what the app itself has: the backlogs, the scheduler's reasons, its own tabs' TabState,
+// the outbox failed/ folders, git status of the known folders, notices.json. gs = pmo.json gaps ({ reported, notStart,
+// dirty }). -> { findings, decision, state (to keep) }
+const GAP_GIT_FOLDERS = 12;
+const GAP_FAILED_RECENT_MS = 24 * 60 * 60 * 1000;
+async function patrolGaps(now, backlogs, gs = {}) {
+  // (4) the refused files told before (same name and mtime) are left out; the stocktake counts them (holdProposals)
+  const set = patrolGapsMod.settingsOf(loadManagerSettings());
+  const testEnv = (k) => (require('./main/e2e').isE2E() && Number(process.env[k])) || 0; // tests (e2e mark) may shorten them
+  const sessions = widget.sessionsSnapshot();
+  const findings = [];
+  // (2) the first pending item with no reason does not start
+  const ns = patrolGapsMod.findNotStarting(backlogs, gs.notStart || {}, { now, blocked: schedBlockedOf, notStartMin: testEnv('AGENT_TERMINAL_GAP_NOT_START_MIN') || set.notStartMin });
+  findings.push(...ns.findings);
+  // (3) endless watches / leftovers after 作業完了 (only the commands this app's own tabs reported)
+  findings.push(...patrolGapsMod.findWatches(sessions, { now, timeoutOf: waits.timeoutOf, leftoverMin: set.leftoverMin }));
+  // (4) refused propose files (new in 24 h) and folders near the 24 h limit
+  const folders = [];
+  for (const f of [...backlogs.map((b) => b.folder), ...proposeFolders()]) if (typeof f === 'string' && !folders.some((x) => norm(x) === norm(f))) folders.push(f);
+  const failed = [];
+  for (const folder of folders) {
+    for (const box of propose.outboxesOf(folder)) {
+      const dir = path.join(box, 'failed');
+      let names = [];
+      try {
+        names = await fs.promises.readdir(dir);
+      } catch {
+        continue; // none
+      }
+      for (const name of names.filter((n) => /\.json$/i.test(n) && !/\.result\.json$/i.test(n)).slice(-50)) {
+        const file = path.join(dir, name);
+        try {
+          const st = await fs.promises.stat(file);
+          if (!st.isFile() || now - st.mtimeMs > GAP_FAILED_RECENT_MS || st.size > 256 * 1024) continue;
+          const text = await fs.promises.readFile(file, 'utf8');
+          const error = await fs.promises.readFile(file + '.error.txt', 'utf8').catch(() => '');
+          failed.push({ folder, dir, name, error: error.trim(), title: patrolGapsMod.titleOf(text), at: st.mtimeMs });
+        } catch {}
+      }
+    }
+  }
+  const items = inbox.get().items;
+  const counts = folders.map((folder) => ({ folder, day: items.filter((i) => i.source === 'session' && i.folder && norm(i.folder) === norm(folder) && now - (i.createdAt || 0) < 24 * 60 * 60 * 1000).length, max: propose.PER_FOLDER_DAY }));
+  const hp = patrolGapsMod.holdProposals(patrolGapsMod.findProposals(failed, counts, { near: set.proposeNear }), gs.proposeSeen || {});
+  findings.push(...hp.findings);
+  // (5) (7) git status of the folders with work (read only, on offthread's worker, ≤ GAP_GIT_FOLDERS a round)
+  const gitCounts = {};
+  const dirty = [];
+  for (const b of backlogs.slice(0, GAP_GIT_FOLDERS)) {
+    if (!b || typeof b.folder !== 'string' || isManagerDir(b.folder)) continue;
+    const c = await timebox(gitTools.uncommittedCount(b.folder), 20000, { label: 'patrol git status' }).catch(() => null);
+    const count = c === TIMED_OUT ? null : c;
+    gitCounts[norm(b.folder)] = count;
+    const busyTab = sessions.some((x) => x.role !== 'manager' && x.workDir && norm(x.workDir) === norm(b.folder) && !x.t.rest && x.t.status !== 'idle' && !x.t.exited);
+    const busy = busyTab || (b.items || []).some((i) => i && i.status === 'active');
+    dirty.push({ folder: b.folder, count, busy });
+  }
+  findings.push(...patrolGapsMod.findResumeFailed(backlogs, gitCounts, { now }));
+  const dr = patrolGapsMod.findDirty(dirty, gs.dirty || {}, { now, dirtyCount: set.dirtyCount, dirtyHours: testEnv('AGENT_TERMINAL_GAP_DIRTY_HOURS') || set.dirtyHours });
+  findings.push(...dr.findings);
+  // (8) proposals past their 期限 with no answer
+  if (notices) findings.push(...patrolGapsMod.findDeadlines(notices.list(), { now }));
+  const decision = patrolGapsMod.decide(findings, gs.reported || []);
+  return { findings, decision, held: hp.held, state: { reported: decision.keys, notStart: ns.seen, dirty: dr.since, proposeSeen: hp.seen } };
+}
 async function runPatrol() {
   if (!managerDir || !inbox || patrolRunning) return null;
   patrolRunning = true;
@@ -1739,20 +1812,31 @@ async function runPatrol() {
       ask: (prompt) => haikuRunner().run(prompt, { program: haikuProgram(), args: triage.HAIKU_ARGS, timeoutMs: triage.TIMEOUT_MS }),
     });
     if (t.called && !t.ok) console.warn('[main] patrol triage: haiku', t.error);
-    if (d.report || t.wake) {
-      const patrol = [d.report ? pmo.formatPatrol(findings, d.fresh, { stocktake: d.stocktake, held }) : '', triage.formatTriage(t)].filter(Boolean).join('\n').slice(0, 2000);
+    // 見回りの検出: facts by code, before the triage; a new one wakes the PMO (each key once, like the stale findings)
+    const gsaved = saved.gaps && typeof saved.gaps === 'object' ? saved.gaps : {};
+    let gaps2 = null;
+    try {
+      gaps2 = await patrolGaps(now, state.backlogs || [], gsaved);
+    } catch (err) {
+      console.warn('[main] patrol gaps failed', err);
+    }
+    const gapWake = !!(gaps2 && gaps2.decision.report);
+    if (d.report || t.wake || gapWake) {
+      const gapText = gaps2 ? patrolGapsMod.format(gaps2.findings, gaps2.decision.fresh, { stocktake: d.stocktake, held: gaps2.held }) : '';
+      const patrol = [gapText, d.report ? pmo.formatPatrol(findings, d.fresh, { stocktake: d.stocktake, held }) : '', triage.formatTriage(t)].filter(Boolean).join('\n').slice(0, 2000);
       const r = await manager.notifyManager(userFile('backlog'), managerDir, { newItems: newForManager(), patrol });
       if (r) backlogChanged(managerDir, 'main');
     }
-    const round = { at: now, unsure: t.unsure.length, called: t.called, ok: t.ok, wake: d.report || t.wake, reason: d.report ? 'stale' : t.reason };
+    const round = { at: now, unsure: t.unsure.length, called: t.called, ok: t.ok, wake: d.report || t.wake || gapWake, reason: d.report ? 'stale' : t.reason || (gapWake ? 'gaps' : null), gaps: gaps2 ? gaps2.findings.length : null };
     manager.writeJsonAtomic(file, {
       ...saved,
       reported: d.keys,
       at: now,
       stocktakeAt: d.stocktake ? now : lastStocktake,
-      triage: { snap: cur, passed: t.passed, wakeAt: d.report || t.wake ? now : wakeAt, round, calls: (Number(tsaved.calls) || 0) + (t.called ? 1 : 0) },
+      triage: { snap: cur, passed: t.passed, wakeAt: d.report || t.wake || gapWake ? now : wakeAt, round, calls: (Number(tsaved.calls) || 0) + (t.called ? 1 : 0) },
+      gaps: gaps2 ? { ...gaps2.state, findings: gaps2.findings.slice(0, 30).map((g) => ({ key: g.key, kind: g.kind, name: g.name, text: g.text })) } : gsaved,
     });
-    return { findings: findings.length, gaps: gaps.length, reported: d.report, stocktake: d.stocktake, triage: round };
+    return { findings: findings.length, gaps: gaps.length, reported: d.report, stocktake: d.stocktake, triage: round, patrolGaps: gaps2 ? gaps2.findings.map((g) => g.key) : null };
   } catch (err) {
     console.warn('[main] patrol failed', err);
     return null;

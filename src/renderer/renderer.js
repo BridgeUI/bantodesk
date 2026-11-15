@@ -3284,8 +3284,10 @@ function workActivity(tab, since) {
   return out;
 }
 
-function schedAlert(item, kind, text) {
-  safe(() => api.schedAlert?.({ backlogId: item.id, kind, text: String(text || '').slice(0, 500) }));
+// reply = the tail of the session's last reply (stalled only): main tells 「待つ相手がいない」 when it says it waits but
+// waits has nothing (見回りの検出 (6), src/main/patrol-gaps.js noTarget)
+function schedAlert(item, kind, text, reply = '') {
+  safe(() => api.schedAlert?.({ backlogId: item.id, kind, text: String(text || '').slice(0, 500), ...(reply ? { reply: String(reply).slice(-400) } : {}) }));
 }
 
 // Ends an item by its marker: done / failed. why = what happened (e.g. 'タブが閉じられました'; '' = the marker came).
@@ -3373,7 +3375,7 @@ function routedProgress(tab, active, now, turnDone) {
   if (quiet < schedMs('stall', SCHED_STALL_MS)) return;
   w.alerted = 'stalled';
   w.alertedAt = now;
-  schedAlert(active, 'stalled', `最後の返答に「作業完了」も「作業中断」もないまま ${Math.max(1, Math.round(quiet / 60_000))} 分動きがありません。`);
+  schedAlert(active, 'stalled', `最後の返答に「作業完了」も「作業中断」もないまま ${Math.max(1, Math.round(quiet / 60_000))} 分動きがありません。`, tab.lastAssistantText || '');
   note('完了の印がないまま止まっています（PMO に知らせました）');
 }
 

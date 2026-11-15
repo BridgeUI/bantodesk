@@ -125,4 +125,13 @@ function openInEditor(p, openPath) {
   }
 }
 
-module.exports = { isGit, gitDiff, openInEditor };
+// 見回りの検出 (7) / (5) (src/main/patrol-gaps.js): the number of uncommitted changes (git status --porcelain lines,
+// untracked files included) -> number | null (not a repo / git failed). Read only; on offthread's worker like git().
+async function uncommittedCount(dir) {
+  if (!dir || !(await isGit(dir))) return null;
+  const r = await git(dir, ['status', '--porcelain']);
+  if (r.err) return null;
+  return String(r.stdout || '').split(/\r?\n/).filter((l) => l.trim()).length;
+}
+
+module.exports = { isGit, gitDiff, openInEditor, uncommittedCount };
