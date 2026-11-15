@@ -5,3 +5,5 @@ tmp/
 native/atproc/build/
 .oss-export
 .DS_Store
+.bantodesk/
+test/edit/out-*/
