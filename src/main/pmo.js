@@ -1,4 +1,4 @@
-// PMO patrol (roadmap 20 stage 2, docs/plan-dashboard.md answer 6): finds neglected inbox / backlog items so
+// ルーター patrol (roadmap 20 stage 2, docs/plan-dashboard.md answer 6): finds neglected inbox / backlog items so
 // the manager agent can act on them. main runs a patrol on a timer and, when there is something not reported
 // before, adds a "見回り" line to the manager's prompt (manager.notifyManager); once a day the patrol is a
 // "棚卸し" (stocktake) that lists everything still stale. The dashboard marks the same findings (dashboard:stale).
@@ -227,7 +227,7 @@ function ageText(ms) {
 
 // The "見回り" part of the manager prompt (≤ PATROL_TEXT_MAX chars). fresh = keys new since the last report.
 // stocktake = the daily stocktake: a "棚卸し:" heading instead of "見回り:". held = inbox items on hold (保留; listed
-// in the stocktake only, as 「保留 N 件」 with their note = reason / condition, so the PMO can review them once a day).
+// in the stocktake only, as 「保留 N 件」 with their note = reason / condition, so the ルーター can review them once a day).
 // held items that are already findings (on hold ≥ STALE.inbox.hold) are listed once, as findings.
 function formatPatrol(findings, fresh = new Set(), { stocktake = false, held = [] } = {}) {
   const inFindings = new Set(findings.filter((f) => f.kind === 'inbox').map((f) => f.id));

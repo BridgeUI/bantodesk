@@ -2,12 +2,12 @@
 // progressCheckMinutes, default 60, 0 = off) the app compares each folder's PROGRESS.md with its backlog (done / active /
 // pending) and lists the gaps it finds by code. When there are gaps, one `claude -p --model haiku` call for all folders
 // (prompt on stdin, no tools, time limit, budget limit) turns them into a list of facts: no judgement, no proposals.
-// The facts go to 「PMO から」 as one info per folder (key app:progress:<folder>); the same text is not raised again
+// The facts go to 「ルーターから」 as one info per folder (key app:progress:<folder>); the same text is not raised again
 // (notices.add replaces by key and keeps an unchanged one), and the info is resolved when the folder has no gap left.
-// haiku failing or timing out: nothing is shown and nothing wakes the PMO; the next round tries again.
-// The gaps to act on (done-open / pending-done whose row haiku listed) also go to the PMO's patrol block, one line each,
+// haiku failing or timing out: nothing is shown and nothing wakes the ルーター; the next round tries again.
+// The gaps to act on (done-open / pending-done whose row haiku listed) also go to the ルーター's patrol block, one line each,
 // once per key (main runPatrol, pmo.json reported; 依頼-188), and the check runs once before the daily stocktake.
-// The interval can be changed on the settings screen (PMO → 進み具合の確認, progress:setSettings; 依頼-189).
+// The interval can be changed on the settings screen (ルーター → 進み具合の確認, progress:setSettings; 依頼-189).
 // The claude -p runner is src/main/triage.js (段 1); main gives both its one shared runner (one call at a time).
 // No Electron imports (testable from plain Node).
 const fs = require('fs');
@@ -66,7 +66,7 @@ const CHOICES = [
   [1440, '1 日'],
 ];
 
-// The gaps the PMO acts on (依頼-188): a done item whose row is still open, a pending item whose row says 完了.
+// The gaps the ルーター acts on (依頼-188): a done item whose row is still open, a pending item whose row says 完了.
 // They also go to the patrol block (pmo.formatPatrol) once per key; the others (stale / no-check / bad-state) stay info.
 const ACT_KINDS = new Set(['done-open', 'pending-done']);
 // actions (createProgressCheck().actions()) -> patrol findings (pmo.findStale's shape, kind 'progress-gap').
@@ -98,12 +98,26 @@ function daysSince(ymd, now) {
 
 // A row's # can name a backlog item: it has a letter (so 「9」 does not match 「9 分」) and is short.
 const nameable = (n) => typeof n === 'string' && n.length >= 2 && n.length <= 24 && /[A-Za-z]/.test(n);
-// Does a backlog item refer to this row? its number (no) is the row's #, or the # stands as a word in its title / head.
-function refersTo(it, n) {
-  if (!nameable(n)) return false;
+// Does a backlog item refer to this row? Only when the link is explicit (2026-11-17, r-imwk6rs6n802b55-47312aaf):
+//   - its number (no) is the row's #,
+//   - its title is labelled with the # (「UX18: …」「[PM1-2] …」),
+//   - its text names the row as the one to update (「PROGRESS.md の UX18 を」「PROGRESS.md の行 UX18 を」), or
+//   - the row's 項目 carries the item's work id (r-…). Not 次の一手: it names the follow-up work
+//     (「実装は SSA-263（r-…）」), so a 完了 row with a pending follow-up is no gap (2026-11-17, r-imwkewnaad2273b-39fd7d98).
+// A # that only appears somewhere in the title or the text (「U2 の続き」, 「U9 は保留」, 「UX17 の後に UX18」) is not a link:
+// the 2026-11-17 patrol listed U9 ← AT-34 and UX18 ← AT-163 as done-open that way, both rows really 未着手.
+// row = the parsed PROGRESS.md row ({ n, item, next }) or just the # (then the work-id link is not checked).
+function refersTo(it, row) {
+  const r = row && typeof row === 'object' ? row : { n: row };
+  const n = r.n;
+  if (!it || !nameable(n)) return false;
   if (it.no && it.no === n) return true;
-  const head = `${it.title || ''}\n${String(it.text || '').slice(0, 400)}`;
-  return new RegExp(`(^|[^A-Za-z0-9-])${escRe(n)}(?![A-Za-z0-9]|-\\d)`).test(head);
+  const e = escRe(n);
+  const after = '(?![A-Za-z0-9]|-\\d)';
+  if (new RegExp(`^\\s*(?:\\[${e}\\]|【${e}】|${e}\\s*[:：])`).test(String(it.title || ''))) return true;
+  if (new RegExp(`PROGRESS\\.md\\s*の\\s*(?:行\\s*)?[「『]?${e}${after}[」』]?\\s*(?:の行\\s*)?を`).test(String(it.text || ''))) return true;
+  if (typeof it.id === 'string' && it.id.length >= 8 && String(r.item || '').includes(it.id)) return true;
+  return false;
 }
 const itemName = (it) => oneLine([it.no, it.title || oneLine(it.text, 60)].filter(Boolean).join(' '), 100) || it.id;
 
@@ -150,7 +164,7 @@ function collectGaps({ progress, items = [], now = Date.now(), checkList = null 
       push({ row: r.n, kind: 'bad-state', fact: `行 ${r.n}「${oneLine(r.item, 60)}」の状態が 未着手 / 進行中 / 確認待ち / 完了 / 保留 のどれでもない`, ref: `${r.n}:bad-state` });
       continue;
     }
-    const refs = list.filter((it) => refersTo(it, r.n));
+    const refs = list.filter((it) => refersTo(it, r));
     if (r.state === '未着手' || r.state === '進行中') {
       const done = refs.filter((it) => it.status === 'done' && it.doneAt && now - it.doneAt <= DONE_WINDOW_MS);
       if (done.length && !refs.some((it) => it.status === 'active' || it.status === 'pending')) {
@@ -307,7 +321,7 @@ function createProgressCheck({ folders, notices, ask }) {
           name: f.name || path.basename(f.folder),
           gaps,
           rows: ((f.progress && f.progress.rows) || []).filter((r) => rowsNamed.has(r.n)),
-          items: (f.items || []).filter((it) => [...rowsNamed].some((n) => refersTo(it, n))).slice(0, 20),
+          items: (f.items || []).filter((it) => ((f.progress && f.progress.rows) || []).some((r) => rowsNamed.has(r.n) && refersTo(it, r))).slice(0, 20),
         });
       }
       const res = { folders: all.length, gaps: withGaps.reduce((s, f) => s + f.gaps.length, 0), called: false, ok: true, shown: 0, resolved: 0 };
@@ -334,7 +348,7 @@ function createProgressCheck({ folders, notices, ask }) {
         }
         const parsed = stdout == null ? null : parseFacts(stdout);
         if (!parsed) {
-          res.ok = false; // quiet: the next round tries again (nothing wakes the PMO)
+          res.ok = false; // quiet: the next round tries again (nothing wakes the ルーター)
           return res;
         }
         facts = factsByFolder(withGaps, parsed);

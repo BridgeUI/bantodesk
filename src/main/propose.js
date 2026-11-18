@@ -5,25 +5,36 @@
 // <folder>/.bantodesk/.gitignore = "*"). BN3: the former <folder>/.agent-terminal/outbox is still read (sessions started
 // before the rename were told that place). The place of the file is the proof of the folder (no folder field is
 // accepted). The app looks at the outbox of every open project window (a small synchronous look every POLL_MS, like
-// the PMO outbox's AT-202 poll), checks the file all or nothing, adds the proposals to the inbox (source 'session',
-// status new: the PMO gets them as 新規) and moves the file to done/ (+ <name>.result.json) or failed/ (+ .error.txt).
+// the ルーター outbox's AT-202 poll), checks the file all or nothing, adds the proposals to the inbox (source 'session',
+// status new: the ルーター gets them as 新規; hold over a limit, below) and moves the file to done/ (+ <name>.result.json)
+// or failed/ (+ .error.txt).
 //
 // File = one proposal, an array of them, or { proposals: [...] }. Proposal =
 //   { type: 'propose', title, text, kind?: research|implement|verify, touches?: [...], after?: [...], reason?, from? }
 // from = the backlog id of the session's own work (the app adds 「この作業の id: …」 to a routed session's text);
 // without it the folder's one active routed item is taken (none / several -> no backlog id).
 // The project starter (docs/plan-starter.md) is to reuse this outbox for its own action types.
+//
+// Limits (依頼 2026-11-16): a proposal over the folder's 24 h limit (manager-settings.json proposeDayMax, default 30) or
+// over the 10 of one work still goes to the inbox, as status hold with the note 「上限を超えた propose（…）」 (the ルーター
+// takes it up at the stocktake; it is not offered as 新規), and the file goes to done/ with hold: true in its result.
+// Only a runaway (more than HOLD_FACTOR × a limit) and a bad shape are refused (failed/).
 // No Electron imports (testable from plain Node).
 const path = require('path');
 const fs = require('fs');
 
 const { META_DIR, LEGACY_META_DIR } = require('./names');
+const writeq = require('./writeq');
 
 const OUTBOX_REL = path.join(META_DIR, 'outbox');
 const LEGACY_OUTBOX_REL = path.join(LEGACY_META_DIR, 'outbox'); // BN3 compat: read only
 const PER_FILE = 5; // 「一度に 5 件」: a file with more is refused as a whole
-const PER_WORK = 10; // proposals of one backlog item (session) in all
-const PER_FOLDER_DAY = 30; // proposals of one folder in 24 h (runaway guard)
+const PER_WORK = 10; // proposals of one backlog item (session) in all; more -> hold
+const PER_FOLDER_DAY = 30; // default of proposals of one folder in 24 h (proposeDayMax); more -> hold
+const DAY_MAX_RANGE = [1, 1000]; // proposeDayMax outside -> the default
+const HOLD_FACTOR = 3; // runaway guard: past HOLD_FACTOR × a limit nothing more is added (failed/)
+const HOLD_NOTE = '上限を超えた propose';
+const SETTINGS_FILE = 'manager-settings.json'; // userData/manager-settings.json, next to inbox.json
 const DAY_MS = 24 * 3600 * 1000;
 const TITLE_MAX = 200;
 const TEXT_MAX = 20000;
@@ -39,6 +50,36 @@ const outboxesOf = (folder) => [outboxOf(folder), path.join(folder, LEGACY_OUTBO
 const squash = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 const normKey = (s) => squash(s).toLowerCase();
 const sameFolder = (a, b) => !!a && !!b && path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+
+// manager settings ({ proposeDayMax }) -> the folder's 24 h limit. Missing / bad / out of range -> PER_FOLDER_DAY.
+function dayLimitOf(settings) {
+  const n = Number(settings && typeof settings === 'object' ? settings.proposeDayMax : undefined);
+  return Number.isInteger(n) && n >= DAY_MAX_RANGE[0] && n <= DAY_MAX_RANGE[1] ? n : PER_FOLDER_DAY;
+}
+// <dir>/manager-settings.json (a write still queued in writeq counts) -> the limit
+function readDayLimit(dir) {
+  try {
+    return dayLimitOf(JSON.parse(writeq.readTextSync(path.join(dir, SETTINGS_FILE))));
+  } catch {
+    return PER_FOLDER_DAY;
+  }
+}
+// ctx.dayLimit (number | () => number) when given, else the settings next to the inbox file (ctx.settingsDir or
+// dirname(inbox.file) = userData), else the default. Read for every file, so a change applies without a restart.
+function dayLimitFor(ctx) {
+  const c = ctx || {};
+  if (c.dayLimit !== undefined && c.dayLimit !== null) {
+    let v = c.dayLimit;
+    try {
+      if (typeof v === 'function') v = v();
+    } catch {
+      v = undefined;
+    }
+    return dayLimitOf({ proposeDayMax: v });
+  }
+  const dir = c.settingsDir || (c.inbox && typeof c.inbox.file === 'string' ? path.dirname(c.inbox.file) : null);
+  return dir ? readDayLimit(dir) : PER_FOLDER_DAY;
+}
 
 // <folder>/.bantodesk/outbox (+ the .gitignore that keeps .bantodesk/ out of git). -> outbox path | null
 function ensureOutbox(folder) {
@@ -98,9 +139,12 @@ function whoProposed(from, backlogItems) {
 
 // Adds checked proposals to the inbox. Duplicates (an open item from a session of the same folder with the same text
 // or title, or an open item of anyone with the same text) are not added again; their result names the existing id.
-// Limits are checked before anything is added (all or nothing).
-// -> { results: [{ type, itemId, reqNo, duplicate? }] } | { error }
-function apply({ folder, proposals, backlogItems, inbox, now = Date.now() }) {
+// The limits: a fresh proposal past the folder's 24 h limit (dayMax) or past PER_WORK of its work is added as hold with
+// the note HOLD_NOTE (in file order: the ones still under both limits are new). The runaway guard (HOLD_FACTOR × a limit)
+// is checked before anything is added (all or nothing).
+// -> { results: [{ type, itemId, reqNo, duplicate?, hold?, note? }] } | { error }
+function apply({ folder, proposals, backlogItems, inbox, now = Date.now(), dayMax = PER_FOLDER_DAY }) {
+  const limit = dayLimitOf({ proposeDayMax: dayMax });
   const items = inbox.get().items;
   const fromFolder = items.filter((i) => i.source === 'session' && sameFolder(i.folder, folder));
   // plan = { p, who, dupItem (an existing inbox item) | dupOf (an earlier plan of this file) | neither }
@@ -118,13 +162,17 @@ function apply({ folder, proposals, backlogItems, inbox, now = Date.now() }) {
     plans.push({ p, who, dupItem, dupOf, dup: !!(dupItem || dupOf) });
   }
   const fresh = plans.filter((x) => !x.dup);
-  const dayCount = fromFolder.filter((i) => now - (i.createdAt || 0) < DAY_MS).length;
-  if (dayCount + fresh.length > PER_FOLDER_DAY) return { error: `too many proposals from this folder today (${dayCount} in 24 h, max ${PER_FOLDER_DAY}); nothing was added` };
-  const perWork = new Map();
-  for (const x of fresh) if (x.who.backlogId) perWork.set(x.who.backlogId, (perWork.get(x.who.backlogId) || 0) + 1);
-  for (const [id, n] of perWork) {
+  let day = fromFolder.filter((i) => now - (i.createdAt || 0) < DAY_MS).length;
+  const dayHard = limit * HOLD_FACTOR;
+  if (day + fresh.length > dayHard) return { error: `too many proposals from this folder today (${day} in 24 h, limit ${limit}, held up to ${dayHard}); nothing was added` };
+  const perWork = new Map(); // backlogId -> proposals of that work so far
+  const adding = new Map();
+  for (const x of fresh) if (x.who.backlogId) adding.set(x.who.backlogId, (adding.get(x.who.backlogId) || 0) + 1);
+  const workHard = PER_WORK * HOLD_FACTOR;
+  for (const [id, n] of adding) {
     const had = fromFolder.filter((i) => i.origin && i.origin.backlogId === id).length;
-    if (had + n > PER_WORK) return { error: `too many proposals from the work ${id} (${had} before, max ${PER_WORK}); nothing was added` };
+    if (had + n > workHard) return { error: `too many proposals from the work ${id} (${had} before, limit ${PER_WORK}, held up to ${workHard}); nothing was added` };
+    perWork.set(id, had);
   }
   const results = [];
   for (const x of plans) {
@@ -133,11 +181,17 @@ function apply({ folder, proposals, backlogItems, inbox, now = Date.now() }) {
       results.push({ type: 'propose', itemId: d ? d.id : null, reqNo: d ? d.reqNo || null : null, duplicate: true });
       continue;
     }
-    const origin = { folder, backlogId: x.who.backlogId, no: x.who.no, tabId: x.who.tabId, reason: x.p.reason, ...x.p.fields };
-    const it = inbox.add({ text: x.p.text, title: x.p.title, source: 'session', folder, origin });
+    const id = x.who.backlogId;
+    const overDay = day >= limit;
+    const overWork = !!id && perWork.get(id) >= PER_WORK;
+    const note = overDay || overWork ? `${HOLD_NOTE}（${overDay ? `このフォルダの 24 時間の上限 ${limit} 件` : `この作業 ${x.who.no || id} の上限 ${PER_WORK} 件`}を超えた）` : '';
+    const origin = { folder, backlogId: id, no: x.who.no, tabId: x.who.tabId, reason: x.p.reason, ...x.p.fields };
+    const it = inbox.add({ text: x.p.text, title: x.p.title, source: 'session', folder, origin, ...(note ? { status: 'hold', note } : {}) });
     if (!it) return { error: 'the inbox refused the item', results };
     x.added = it;
-    results.push({ type: 'propose', itemId: it.id, reqNo: it.reqNo || null });
+    day++;
+    if (id) perWork.set(id, perWork.get(id) + 1);
+    results.push({ type: 'propose', itemId: it.id, reqNo: it.reqNo || null, ...(note ? { hold: true, note } : {}) });
   }
   return { results };
 }
@@ -151,7 +205,7 @@ function moveTo(dir, file) {
 }
 
 // One file of <folder>/.bantodesk/outbox (or the former .agent-terminal/outbox). ctx = { inbox, hints(a), backlogItems(folder) -> items | Promise,
-// onAdded?(folder, results) }. -> { ok, error?, results }
+// onAdded?(folder, results), dayLimit?, settingsDir? (dayLimitFor) }. -> { ok, error?, results }
 async function processFile(file, folder, ctx) {
   let res;
   let raw;
@@ -169,7 +223,7 @@ async function processFile(file, folder, ctx) {
       try {
         items = (await ctx.backlogItems(folder)) || [];
       } catch {}
-      const a = apply({ folder, proposals: v.proposals, backlogItems: items, inbox: ctx.inbox });
+      const a = apply({ folder, proposals: v.proposals, backlogItems: items, inbox: ctx.inbox, dayMax: dayLimitFor(ctx) });
       res = a.error ? { ok: false, error: a.error, results: a.results || [] } : { ok: true, results: a.results };
     }
   }
@@ -251,4 +305,4 @@ function watch(folders, ctx, { intervalMs = POLL_MS } = {}) {
   return { close: () => clearInterval(t), tick };
 }
 
-module.exports = { OUTBOX_REL, LEGACY_OUTBOX_REL, outboxesOf, PER_FILE, PER_WORK, PER_FOLDER_DAY, outboxOf, ensureOutbox, validate, whoProposed, apply, processFile, watch };
+module.exports = { OUTBOX_REL, LEGACY_OUTBOX_REL, outboxesOf, PER_FILE, PER_WORK, PER_FOLDER_DAY, DAY_MAX_RANGE, HOLD_FACTOR, HOLD_NOTE, SETTINGS_FILE, dayLimitOf, readDayLimit, dayLimitFor, outboxOf, ensureOutbox, validate, whoProposed, apply, processFile, watch };

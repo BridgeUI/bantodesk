@@ -398,6 +398,7 @@ class Parser {
       agentType: input.subagent_type || 'general-purpose',
       description: input.description || '',
       background: !!input.run_in_background,
+      teamName: typeof input.name === 'string' ? input.name.slice(0, 60) : '',
       prompt: typeof input.prompt === 'string' ? input.prompt.trim() : null,
     });
     // An already-known agent waiting for this info (meta arrived first).
@@ -558,6 +559,7 @@ class Parser {
     else if (!snap.toolUseId) snap.toolUseId = s.agentToTool.get(agentId) || null;
     const call = snap.toolUseId ? s.agentCalls.get(snap.toolUseId) : null;
     snap.agentType = (snap._meta && snap._meta.agentType) || (call && call.agentType) || snap.agentType || 'agent';
+    snap.teamName = (call && call.teamName) || snap.teamName || '';
     snap.description = (snap._meta && snap._meta.description) || (call && call.description) || snap.description || '';
     if (patch.usage) {
       snap._out.set(patch.usage.msgId, patch.usage.out);
@@ -590,6 +592,7 @@ class Parser {
       toolUseId: snap.toolUseId,
       agentType: snap.agentType,
       description: snap.description,
+      teamName: snap.teamName,
       status: snap.status,
       toolCount: snap.toolCount,
       lastTool: snap.lastTool,
@@ -612,12 +615,57 @@ function findTranscript(sessionId, root = projectsDir) {
   } catch {
     return null;
   }
+  // The same session id can sit in two project folders: BN3 (docs/naming.md 3.3) copied the ルーター's transcript from
+  // -…-agent-terminal-manager-outbox to -…-bantodesk-manager-outbox and the old copy stays. The newest one is the live
+  // conversation (the first by name was the stale copy: the replay set the ルーター tab's cwd to the old folder, its resume
+  // found no conversation and the ルーター exited at every start).
+  let best = null;
+  let bestAt = -1;
   for (const d of dirs) {
     if (!d.isDirectory()) continue;
     const f = path.join(root, d.name, sessionId + '.jsonl');
-    if (fs.existsSync(f)) return f;
+    let st;
+    try {
+      st = fs.statSync(f);
+    } catch {
+      continue;
+    }
+    if (st.isFile() && st.mtimeMs > bestAt) {
+      best = f;
+      bestAt = st.mtimeMs;
+    }
   }
-  return null;
+  return best;
+}
+
+// The last cwd a session's transcript recorded (claude follows the shell's cd), read from the end of the newest file.
+// -> absolute path | null. Used when a resume's saved cwd is not usable (main.js resumeDir).
+function lastCwd(sessionId, root = projectsDir, file = findTranscript(sessionId, root)) {
+  if (!file) return null;
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    for (let len = 64 * 1024; ; len *= 4) {
+      const n = Math.min(len, size);
+      const buf = Buffer.alloc(n);
+      fs.readSync(fd, buf, 0, n, size - n);
+      const lines = buf.toString('utf8').split('\n');
+      if (n < size) lines.shift(); // a cut line
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (!lines[i].includes('"cwd"')) continue;
+        try {
+          const j = JSON.parse(lines[i]);
+          if (typeof j.cwd === 'string' && j.cwd && path.isAbsolute(j.cwd)) return j.cwd;
+        } catch {}
+      }
+      if (n >= size || len >= 16 * 1024 * 1024) return null;
+    }
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+  }
 }
 
 // Async read (one file at a time) so a huge session does not freeze the main process in one go.
@@ -905,4 +953,4 @@ function startWatcher(emit, opts = {}) {
   return { watcher, parser, offsets, readNew, idle };
 }
 
-module.exports = { projectsDir, Parser, classify, promptText, teammateMessages, argSummary, findTranscript, replay, replayAgent, startWatcher, readJson };
+module.exports = { projectsDir, Parser, classify, promptText, teammateMessages, argSummary, findTranscript, lastCwd, replay, replayAgent, startWatcher, readJson };

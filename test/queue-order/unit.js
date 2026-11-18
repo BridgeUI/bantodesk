@@ -134,7 +134,7 @@ const byId = (r, folder, id) => r.folders.find((f) => f.folder === folder).items
   ok('7b empty queue line', e.line === '次のタスク: なし', e.line);
 }
 
-// 8. last PMO reorder and the user's order lock
+// 8. last ルーター reorder and the user's order lock
 {
   const now = 1_800_000_000_000;
   const r = Q.buildQueueOrder({
@@ -165,7 +165,7 @@ const byId = (r, folder, id) => r.folders.find((f) => f.folder === folder).items
   ok('10d overlap with a running one + an earlier waiting one: the overlap text only', g('r-a5').length === 1 && /AT-A1/.test(g('r-a5')[0]), g('r-a5'));
 }
 
-// 9. the request text for the PMO
+// 9. the request text for the ルーター
 {
   const t = Q.askText('/w/proj', '  急ぎの AT-3 を先に ');
   ok('9a ask text', t.startsWith('proj の待ち行列の順番を見直して: 急ぎの AT-3 を先に') && t.includes('/w/proj'), t);

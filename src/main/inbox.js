@@ -220,12 +220,13 @@ function createInbox(file, { onChange } = {}) {
   if (migrate) save(); // the numbers given above, written once (the next load finds them)
 
   return {
+    file, // its place (src/main/propose.js reads manager-settings.json next to it)
     get: () => state,
     find: (id) => state.items.find((i) => i.id === id) || null,
     // -> InboxItem | null (empty text). o = { text, title?, note?, status?: 'new'|'hold', source?: 'user'|'manager'|'app'|'session',
     // historyNote?, folder?, origin? } — only text from a renderer (inbox:add); the rest is for main (the manager's inbox / route
     // actions; 'app' = the carry-over import, which may also set folder; 'session' = a session's propose (src/main/propose.js):
-    // title, folder = the session's folder and origin, always status new, no history).
+    // title, folder = the session's folder and origin, status new, or hold + note when it is over a propose limit; no history).
     // A manager-added item gets history [{ action:'add', undo: { status:'dropped' } }] (the dashboard can undo it).
     add(o) {
       const text = o && typeof o.text === 'string' ? o.text.trim() : '';
@@ -242,13 +243,13 @@ function createInbox(file, { onChange } = {}) {
         title: (byManager || bySession) && typeof o.title === 'string' ? o.title.trim() : '',
         createdAt: now,
         updatedAt: now,
-        status: byManager && o.status === 'hold' ? 'hold' : 'new',
+        status: (byManager || bySession) && o.status === 'hold' ? 'hold' : 'new',
         folder: byApp || bySession ? absFolder(o.folder) : null,
-        note: byManager && typeof o.note === 'string' ? o.note : '',
+        note: (byManager || bySession) && typeof o.note === 'string' ? o.note : '',
         source: byApp ? 'app' : byManager ? 'manager' : bySession ? 'session' : 'user',
         statusBy: byApp ? 'app' : byManager ? 'manager' : bySession ? 'session' : 'user',
         origin: bySession ? o.origin : null,
-        history: byManager ? [{ at: now, action: 'add', note: o.historyNote || (byApp ? 'アプリが取り込み' : 'PMO が追加'), undo: { status: 'dropped' } }] : [],
+        history: byManager ? [{ at: now, action: 'add', note: o.historyNote || (byApp ? 'アプリが取り込み' : 'ルーターが追加'), undo: { status: 'dropped' } }] : [],
       });
       state = sanitizeInbox({ items: [...state.items, item], nextReq: nextReq + 1 });
       changed({ type: 'add', item, source: item.source });

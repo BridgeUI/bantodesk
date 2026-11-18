@@ -121,6 +121,7 @@
       status.classList.toggle('vw-fresh', !!auto);
       if (auto) freshTimer = setTimeout(() => status.classList.remove('vw-fresh'), 2500);
     };
+    const setStatusText = (t) => { status.textContent = t; };
     const showMsg = (text) => {
       body.classList.remove('vw-dim');
       body.replaceChildren(h('div', 'vw-msg', text));
@@ -132,6 +133,24 @@
       api, info, body, tools, h, btn, on, cleanups, showMsg, failMsg, isDisposed: () => disposed,
     });
     const renderers = { md: mdRenderer, image: imageRenderer, html: htmlRenderer, pdf: pdfRenderer, xlsx: window.ViewerXlsx ? xlsxRenderer : null };
+    // 15: comments on a place of the PDF — a picture of the pane (main captures the window's rectangle), pins on it
+    if (kind === 'pdf' && window.PinComment) {
+      let pinning = null;
+      const pinBtn = btn('コメント', 'vw-pin', async () => {
+        if (pinning || disposed) return;
+        const b = body.getBoundingClientRect();
+        const c = await api.commentsCapture({ rect: { x: b.left, y: b.top, w: b.width, h: b.height } }).catch(() => null);
+        if (!c || !c.ok) return setStatusText('画像を取れませんでした');
+        pinning = window.PinComment.open({
+          host: body, dataUrl: c.dataUrl, pageInput: true, source: { kind: 'pdf', path: info.path, title: info.name || '' },
+          onSend: (text, files) => window.ExternalView ? window.ExternalView.handText(text, files) : false,
+          onClose: () => { pinning = null; },
+        });
+        cleanups.push(() => pinning && pinning.close());
+      });
+      pinBtn.title = '場所を指定してコメントを書き、入力欄に渡す';
+      tools.append(pinBtn);
+    }
     const r = renderers[kind] ? renderers[kind]() : { load: async () => showMsg(failMsg('この形式は表示できません')) };
 
     function mdRenderer() {

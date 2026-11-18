@@ -1,12 +1,12 @@
-// 「PMO から」 notices (roadmap 20, 2026-11-03): announcements (info), findings (warn) and proposals (proposal) from the
-// manager agent (outbox action `notice`) and from the app's own PMO patrol, shown together on the dashboard.
+// 「ルーターから」 notices (roadmap 20, 2026-11-03): announcements (info), findings (warn) and proposals (proposal) from the
+// manager agent (outbox action `notice`) and from the app's own ルーター patrol, shown together on the dashboard.
 // Stored by main in <userData>/manager/notices.json = { notices: Notice[] } (newest last) so the manager agent can read
 // them (incl. the user's answers to proposals) and the read state survives restarts.
 //   Notice = { id, kind: 'info'|'warn'|'proposal', title, text (Markdown), folder: string|null, itemId: string|null,
 //              key: string|null, source: 'manager'|'app', createdAt, updatedAt, readAt: number|null,
 //              resolvedAt: number|null, answer: { choice: 'go'|'reject', comment, at } | null,
 //              announcedAt: number|null (updatedAt of the version announced by a desktop notification), refs: string[] }
-// Life (U4): the dashboard shows info / warn only in 「PMO の記録」 (forLog), with no read operation; info goes 7 days after
+// Life (U4): the dashboard shows info / warn only in 「ルーターの記録」 (forLog), with no read operation; info goes 7 days after
 // its last update (or its read, in old files), answered proposals 7 days after the answer; warn stays until resolved;
 // resolved ones stay in the record (as 立て直し) and are dropped after 7 days. readAt / read() remain for old files and IPC.
 // A notice with the key of a live one replaces it (same id; unread again when title / text / kind changed).
@@ -15,6 +15,7 @@ const path = require('path');
 const crypto = require('crypto');
 const writeq = require('./writeq');
 const Labels = require('../renderer/labels'); // 「依頼 保留」 etc. (the patrol lines' words, src/main/pmo.js inboxWhere)
+const HoldLog = require('./hold-log'); // HOLD-LOG: 「ルーターの記録」's update-hold lines
 
 const KINDS = new Set(['info', 'warn', 'proposal']);
 const CHOICES = new Set(['go', 'reject']);
@@ -214,7 +215,7 @@ function createNotices(file, { onChange } = {}) {
   };
 }
 
-// The app's own PMO patrol findings (pmo.findStale) -> one warn notice (key PATROL_KEY), or null when nothing is stale.
+// The app's own ルーター patrol findings (pmo.findStale) -> one warn notice (key PATROL_KEY), or null when nothing is stale.
 // Links each line to its folder / inbox item in the text; the notice itself points at the oldest finding.
 const PATROL_KEY = 'app:patrol';
 function patrolNotice(findings, ageText) {
@@ -233,7 +234,7 @@ function patrolNotice(findings, ageText) {
   return {
     kind: 'warn',
     title: `放置されている項目が ${findings.length} 件あります`,
-    text: lines.join('\n') + '\n\n管理エージェントの見回りにも挙がり、PMO が立て直します。原因が解消すると、この指摘は自動で消えます。',
+    text: lines.join('\n') + '\n\n管理エージェントの見回りにも挙がり、ルーターが立て直します。原因が解消すると、この指摘は自動で消えます。',
     folder: first.kind === 'inbox' ? null : first.folder,
     itemId: first.kind === 'inbox' ? first.id : null,
     key: PATROL_KEY,
@@ -243,7 +244,7 @@ function patrolNotice(findings, ageText) {
 }
 
 // What 「あなたの番」 takes from the notices (UIUX U3, src/main/attention.js): proposals not answered yet, oldest first.
-// warn (指摘) and info stay out: the PMO repairs what a warn says, and both only go to the record (PMO の記録).
+// warn (指摘) and info stay out: the ルーター repairs what a warn says, and both only go to the record (ルーターの記録).
 function forAttention(list) {
   return (Array.isArray(list) ? list : [])
     .filter((n) => n && n.kind === 'proposal' && !n.answer && !n.resolvedAt)
@@ -251,11 +252,12 @@ function forAttention(list) {
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 
-// --- 「PMO の記録」 (UIUX U4, docs/concept-uiux.md §2.2): what the PMO and the app did, newest first ----------------------
+// --- 「ルーターの記録」 (UIUX U4, docs/concept-uiux.md §2.2): what the ルーター and the app did, newest first ----------------------
 // forLog(notices, actions, { limit }) -> LogEntry[]
 //   notices = every stored notice (store.all(): live and resolved; the file keeps its form, old files read as before)
 //   actions = parsed lines of <userData>/logs/pmo-actions.jsonl ({ at: ISO string, type, … }, see main.js pmoLog)
-//   LogEntry = { id, at (ms), kind: LOG_KIND key, type (raw action type or 'notice'), title (one line), text, folder, itemId, bad }
+//   LogEntry = { id, at (ms), kind: LOG_KIND key, type (raw action type or 'notice'), title (one line), text, folder, itemId, bad,
+//                tabKey / backlogId (action lines only: the session pushed to, the task routed — 関係図's ルーター arrows) }
 //   itemId = the inbox item (notices that point at one; route lines with inboxId) for the dashboard's link
 //   kind: push 後押し (answer, nudge, refused ones bad) | route 振り分け (route, create) | order 順番 (reorder) |
 //         fix 立て直し (backlog-update, a warn that was resolved) | clean 片付け (dropped by backlog-update, auto clean-up) |
@@ -288,6 +290,16 @@ function forLog(notices, actions, { limit = LOG_MAX } = {}) {
       case 'nudge':
         e = { kind: 'push', title: `${where(folder)}${oneLine(a.label, 60)} に声をかけた: ${oneLine(a.text, 80)}`, text: [a.wait, a.reason].filter(Boolean).join('\n') };
         break;
+      // UX12 事後の確認 (src/main/reviews.js): a routed session's hypotheses came in / the user said 「違う」 to one
+      case 'interrupt':
+        e = { kind: 'push', title: `${where(folder)}${oneLine(a.label, 60)} を止めて声をかけた: ${oneLine(a.text, 80)}`, text: [a.wait, a.reason].filter(Boolean).join('\n') };
+        break;
+      case 'review-add':
+        e = { kind: 'info', title: `${where(folder)}${task(a)} が仮説で進めた（事後の確認 ${a.count || 0} 件）`, text: '' };
+        break;
+      case 'review-wrong':
+        e = { kind: 'push', title: `${where(folder)}${task(a)} の事後の確認で「違う」→ ルーターへの依頼に入れた`, text: oneLine(a.text, 300) };
+        break;
       case 'nudge-refused':
         e = { kind: 'push', bad: true, title: `声をかけなかった（${oneLine(a.error, 80)}）`, text: oneLine(a.reason, 300) };
         break;
@@ -301,6 +313,10 @@ function forLog(notices, actions, { limit = LOG_MAX } = {}) {
       case 'backlog-update':
         e = { kind: a.status === 'dropped' ? 'clean' : 'fix', title: `${where(folder)}${a.no || a.backlogId || ''}: ${bl(a.from)} → ${bl(a.status)}`, text: oneLine(a.note, 300) };
         break;
+      // UX16: a session's 完了 / エラー (was its own OS notification B; main.js notify)
+      case 'session':
+        e = { kind: 'done', bad: a.kind === 'error', title: `${where(folder)}${oneLine(a.label, 60)}: ${a.kind === 'error' ? 'エラー' : '応答が完了'}`, text: oneLine(a.text, 300) };
+        break;
       case 'done':
       case 'failed':
         e = { kind: 'done', bad: a.type === 'failed', title: `${where(folder)}${task(a)} が${a.type === 'failed' ? '失敗' : '完了'}`, text: oneLine(a.note, 300) };
@@ -308,6 +324,13 @@ function forLog(notices, actions, { limit = LOG_MAX } = {}) {
       case 'release':
         e = { kind: 'release', bad: a.ok === false, title: a.ok === false ? '新しい版を入れられなかった' : `新しい版を入れた${a.commit ? `（${String(a.commit).slice(0, 7)}）` : ''}`, text: String(a.text || '').slice(-500) };
         break;
+      // HOLD-LOG (src/main/hold-log.js): the update hold's start / end and the ルーター's prompts taken meanwhile
+      case 'update-hold': {
+        const t = HoldLog.titleOf(a);
+        if (!t) continue;
+        e = { kind: 'release', bad: t.bad, title: t.title, text: '' };
+        break;
+      }
       // UIUX U8 (src/main/review.js): the review the app puts on a folder whose work is over, and 「すべて完了」
       case 'review':
         e = { kind: 'route', title: `${where(folder)}作業が全部終わったので見直し（${a.round || 1} 回目）${a.no ? ' ' + a.no : ''} を積んだ`, text: '' };
@@ -330,7 +353,10 @@ function forLog(notices, actions, { limit = LOG_MAX } = {}) {
       default:
         continue; // attention-dismiss (the user's own 「様子を見る」) and unknown types
     }
-    out.push({ id, at, type: a.type, folder, itemId: typeof a.inboxId === 'string' ? a.inboxId : null, bad: false, ...e, title: oneLine(e.title, TITLE_MAX) });
+    // AGV-ROUTER: the session a push (answer / nudge / interrupt) went to and the task a route / done line is about
+    const tabKey = typeof a.tabKey === 'string' && a.tabKey ? a.tabKey.slice(0, 80) : null;
+    const backlogId = typeof a.backlogId === 'string' && a.backlogId ? a.backlogId.slice(0, 120) : null;
+    out.push({ id, at, type: a.type, folder, itemId: typeof a.inboxId === 'string' ? a.inboxId : null, tabKey, backlogId, bad: false, ...e, title: oneLine(e.title, TITLE_MAX) });
   }
   for (const n of Array.isArray(notices) ? notices : []) {
     if (!n || typeof n !== 'object' || typeof n.id !== 'string') continue;

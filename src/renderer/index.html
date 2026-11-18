@@ -4,17 +4,21 @@
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: atview:; media-src 'self' blob:; frame-src 'self' atview:" />
   <title>BantoDesk</title>
+  <link rel="stylesheet" href="tokens.css" />
   <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css" />
   <link rel="stylesheet" href="style.css" />
+  <!-- UX17: the ground (暗い / 明るい / OS に合わせる) before the first paint; tokens.css has the colours -->
+  <script src="theme.js"></script>
   <link rel="stylesheet" href="panel.css" />
   <link rel="stylesheet" href="remote-ui.css" />
   <link rel="stylesheet" href="conversation.css" />
   <link rel="stylesheet" href="notify.css" />
   <link rel="stylesheet" href="settings.css" />
-  <link rel="stylesheet" href="backlog.css" />
   <link rel="stylesheet" href="dashboard.css" />
   <link rel="stylesheet" href="agents-view.css" />
+  <link rel="stylesheet" href="overview-view.css" />
   <link rel="stylesheet" href="viewer.css" />
+  <link rel="stylesheet" href="external-view.css" />
 </head>
 <body>
   <div id="app">
@@ -35,15 +39,15 @@
       <!-- renderer.js (owner: core): "new release, restarts when idle" (src/main/autorestart.js) -->
       <span id="update-note" hidden></span>
       <div id="spacer"></div>
-      <!-- remote-ui.js (owner: remote): shown on the bar only while remote is on (UIUX U6, style.css); else from ⋯ -->
+      <!-- remote-ui.js (owner: remote): shown on the bar only while remote is on (UIUX U6, style.css); else from the palette (UX16) -->
       <button id="remote-btn" class="pill" title="リモート（スマホから）"></button>
       <!-- renderer.js (owner: core): integrated dashboard window (manager agent) -->
       <button id="dashboard-btn" class="icon-btn" title="ダッシュボード" data-usage="topbar.dashboard">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2" y="2.5" width="5" height="5" rx="1"/><rect x="9" y="2.5" width="5" height="5" rx="1"/><rect x="2" y="9.5" width="5" height="4" rx="1"/><rect x="9" y="9.5" width="5" height="4" rx="1"/></svg>
       </button>
-      <!-- renderer.js (owner: core, UIUX U6): ⋯ その他 — viewer, 待ちの一覧, cheat sheet, remote, new session options -->
-      <button id="more-btn" class="icon-btn" title="その他" data-usage="topbar.more">
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" stroke="none"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg>
+      <!-- renderer.js (owner: core, UX16): the command palette (palette.js; was ⋯ その他) — operations, tasks, folders, files -->
+      <button id="palette-btn" class="icon-btn" title="コマンドパレット" data-sc="palette" data-usage="topbar.palette">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.3"/><path d="M10.2 10.2 14 14"/></svg>
       </button>
       <!-- renderer.js (owner: core): ⚙ 設定 (settings.js) -->
       <button id="settings-btn" class="icon-btn" title="設定" data-usage="topbar.settings">
@@ -80,18 +84,29 @@
   <script src="sounds.js"></script>
   <script src="notify.js"></script>
   <script src="autosend.js"></script>
+  <script src="nonstop.js"></script>
+  <script src="reassure.js"></script>
+  <script src="startwatch.js"></script>
   <script src="backlog.js"></script>
   <script src="handoff.js"></script>
   <script src="settings.js"></script>
   <script src="progress-view.js"></script>
   <script src="agents-view.js"></script>
+  <script src="overview-view.js"></script>
   <script src="dashboard.js"></script>
   <script src="paths.js"></script>
   <script src="composer.js"></script>
   <script src="conversation.js"></script>
+  <script src="session-view.js"></script>
   <script src="viewer-xlsx.js"></script>
   <script src="viewer.js"></script>
+  <script src="pin-comment.js"></script>
+  <script src="external-view.js"></script>
+  <script src="sim-view.js"></script>
+  <script src="present-view.js"></script>
+  <script src="browser-view.js"></script>
   <script src="edit-drop.js"></script>
+  <script src="palette.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

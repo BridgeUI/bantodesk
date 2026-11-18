@@ -59,7 +59,7 @@ const TAB_TEXT = 'このセッションの手が空いたら送ります';
  * running:   [{ folder, id, kind, touches }] running routed tasks of all folders (main's schedRunning)
  * statuses:  Map | object id -> status (all folders known); nos: Map | object id -> no; folderOf: Map id -> folder
  * limit / over (resource texts) / hold: as sched.planStarts / planClosed
- * reorders:  { [normFolder]: { at, reason } } the PMO's last reorder per folder
+ * reorders:  { [normFolder]: { at, reason } } the ルーター's last reorder per folder
  * locks:     { [normFolder]: userOrderAt } when the user last moved a task of that folder (ms)
  */
 function buildQueueOrder({ folders = [], running = [], statuses = null, nos = null, folderOf = null, limit = sched.DEFAULT_LIMIT, over = [], hold = null, reorders = {}, locks = {}, now = Date.now() } = {}) {
@@ -267,7 +267,7 @@ function infoParts(q) {
   return parts;
 }
 
-// The PMO request for a folder's queue (dashboard 「PMO に順番を見直してもらう」): the inbox text.
+// The ルーター request for a folder's queue (dashboard 「ルーターに順番を見直してもらう」): the inbox text.
 function askText(folder, note) {
   const n = oneLine(note, 500);
   return `${baseName(folder)} の待ち行列の順番を見直して: ${n || '（ひとことなし）'}\n\nフォルダ: ${folder}\n（ダッシュボードのカードからの順番の見直し。CLAUDE.md の「順番決め」のとおり route せず、reorder か notice で答える）`;

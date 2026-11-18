@@ -2,7 +2,7 @@
 // never end (the command's process is gone without its completion notice, its output stopped, it runs too long, or the
 // whole team waits with nothing unread). No Electron imports (testable from plain Node); main.js gathers the probes
 // (output file stat, process tree, team unread count) and pushes the result to the windows, the dashboard / widget,
-// 「PMO から」 (warn, key app:waits) and the manager's prompt. See CONTRACT.md "Waits".
+// 「ルーターから」 (warn, key app:waits) and the manager's prompt. See CONTRACT.md "Waits".
 //
 // Input per session: the renderer's TabState (status, bg: [{ id, command, outFile, startedAt }] from Panel.summary,
 // team / agents) + main's probes. Output: Wait = { kind, text, short, level, since, items, alerts } | null.
@@ -346,6 +346,35 @@ function timeoutOf(command) {
   }
   return Math.round(max);
 }
+// UX11 (the SSA-210 false alarm, 2026-11-16): a command that only waits — `sleep 3660`, `timeout 600`, `Start-Sleep -Seconds
+// 60`, `ping -n 60 127.0.0.1 > nul` is not in it, only sleep / timeout / Start-Sleep and a no-op (`true`, `:`, `echo …`)
+// joined by ; && || — writes nothing on purpose, so its quiet output is not "silent" (its length is still "long").
+// `timeout 600 node x.js` runs a program: not sleep-only.
+function sleepOnly(command) {
+  const parts = String(command || '')
+    .split(/&&|\|\||;|\r?\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (!parts.length) return false;
+  let sleeps = 0;
+  for (const p of parts) {
+    const w = shellWords(p).filter((x) => !/^\d?>/.test(x) && !NULL_TARGET_RE.test(x));
+    if (!w.length) continue;
+    const head = w[0].toLowerCase();
+    if (head === 'sleep' || head === 'start-sleep') {
+      if (w.slice(1).every((x) => /^(-\w+|\d+(?:\.\d+)?[smhd]?)$/i.test(x))) sleeps++;
+      else return false;
+    } else if (head === 'timeout') {
+      // timeout [/t] N [/nobreak]  (cmd) or a bare `timeout N` — no program after the duration
+      const rest = w.slice(1).filter((x) => !/^(\/t|\/nobreak|-\S+)$/i.test(x));
+      if (rest.length === 1 && /^\d+(?:\.\d+)?[smhd]?$/i.test(rest[0])) sleeps++;
+      else return false;
+    } else if (head === 'true' || head === ':' || head === 'echo' || head === 'date') continue;
+    else return false;
+  }
+  return sleeps > 0;
+}
+
 // targets (outTargets) -> { known: true, mtimeMs (newest, 0 = none yet), files: [the newest one(s)] } (main, per check)
 async function newestOf(targets, fsp = require('fs').promises) {
   let best = 0;
@@ -444,7 +473,8 @@ function waitOf(t, o = {}) {
     const gone = proc === 'gone' && !writing && now - startedAt >= (o.goneGraceMs || GONE_GRACE_MS) && ((o.goneScans && o.goneScans.get(b.id)) || 0) >= GONE_SCANS;
     if (gone) alerts.push({ code: 'gone', ref: `${ref}:gone`, text: `${label} のプロセスが無いのに、完了の通知が来ていない（開始から ${dur(now - startedAt)}）` });
     const quietFrom = lastOutputAt || startedAt;
-    if (!gone && !withinLimit && it.hasOutput && now - quietFrom >= set.silentMin * MIN) {
+    if (sleepOnly(b.command)) it.sleepOnly = true; // UX11: waits on purpose, never "silent" (long still counts)
+    if (!gone && !withinLimit && !it.sleepOnly && it.hasOutput && now - quietFrom >= set.silentMin * MIN) {
       const what = fileAt ? '出力（書き込み先のファイルを含む）' : lastOutputAt ? '出力' : it.files.length ? '出力（書き込み先のファイルも更新が無い）' : '出力（まだ何も出ていない）';
       alerts.push({ code: 'silent', ref: `${ref}:silent`, text: `${label} の${what}が ${dur(now - quietFrom)} 止まっている${limitMs ? `（打ち切り ${dur(limitMs)} を過ぎた）` : ''}` });
     }
@@ -536,6 +566,45 @@ function waitOf(t, o = {}) {
   };
 }
 
+// --- UX11 (docs/ux-journey.md §1.6 row 6): a session still 実行中 whose work stopped -----------------------------
+// waitOf looks at idle tabs only. A tab whose claude stays "running" (the spinner keeps repainting the screen, so the
+// terminal output never stops) but writes no transcript line — no tool call, no reply, no subagent / member line, no new
+// background command — for RUN_QUIET_MIN is told to the ルーター the same way (waits.json, the 終わらない待ち block), with
+// canInterrupt: the ルーター stops it with the outbox interrupt (Esc, then 「状況を報告して」). A foreground command of
+// Claude Code ends within 10 min (its own limit), so 15 min with no line is not a long command.
+// t = TabState (status 'running', eventAt = ms of its last transcript event), o = { now, runningSince (ms the tab became
+// running, kept by main), quietMs } -> Wait (kind 'running', one alert 'quiet') | null (not quiet / not running)
+const RUN_QUIET_MIN = 15;
+function runningOf(t, o = {}) {
+  if (!t || typeof t !== 'object' || t.rest || t.exited || str(t.status, 20) !== 'running') return null;
+  const now = o.now || Date.now();
+  const quietMs = num(o.quietMs) || RUN_QUIET_MIN * MIN;
+  const ag = t.agents && typeof t.agents === 'object' ? t.agents : null;
+  const team = (ag && ag.team) || (t.team && typeof t.team === 'object' ? t.team : null);
+  const subs = (ag && Array.isArray(ag.subagents) ? ag.subagents : Array.isArray(t.subagents) ? t.subagents : []).filter((a) => a && (a.status === 'running' || a.status === 'starting'));
+  const members = team && !team.removed && Array.isArray(team.members) ? team.members : [];
+  const bg = Array.isArray(t.bg) ? t.bg : [];
+  const at = Math.max(
+    num(o.runningSince),
+    num(t.eventAt),
+    ...subs.map((a) => num(a.updatedAt)),
+    ...members.map((m) => num(m.updatedAt)),
+    ...bg.map((b) => num(b && b.startedAt)),
+  );
+  if (!at || now - at < quietMs) return null;
+  const d = dur(now - at);
+  const extra = subs.length ? `、サブエージェント ${subs.length} 件も動きが無い` : '';
+  return {
+    kind: 'running',
+    text: `実行中 — 会話の記録が ${d} 進んでいない（ツールも返答も出ていない${extra}）`,
+    short: `実行中 無言 ${durShort(now - at)}`,
+    level: 'warn',
+    since: at,
+    items: [],
+    alerts: [{ code: 'quiet', ref: `running:quiet:${Math.round(at / 1000)}`, text: `実行中のまま会話の記録が ${d} 進んでいない（固まっている・確認の画面を待っている可能性。interrupt で止めて状況を聞ける）` }],
+  };
+}
+
 // --- reports -----------------------------------------------------------------------------------
 // entries = [{ tabKey, wcId, folder, folderName, label, backlogId, wait }] -> those with alerts
 const alerting = (entries) => (entries || []).filter((e) => e && e.wait && e.wait.alerts && e.wait.alerts.length);
@@ -557,7 +626,8 @@ function forManager(entries, now = Date.now()) {
       waitedSec: Math.round((now - e.wait.since) / 1000),
       items: e.wait.items,
       alerts: e.wait.alerts.map((a) => ({ code: a.code, text: a.text })),
-      canNudge: e.wait.kind !== 'user',
+      canNudge: e.wait.kind !== 'user' && e.wait.kind !== 'running',
+      canInterrupt: e.wait.kind === 'running', // UX11: the outbox interrupt (Esc, then the report request)
     })),
   };
 }
@@ -567,13 +637,14 @@ function formatForManager(entries) {
   const list = alerting(entries);
   if (!list.length) return '';
   const lines = list.slice(0, 10).map((e) => `- [${e.folderName}] tabKey ${e.tabKey}${e.backlogId ? ` backlogId ${e.backlogId}` : ''}: ${e.wait.alerts.map((a) => a.text).join(' / ')}`);
+  const running = list.some((e) => e.wait.kind === 'running');
   return [
-    `終わらない待ちがあります（${list.length} 件）。waits.json を読み、待っている相手が止まっているなら nudge でリーダーに確かめさせてください:`,
+    `終わらない待ちがあります（${list.length} 件）。waits.json を読み、待っている相手が止まっているなら nudge でリーダーに確かめさせてください${running ? '（実行中のまま黙っているもの〈kind running〉は nudge できない。interrupt で止めて状況を聞く）' : ''}:`,
     ...lines,
   ].join('\n');
 }
 
-// The warn notice in 「PMO から」 (key app:waits), null when nothing alerts.
+// The warn notice in 「ルーターから」 (key app:waits), null when nothing alerts.
 const NOTICE_KEY = 'app:waits';
 function notice(entries) {
   const list = alerting(entries);
@@ -602,8 +673,23 @@ function checkNudge(a, entries) {
   const entry = (entries || []).find((e) => e && e.tabKey === a.tabKey && e.wait);
   if (!entry) return { error: `tab ${a.tabKey} is not waiting (running, closed or never idle); read waits.json again` };
   if (entry.wait.kind === 'user') return { error: 'that session waits for the user (a dialog); use answer or leave it to the user' };
+  if (entry.wait.kind === 'running') return { error: 'that session is still running (it does not take input); use interrupt' };
   const text = a.text.replace(/\r\n?/g, '\n').trim().slice(0, NUDGE_MAX);
-  return { ok: true, entry, text: `（PMO から）${text}` };
+  return { ok: true, entry, text: `（ルーターから）${text}` };
+}
+
+// UX11: the manager's interrupt action. a = { tabKey, reason, text? } -> { ok, entry, text } | { error }. Only a tab in
+// the current entries as kind 'running' (実行中のまま黙っている, runningOf) — a working session is never stopped
+// because the ルーター guessed. text: what is typed after Esc (default INTERRUPT_TEXT), with 「（ルーターから）」 in front.
+const INTERRUPT_TEXT = '作業を一度止めました。いまの状況（やったこと・止まっていた理由・次の一手）を短く報告してから、続けられるなら続けてください。';
+function checkInterrupt(a, entries) {
+  if (!a || typeof a.tabKey !== 'string' || !a.tabKey) return { error: 'tabKey missing' };
+  if (typeof a.reason !== 'string' || !a.reason.trim()) return { error: 'reason missing' };
+  if (a.text !== undefined && typeof a.text !== 'string') return { error: 'text must be a string' };
+  const entry = (entries || []).find((e) => e && e.tabKey === a.tabKey && e.wait);
+  if (!entry || entry.wait.kind !== 'running') return { error: `tab ${a.tabKey} is not 実行中 with its work stopped (only kind running in waits.json can be interrupted); read waits.json again` };
+  const text = (a.text && a.text.trim() ? a.text : INTERRUPT_TEXT).replace(/\r\n?/g, '\n').trim().slice(0, NUDGE_MAX);
+  return { ok: true, entry, text: `（ルーターから）${text}` };
 }
 
 module.exports = {
@@ -620,8 +706,13 @@ module.exports = {
   parseProcs,
   outTargets,
   timeoutOf,
+  sleepOnly,
   newestOf,
   waitOf,
+  RUN_QUIET_MIN,
+  runningOf,
+  INTERRUPT_TEXT,
+  checkInterrupt,
   forManager,
   formatForManager,
   notice,

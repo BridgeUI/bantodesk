@@ -1,6 +1,6 @@
 // When a subagent / team member that still shows "running" / "starting" is not waited for any more (stale). One rule
 // for the renderer (liveAgents: backlogReady, workActivity, tabWorks, the update hold) and main's waits.js (the tab
-// heads' wait line, the widget, manager/waits.json), so the PMO never sees a tab "waiting" for an agent the window no
+// heads' wait line, the widget, manager/waits.json), so the ルーター never sees a tab "waiting" for an agent the window no
 // longer counts (AT-166 follow-up, T23). Loaded as a <script> (window.StaleAgents) and with require (main, tests).
 //
 //  - after 作業完了 (doneAt): no transcript line for STALE_AGENT_MS (PROGRESS 46; exits the parser cannot see)

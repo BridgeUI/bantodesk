@@ -74,7 +74,8 @@ const TITLE_MAX = 200;
 // Item = { id, text, tabId: UUID|null, status, createdAt, startedAt|null, doneAt|null, note,
 //          kind?: 'research'|'implement'|'verify', touches?: string[], after?: string[],
 //          seq?: number (task number in the folder, UIUX U1), title?: string (short heading, ~20 chars),
-//          model?: string, effort?: string (AT-6: the PMO's choice at route / create; none = the default, src/main/models.js) }
+//          model?: string, effort?: string (AT-6: the ルーター's choice at route / create; none = the default, src/main/models.js),
+//          assignTries?: number (SCH-AS: assignments to a tab given back because the start was not confirmed) }
 // The optional fields are only present when set (an item without them is stored exactly as before).
 // `no` ("AT-12" = the folder's prefix + seq) is not stored: getBacklog / saveBacklog add it from numbers.json.
 function sanitizeItem(o) {
@@ -99,6 +100,11 @@ function sanitizeItem(o) {
   if (title) it.title = title;
   if (models.isModel(o.model)) it.model = o.model;
   if (models.isEffort(o.effort)) it.effort = o.effort;
+  // SCH-AS: how many times the item was assigned to a new tab whose start could not be confirmed (src/renderer/startwatch.js)
+  if (Number.isInteger(o.assignTries) && o.assignTries > 0) it.assignTries = Math.min(o.assignTries, 10);
+  // SCH-HO: an active item that went over to a new session in a context handoff (renderer handoff.js complete): its
+  // start there is judged by any sign of the session working, not by the 60 s send check (renderer.js backlogTick)
+  if (it.status === 'active' && o.handoff && typeof o.handoff === 'object' && num(o.handoff.at)) it.handoff = { at: num(o.handoff.at), ...(typeof o.handoff.from === 'string' && UUID_RE.test(o.handoff.from) ? { from: o.handoff.from } : {}) };
   // an active item marked just before an update restart at a turn gap (renderer backlog.js markResume): continues after it
   if (it.status === 'active' && o.resume && typeof o.resume === 'object' && num(o.resume.at)) it.resume = { at: num(o.resume.at), ...(o.resume.restart === true ? { restart: true } : {}) }; // restart: not an update (AT-101)
   return it;
@@ -252,6 +258,17 @@ function folderEntry(reg, workDir) {
   for (let n = 2; prefixTaken(reg, prefix, key); n++) prefix = `${[...base].slice(0, PREFIX_MAX - String(n).length).join('')}${n}`;
   e = reg.folders[key] = { folder: path.resolve(workDir), prefix, next: 1, migrated: false };
   return e;
+}
+
+// UX11 (§1.6 row 11): every folder the number registry knows (numbers.json; a folder gets an entry when its first item
+// is numbered, a routed folder at the route), with its backlog file. -> [{ folder, file }]
+function knownFolders(dir) {
+  const out = [];
+  for (const e of Object.values(loadRegistry(dir).folders)) {
+    if (!e || typeof e.folder !== 'string' || !path.isAbsolute(e.folder)) continue;
+    out.push({ folder: e.folder, file: backlogFile(dir, e.folder) });
+  }
+  return out;
 }
 
 // Gives the items without a seq one (in place, items = sanitized). known(id) -> stored item | null fills seq / title of
@@ -554,4 +571,4 @@ function findReplaced(backlogs, linkedOf = null) {
   return out;
 }
 
-module.exports = { autoPrefix, prefixValid, prefixOf, setPrefix, assignNo, numberItems, NUMBERS_FILE, TITLE_MAX, STATUSES, setStatus, updateStatus, routedInboxId, findReplaced, KINDS, TOUCHES_MAX, AFTER_MAX, cleanTouch, cleanTouches, cleanAfter, sanitizeItem, applyOrder, followsOrder, userOrderLock, USER_ORDER_LOCK_MS, sanitizeBacklog, backlogFile, getBacklog, readBacklogSync, saveBacklog, saveBacklogSync };
+module.exports = { knownFolders, autoPrefix, prefixValid, prefixOf, setPrefix, assignNo, numberItems, NUMBERS_FILE, TITLE_MAX, STATUSES, setStatus, updateStatus, routedInboxId, findReplaced, KINDS, TOUCHES_MAX, AFTER_MAX, cleanTouch, cleanTouches, cleanAfter, sanitizeItem, applyOrder, followsOrder, userOrderLock, USER_ORDER_LOCK_MS, sanitizeBacklog, backlogFile, getBacklog, readBacklogSync, saveBacklog, saveBacklogSync };

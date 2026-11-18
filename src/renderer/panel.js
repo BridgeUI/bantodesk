@@ -1,5 +1,7 @@
-// Assist panel (owner: panel). Renders the active tab into per-section containers (Panel.attach) and,
-// while it exists, the legacy all-in-one <aside id="panel">.
+// Assist panel (owner: panel). UX15: one column, 「この作業」 (the request, who started it, state and last move, what
+// happens next, the next items, changed files, team, weight, and the one door for 再起動 / 引き継ぐ), in the dock
+// container (Panel.attach) or the legacy <aside id="panel">. The main window's session view draws the same with
+// Panel.renderWork from the data its owner window relays (Panel.workData).
 // Pure state handling (newStats / applyEvent / computeView / summary) is DOM-free so it can be
 // unit-tested in Node; the DOM part only runs in the browser.
 (function () {
@@ -15,6 +17,7 @@
   // "…was moved to the background (ID: x)", "Monitor started (task x, …"
   const BG_START_RE = /running in background with ID: ([A-Za-z0-9_-]+)|moved to the background \(ID: ([A-Za-z0-9_-]+)\)|^Monitor started \(task ([A-Za-z0-9_-]+)/;
   const MAX_BG = 200;
+  const CMD_RECENT_MS = 15 * 60 * 1000; // summary().cmds keeps an ended command this long (関係図: 「終わった」)
   // "… Output is being written to: C:\…\tasks\b01t3em1l.output. You will be notified …" (2.1.31x)
   const BG_OUT_RE = /Output is being written to:\s*(.+?\.output)\b/;
   const SHELL_TOOLS = new Set(['Bash', 'PowerShell', 'Monitor']);
@@ -471,7 +474,7 @@
 
   function summaryOf(tab) {
     const s = tab && tab.stats;
-    if (!s || s.v !== 2) return { model: '', contextTokens: 0, contextPct: 0, costUsd: 0, todos: [], subagents: [], team: null, errors: 0, bg: [] };
+    if (!s || s.v !== 2) return { model: '', contextTokens: 0, contextPct: 0, costUsd: 0, todos: [], subagents: [], team: null, errors: 0, bg: [], cmds: [] };
     const v = computeView(s);
     const agents = agentList(s);
     const team = teamView(s, agents);
@@ -509,6 +512,12 @@
         .filter(([, t]) => t.status === 'running')
         .slice(-10)
         .map(([id, t]) => ({ id, startedAt: t.startedAt, command: t.command || '', outFile: t.outFile || '' })),
+      // 関係図 (agents-view.js, 依頼-481): the background commands as boxes — running ones and those that ended in the last
+      // CMD_RECENT_MS, newest 8: [{ id, command, startedAt, endedAt, status }] (from the transcript only; no process list)
+      cmds: [...(s.bg || new Map())]
+        .filter(([, t]) => t.status === 'running' || (t.endedAt && Date.now() - t.endedAt < CMD_RECENT_MS))
+        .slice(-8)
+        .map(([id, t]) => ({ id, command: String(t.command || '').slice(0, 300), startedAt: t.startedAt || 0, endedAt: t.endedAt || 0, status: t.status || 'running' })),
     };
   }
 
@@ -531,15 +540,6 @@
     if (m < 60) return `${m}m ${String(sec % 60).padStart(2, '0')}s`;
     return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
   }
-  function toolClass(name) {
-    if (name === 'Auto-yes') return 'approve';
-    if (/^(Bash|PowerShell|BashOutput|KillShell)$/.test(name)) return 'sh';
-    if (/^(Read|Grep|Glob|LS|NotebookRead)$/.test(name)) return 'read';
-    if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(name)) return 'write';
-    if (/^(Agent|Task)$/.test(name)) return 'agent';
-    if (/^(WebFetch|WebSearch)$/.test(name)) return 'web';
-    return 'other';
-  }
 
   const pure = { newStats, applyEvent, addLocalTo, computeView, taskList, agentList, teamView, teammateName, summaryOf, relPath, absPath, fmtK, fmtCost, fmtElapsed };
 
@@ -550,31 +550,15 @@
   }
 
   // =================================================================== DOM
-  // Two ways to show the panel:
-  //  - Sections (Panel.SECTIONS): core gives one container per section (a dock panel each) via Panel.attach(id, el).
-  //    The dock tab is the title, so a container holds only the section body (no head / chevron).
-  //  - Legacy: everything in #panel with collapsible section heads (kept until core switches over).
+  // Two ways to show the panel (UX15: one section, 「この作業」):
+  //  - Sections (Panel.SECTIONS): core gives the container (a dock panel) via Panel.attach(id, el).
+  //  - Legacy: the same in #panel (no dock).
   // Visual rule (see conversation.css header): no cards. Plain rows, spacing / hairlines, coloured text and
   // small glyphs for status, a thin left rule only for nested detail.
   const STATUS_LABEL = { starting: '起動中', running: '実行中', asking: '入力待ち', idle: '待機中', exited: '終了' };
   const AGENT_STATUS_LABEL = { starting: '開始中', running: '実行中', idle: '待機中', done: '完了', error: 'エラー' };
-  const SECTIONS = [
-    { id: 'overview', title: '概要' },
-    { id: 'tasks', title: 'タスク' },
-    { id: 'team', title: 'チーム' },
-    { id: 'agents', title: 'エージェント' },
-    { id: 'files', title: '変更ファイル' },
-    { id: 'tools', title: 'ツール' },
-  ];
+  const SECTIONS = [{ id: 'work', title: 'この作業' }];
   const SECTION_IDS = new Set(SECTIONS.map((x) => x.id));
-  const EMPTY_TEXT = {
-    overview: 'まだアクティビティがありません。ターンが実行されると使用量がここに表示されます。',
-    tasks: 'タスクはまだありません',
-    team: 'このセッションにチームはありません',
-    agents: 'サブエージェントはまだありません',
-    files: '変更されたファイルはまだありません',
-    tools: 'ツール呼び出しはまだありません',
-  };
   const LEGACY = '#panel';
   const hosts = new Map(); // section id -> container element (Panel.attach)
   const dirty = new Set(); // LEGACY and / or section ids waiting for a render
@@ -582,12 +566,6 @@
   let currentTab;
   let rafPending = false;
   let retryTimer = 0;
-  let collapsed;
-  try {
-    collapsed = new Set(JSON.parse(localStorage.getItem('panel.collapsed') || '[]'));
-  } catch {
-    collapsed = new Set();
-  }
 
   function h(tag, cls, text) {
     const el = document.createElement(tag);
@@ -601,10 +579,8 @@
     return span;
   }
   const ICONS = {
-    chevron: '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5 5 6.5 8 3.5"/></svg>',
     check: '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.3 5 8.7 9.5 3.6"/></svg>',
     cross: '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l6 6M9 3 3 9"/></svg>',
-    branch: '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5.5" r="1.5"/><path d="M4.5 5v6M11.5 7c0 2.5-3 3-7 4"/></svg>',
     file: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M4 1.75h5l3 3v9.5H4z"/><path d="M9 1.75v3h3"/></svg>',
   };
   const isLive = (st) => st === 'running' || st === 'starting';
@@ -621,17 +597,6 @@
     else st.append(icon(ICONS.cross));
     return st;
   }
-  function elapsedEl(ms, live, startedAt) {
-    const el = h('span', 'pn-elapsed', ms ? fmtElapsed(ms) : '');
-    if (live && startedAt) el.dataset.start = String(startedAt);
-    return el;
-  }
-  function lastToolEl(lastTool) {
-    const lt = h('div', 'pn-alast');
-    lt.append(h('b', null, lastTool.name || ''), document.createTextNode(' ' + String(lastTool.arg ?? '').slice(0, 160)));
-    return lt;
-  }
-
   // ---- derived model shared by all sections and badges
   function modelOf(tab) {
     const s = tab.stats && tab.stats.v === 2 ? tab.stats : (tab.stats = newStats());
@@ -644,253 +609,245 @@
     return { tab, s, v, tasks, team, agents };
   }
 
-  function badgesOf(m) {
+  function badgesOf() {
     const out = {};
-    for (const sec of SECTIONS) out[sec.id] = { badge: '', cls: '', empty: true };
-    if (!m) return out;
-    const { s, v, tasks, team, agents } = m;
-    out.overview = { badge: v.messages ? `≈ ${fmtCost(v.costUsd)}` : '', cls: '', empty: false };
-    const done = tasks.filter((t) => t.status === 'completed').length;
-    out.tasks = { badge: tasks.length ? `${done}/${tasks.length}` : '', cls: '', empty: !tasks.length };
-    if (team) {
-      const live = team.members.filter((x) => isLive(x.status)).length;
-      out.team = {
-        badge: team.removed ? '終了' : live ? `${live} 実行中` : `${team.members.length} 人`,
-        cls: live && !team.removed ? 'live' : '',
-        empty: false,
-      };
-    }
-    const running = agents.filter((a) => isLive(a.status)).length;
-    out.agents = { badge: agents.length ? (running ? `${running} 実行中` : String(agents.length)) : '', cls: running ? 'live' : '', empty: !agents.length };
-    out.files = { badge: s.files.size ? String(s.files.size) : '', cls: '', empty: !s.files.size };
-    out.tools = {
-      badge: [s.toolTotal ? fmt(s.toolTotal) : '', s.errors ? `${s.errors} err` : ''].filter(Boolean).join(' · '),
-      cls: s.errors ? 'errb' : '',
-      empty: !s.tools.length,
-    };
+    for (const sec of SECTIONS) out[sec.id] = { badge: '', cls: '', empty: false };
     return out;
   }
 
-  // ---- overview: session header + usage
-  function renderHeader(tab, s) {
-    const box = h('div', 'pn-head');
-    box.append(h('div', 'pn-name', tab.label || ''));
-    const meta = h('div', 'pn-meta');
-    const add = (el) => {
-      if (meta.childElementCount) meta.append(h('span', 'pn-sep', '·'));
-      meta.append(el);
-    };
-    if (tab.status) add(h('span', `pn-status st-${tab.status}`, STATUS_LABEL[tab.status] || tab.status));
-    if (s.model) add(h('span', 'pn-model', s.model));
-    if (tab.worktree) {
-      const wt = h('span', 'pn-worktree');
-      wt.append(icon(ICONS.branch), document.createTextNode(` ${tab.worktree}`));
-      wt.title = 'git worktree';
-      add(wt);
-    }
-    if (meta.childElementCount) box.append(meta);
-    if (tab.cwd) {
-      const cwd = h('div', 'pn-cwd', normPath(tab.cwd).split('/').slice(-2).join('/'));
-      cwd.title = tab.cwd;
-      box.append(cwd);
-    }
-    const id = h('div', 'pn-id', tab.id || '');
-    id.title = 'セッションID（選択してコピー）';
-    box.append(id);
-    return box;
-  }
-
-  function kv(k, v, cls) {
-    const row = h('div', 'pn-kv-row' + (cls ? ' ' + cls : ''));
-    row.append(h('span', 'k', k));
-    const val = h('span', 'v');
-    if (v instanceof Node) val.append(v);
-    else val.textContent = v;
-    row.append(val);
-    return row;
-  }
-
-  // Session memory (roadmap 22, docs/memory-investigation.md): tab.memMb comes from main's pty:mem (core).
-  // Over the mark ("重いセッションの目安", stored with the handoff settings) the row turns orange and offers
-  // 再起動 (core listens for the document event 'bantodesk:restart' { tabId }).
-  function memRow(tab) {
-    if (!tab || tab.exited || tab.memMb == null) return null;
-    const mark = (window.Handoff && window.Handoff.settings().memMb) || 800;
-    const heavy = tab.memMb >= mark;
-    const text = tab.memMb >= 1000 ? `${(tab.memMb / 1024).toFixed(1)}GB` : `${Math.round(tab.memMb)}MB`;
-    const val = h('span', 'pn-mem');
-    val.append(document.createTextNode(text));
-    if (heavy) {
-      const btn = h('button', 'pn-restart', '再起動');
-      btn.dataset.usage = 'session.panel.restart'; // UA1
-      btn.type = 'button';
-      btn.title = `目安の ${mark}MB を超えています。claude を同じ会話のまま（--resume）起動し直すと軽くなります`;
-      btn.addEventListener('click', () => document.dispatchEvent(new CustomEvent('bantodesk:restart', { detail: { tabId: tab.id } })));
-      val.append(btn);
-    }
-    const row = kv('メモリ', val, heavy ? 'warn' : '');
-    row.title = 'このセッションの claude とその子プロセスのプライベートメモリ（約 1 分ごとに更新）';
-    return row;
-  }
-
-  function renderUsage(s, v, tab) {
-    const box = h('div', 'pn-usage');
-    const mem = memRow(tab);
-    if (!v.messages) {
-      box.append(emptyLine(EMPTY_TEXT.overview));
-      if (s.autoYes || mem) {
-        const list = h('div', 'pn-kv');
-        if (mem) list.append(mem);
-        if (s.autoYes) list.append(kv('自動承認', fmt(s.autoYes)));
-        box.append(list);
-      }
-      return box;
-    }
-    const pct = v.contextPct;
-    const level = pct > 85 ? 'danger' : pct > 70 ? 'warn' : '';
-    const ctx = h('div', 'pn-ctx' + (level ? ' ' + level : ''));
-    const top = h('div', 'pn-ctx-top');
-    top.append(h('span', 'k', 'コンテキスト'), h('span', 'v', `${fmtK(v.contextTokens)} / ${fmtK(v.contextWindow)}`), h('span', 'pn-pct', `${pct.toFixed(pct < 10 ? 1 : 0)}%`));
-    const bar = h('div', 'pn-bar' + (level ? ' ' + level : ''));
-    const fill = document.createElement('i');
-    fill.style.width = `${pct.toFixed(1)}%`;
-    bar.append(fill);
-    ctx.append(top, bar);
-    // Context handoff (handoff.js, docs/plan-handoff.md): from min(80 %, threshold) a button starts it by
-    // hand (core listens for the document event 'bantodesk:handoff' { tabId }); its progress below.
+  // ---- この作業 (UX15, docs/ux15-check.md, docs/ux-journey.md §5.3): the one column of the workbench and of the main
+  // window's session view. workData() makes plain data (JSON-safe: main relays it to the main window while it views
+  // the session, src/main/oneview.js), renderWork() draws it in either window. The former tabs タスク / エージェント /
+  // ツール are in the conversation itself; 再起動 / 引き継ぐ have their one door at the bottom.
+  // ext = the core's part (renderer.js Panel.setInfo(fn), fn(tab) ->):
+  //   { item: { id, no, title, text } | null, by: 'ルーター' | 'あなた' | '', startedAt, lastMoveAt, after: { short, full } | null,
+  //     next: [{ no, title, why }], auto: boolean | null, autoWhy, busy: [string] }
+  let infoOf = null;
+  const WORK_FILES_RELAYED = 30;
+  function workData(tab, m, ext) {
+    const { s, v, team } = m;
+    const e = ext || (infoOf ? infoOf(tab) || {} : {});
     const H = window.Handoff;
-    const hoText = H && tab ? H.statusText(tab) : '';
-    const hoFrom = H ? Math.min(80, H.threshold()) : 80;
-    if (pct >= hoFrom || hoText) {
-      ctx.append(h('div', 'pn-hint', hoText || 'コンテキストが残りわずかです — /compact で縮めるか、新しいセッションへ引き継ぐ'));
-      if (H && tab && !tab.exited && !tab.handedOff && !/中|待って|起動/.test(hoText)) {
-        const btn = h('button', 'pn-handoff', '新しいセッションへ引き継ぐ');
-        btn.dataset.usage = 'session.panel.handoff'; // UA1
-        btn.type = 'button';
-        btn.title = 'このセッションに引き継ぎメモを書かせ、同じフォルダの新しいセッションで続きを始めます（古いタブは終了済みとして残ります）';
-        btn.addEventListener('click', () => document.dispatchEvent(new CustomEvent('bantodesk:handoff', { detail: { tabId: tab.id } })));
-        ctx.append(btn);
-      }
-    }
-    box.append(ctx);
-
-    const list = h('div', 'pn-kv');
-    const cost = kv('概算コスト', `≈ ${fmtCost(v.costUsd)}`);
-    cost.title = 'API 定価での概算（pricing.js）。サブスクリプション利用時の実請求とは異なります。';
-    if (mem) list.append(mem);
-    list.append(
-      cost,
-      kv('ターン', fmt(v.turns)),
-      kv('出力トークン', fmtK(s.output)),
-      kv('キャッシュヒット', `${v.cacheHitPct.toFixed(1)}%`),
-    );
-    if (s.autoYes) list.append(kv('自動承認', fmt(s.autoYes)));
-    if (s.errors) list.append(kv('ツールエラー', fmt(s.errors), 'err'));
-    box.append(list);
-    box.append(h('div', 'pn-detail', `入力 ${fmtK(s.input)} · キャッシュ書込 ${fmtK(s.cacheCreate)} · 読込 ${fmtK(s.cacheRead)} · ${fmt(v.messages)} msgs`));
-    return box;
+    const hoText = H ? H.statusText(tab) || '' : '';
+    const files = [...s.files.values()].sort((a, b) => b.lastTs - a.lastTs);
+    return {
+      tabId: tab.id || '',
+      label: tab.label || '',
+      cwd: tab.cwd || '',
+      status: tab.status || '',
+      exited: !!tab.exited,
+      rest: tab.rest || null,
+      handedOff: !!tab.handedOff,
+      item: e.item || null,
+      by: e.by || '',
+      startedAt: e.startedAt || 0,
+      lastMoveAt: e.lastMoveAt || 0,
+      after: e.after || null,
+      next: Array.isArray(e.next) ? e.next.slice(0, 5) : [],
+      auto: typeof e.auto === 'boolean' ? e.auto : null,
+      autoWhy: e.autoWhy || '',
+      busy: Array.isArray(e.busy) ? e.busy : [],
+      files: files.slice(0, WORK_FILES_RELAYED).map((f) => ({ abs: f.abs, rel: relPath(f.abs, tab.cwd), count: f.count })),
+      filesTotal: files.length,
+      team: team ? { name: team.name || '', removed: !!team.removed, members: team.members.map((x) => ({ name: x.name, status: x.status, agentId: x.agentId || null })) } : null,
+      ctxPct: v.messages ? Math.round(v.contextPct) : null,
+      memMb: tab.exited || tab.rest || tab.memMb == null ? null : Math.round(tab.memMb),
+      memMark: (H && H.settings().memMb) || 800,
+      handoffText: hoText,
+      canHandoff: !!(H && !tab.exited && !tab.handedOff && !tab.rest && !/中|待って|起動/.test(hoText)),
+      model: s.model || '',
+      costUsd: v.messages ? v.costUsd : null,
+      turns: v.turns || 0,
+    };
   }
 
-  // ---- tasks
-  function renderTasks(list) {
-    const done = list.filter((t) => t.status === 'completed').length;
-    const box = h('div', 'pn-tasks');
-    const bar = h('div', 'pn-bar thin');
-    const fill = document.createElement('i');
-    fill.style.width = `${list.length ? (done / list.length) * 100 : 0}%`;
-    bar.append(fill);
+  const R = () => (typeof window !== 'undefined' && window.Reassure) || null;
+  const LW = (k, d) => (window.Labels && window.Labels.WORDS && window.Labels.WORDS[k]) || d; // labels.js (docs/ui-copy.md)
+  const agoText = (at) => (R() ? R().ago(at) : timeStr(at));
+  const clockText = (at) => (R() ? R().clock(at) : timeStr(at));
+  const memText = (mb) => (mb >= 1000 ? `${(mb / 1024).toFixed(1)}GB` : `${Math.round(mb)}MB`);
+  function stateWord(d) {
+    if (d.rest === 'done') return '完了（claude は止めています）';
+    if (d.rest) return '休止中';
+    if (d.exited) return '終了';
+    if (d.handedOff) return '引き継ぎ済み';
+    return STATUS_LABEL[d.status] || d.status || '—';
+  }
+
+  // o: { act(op, arg), files?: Node (the workbench's own list: the diff dialog and プレビュー), usage: id prefix }
+  function renderWork(d, o = {}) {
+    const box = h('div', 'wk');
+    const pre = o.usage || 'session.panel';
+    const act = (op, arg) => o.act && o.act(op, arg);
+    const row = (k, label, v, cls) => {
+      const r = h('div', `wk-row${cls ? ' ' + cls : ''}`);
+      r.dataset.k = k;
+      r.append(h('span', 'wk-k', label));
+      const val = h('div', 'wk-v');
+      if (v instanceof Node) val.append(v);
+      else val.textContent = v;
+      r.append(val);
+      box.append(r);
+      return r;
+    };
+    // 依頼
+    if (d.item) {
+      const v = h('div', 'wk-item');
+      if (d.item.no) v.append(h('span', 'wk-no', d.item.no), document.createTextNode(' '));
+      v.append(document.createTextNode(d.item.title || ''));
+      v.title = d.item.text || '';
+      row('item', '依頼', v);
+    } else row('item', '依頼', 'なし（このセッションで直接）', 'dim');
+    // 始めた人と時刻
+    if (d.by || d.startedAt) row('by', '始めた', [d.by, d.startedAt ? clockText(d.startedAt) : ''].filter(Boolean).join(' · '));
+    // 状態と最後の動き
+    const st = h('div', 'wk-state');
+    st.append(h('span', `wk-st st-${d.rest ? 'rest' : d.exited ? 'exited' : d.status}`, stateWord(d)));
+    if (d.lastMoveAt) {
+      st.append(document.createTextNode(' · 最後の動き '));
+      const a = h('span', 'wk-ago', agoText(d.lastMoveAt));
+      a.dataset.at = String(d.lastMoveAt);
+      a.title = clockText(d.lastMoveAt);
+      st.append(a);
+    }
+    row('state', '状態', st);
+    // この後に起きること
+    if (d.after) row('after', 'この後', d.after.short).title = d.after.full || d.after.short;
+    // 次（このセッションの待ち・この作業を前提に待つもの）
+    if (d.next.length) {
+      const ul = h('ul', 'wk-next');
+      for (const n of d.next) {
+        const li = h('li', null);
+        if (n.no) li.append(h('span', 'wk-no', n.no), document.createTextNode(' '));
+        li.append(document.createTextNode(n.title || ''));
+        if (n.why) li.append(h('span', 'wk-why', ` · ${n.why}`));
+        ul.append(li);
+      }
+      row('next', '次', ul);
+    } else row('next', '次', 'なし', 'dim');
+    // 一通り終わったら自動で送る (was the backlog panel's switch)
+    if (d.auto !== null) {
+      const lab = h('label', 'wk-auto');
+      const c = h('input');
+      c.type = 'checkbox';
+      c.checked = d.auto;
+      c.dataset.usage = `${pre}.auto`;
+      c.addEventListener('change', () => act('auto', c.checked));
+      lab.append(c, document.createTextNode(` ${LW('autoSend', '一通り終わったら自動で送る')}`));
+      const v = h('div', null);
+      v.append(lab);
+      if (d.autoWhy) v.append(h('div', 'wk-why', d.autoWhy));
+      row('auto', '待ち', v).title = 'このセッションの待ちの項目を、手が空いたら順に送ります（外すと送りません）';
+    }
+    // 変えたファイル
+    if (d.filesTotal) {
+      let list = o.files || null;
+      if (!list) {
+        list = h('ul', 'wk-files');
+        for (const f of d.files) {
+          const parts = normPath(f.rel).split('/');
+          const base = parts.pop();
+          const li = h('li', 'wk-file');
+          li.tabIndex = 0;
+          li.title = `${f.abs}\nクリックで開く（差分は作業台の「この作業」で見られます）`;
+          li.append(h('span', 'pn-fbase', base), h('span', 'pn-fdir', parts.join('/')), h('span', 'pn-fcount', `×${f.count}`));
+          li.addEventListener('click', () => act('file', f.abs));
+          ul2key(li, () => act('file', f.abs));
+          list.append(li);
+        }
+        if (d.filesTotal > d.files.length) list.append(h('li', 'wk-why', `ほか ${d.filesTotal - d.files.length} 件（作業台で見られます）`));
+      }
+      row('files', `変えたファイル ${d.filesTotal}`, list, 'wk-block');
+    } else row('files', '変えたファイル', 'まだありません', 'dim');
+    // チーム
+    if (d.team) {
+      const live = d.team.members.filter((x) => isLive(x.status)).length;
+      const v = h('div', null);
+      v.append(document.createTextNode(`${d.team.name || 'チーム'}${d.team.removed ? '（片付け済み）' : ''} · ${d.team.members.length} 人${live ? `（${live} 実行中）` : ''}`));
+      const ul = h('ul', 'wk-members');
+      for (const mbr of d.team.members) {
+        const li = h('li', `a-${mbr.status}`);
+        li.append(statusGlyph(mbr.status), document.createTextNode(` @${mbr.name}`));
+        if (mbr.agentId && o.member) {
+          li.classList.add('pn-clickable');
+          li.title = `クリックで @${mbr.name} の会話を表示`;
+          li.addEventListener('click', () => o.member(mbr));
+        }
+        ul.append(li);
+      }
+      v.append(ul);
+      row('team', 'チーム', v);
+    }
+    // 重さ（文脈・メモリ）
+    const heavy = d.memMb != null && d.memMb >= d.memMark;
+    const ctxLevel = d.ctxPct == null ? '' : d.ctxPct > 85 ? 'danger' : d.ctxPct > 70 ? 'warn' : '';
+    const wv = h('div', 'wk-weight');
+    const parts = [];
+    if (d.ctxPct != null) parts.push(h('span', `wk-ctx${ctxLevel ? ' ' + ctxLevel : ''}`, `文脈 ${d.ctxPct}%`));
+    if (d.memMb != null) {
+      const mm = h('span', `wk-mem${heavy ? ' heavy' : ''}`, `メモリ ${memText(d.memMb)}`);
+      mm.title = heavy ? `目安の ${d.memMark}MB を超えています。下の「再起動」で同じ会話のまま軽くなります` : 'このセッションの claude とその子プロセスのメモリ（約 1 分ごとに更新）';
+      parts.push(mm);
+    }
+    parts.forEach((p, i) => wv.append(...(i ? [document.createTextNode(' · '), p] : [p])));
+    if (!parts.length) wv.textContent = 'まだ分かりません';
+    if (d.costUsd != null) {
+      const c = h('div', 'wk-why', `≈ ${fmtCost(d.costUsd)} · ${fmt(d.turns)} ターン${d.model ? ` · ${d.model}` : ''}`);
+      c.title = 'API 定価での概算（pricing.js）。サブスクリプション利用時の実請求とは異なります。';
+      wv.append(c);
+    }
+    if (d.handoffText) wv.append(h('div', 'wk-why', d.handoffText));
+    else if (ctxLevel === 'danger') wv.append(h('div', 'wk-why', '文脈が残りわずかです — 下の「引き継ぐ」で新しいセッションへ'));
+    row('weight', '重さ', wv, heavy || ctxLevel ? 'warn' : '');
+    // the one door for 再起動 / 引き継ぐ (§5.4 まとめる) and フォルダを開く
+    const bar = h('div', 'wk-acts');
+    const btn = (op, label, title, extra = '') => {
+      const b = h('button', `wk-act wk-${op}${extra}`, label);
+      b.type = 'button';
+      b.dataset.op = op;
+      b.dataset.usage = `${pre}.${op}`;
+      b.title = title;
+      b.addEventListener('click', () => act(op));
+      bar.append(b);
+      return b;
+    };
+    if (!d.handedOff) {
+      const resume = d.exited || d.rest;
+      const busy = d.busy.length ? `\n\nいま: ${d.busy.join('、')}` : '';
+      btn('restart', resume ? LW('resume', '再開') : LW('restart', '再起動'), resume ? '同じ会話のまま claude を起動します（--resume）' : `同じ会話のまま claude を起動し直して、メモリを空けます${busy}`, heavy ? ' primary' : '');
+    }
+    if (d.canHandoff) btn('handoff', LW('handoff', '引き継ぐ'), 'このセッションに引き継ぎメモを書かせ、同じフォルダの新しいセッションで続きを始めます（古いタブは終了済みとして残ります）', ctxLevel === 'danger' ? ' primary' : '');
+    if (d.cwd) btn('folder', LW('openFolder', 'フォルダを開く'), `${d.cwd}\nFinder / エクスプローラーで開きます`);
     box.append(bar);
-    const ul = h('ul', 'pn-tasklist');
-    for (const t of list) {
-      const li = h('li', `t-${t.status}`);
-      const mark = h('span', 'pn-tmark');
-      if (t.status === 'completed') mark.append(icon(ICONS.check));
-      else if (t.status === 'in_progress') mark.append(h('span', 'pn-spin'));
-      else mark.append(h('span', 'pn-ring'));
-      li.append(mark);
-      const text = t.status === 'in_progress' && t.activeForm ? t.activeForm : t.text;
-      const span = h('span', 'pn-ttext', text);
-      if (text !== t.text) span.title = t.text;
-      li.append(span);
-      if (t.id) li.append(h('span', 'pn-tid', `#${t.id}`));
-      ul.append(li);
-    }
-    box.append(ul);
     return box;
   }
-
-  // ---- subagents
-  function renderAgents(list) {
-    const ul = h('ul', 'pn-agents');
-    for (const a of list) {
-      const li = h('li', `pn-agent a-${a.status}`);
-      const top = h('div', 'pn-arow');
-      top.append(statusGlyph(a.status), h('span', 'pn-atype', a.agentType), elapsedEl(a.elapsedMs, isLive(a.status), a.startedAt));
-      li.append(top);
-      if (a.description) li.append(h('div', 'pn-adesc', a.description));
-      const meta = [];
-      if (a.status === 'starting') meta.push('起動待ち…');
-      if (a.toolCount) meta.push(`${a.toolCount} tools`);
-      if (a.tokens) meta.push(`${fmtK(a.tokens)} tok`);
-      const showLast = a.lastTool && isLive(a.status);
-      if (meta.length || showLast) {
-        const nest = h('div', 'pn-nest');
-        if (showLast) nest.append(lastToolEl(a.lastTool));
-        if (meta.length) nest.append(h('div', 'pn-ameta', meta.join(' · ')));
-        li.append(nest);
-      }
-      ul.append(li);
-    }
-    return ul;
+  function ul2key(el, fn) {
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') fn();
+    });
   }
 
-  // ---- Agent Teams
-  // Teammate colors as named in ~/.claude/teams/<team>/config.json.
-  const TEAM_COLORS = {
-    blue: 'var(--blue)', green: 'var(--green)', red: 'var(--red)', yellow: 'var(--yellow)',
-    purple: 'var(--mauve)', magenta: 'var(--mauve)', orange: 'var(--peach)', cyan: 'var(--teal)', pink: '#f5c2e7',
-  };
-  // Clicking a member asks core to open that member's conversation (read-only) in a dock panel.
-  // Core listens for the document event 'bantodesk:open-member' { tabId, agentId, name }.
-  function renderTeam(team, tab) {
-    const box = h('div', 'pn-team');
-    box.append(h('div', 'pn-team-name', team.name + (team.removed ? '（片付け済み）' : '')));
-    const ul = h('ul', 'pn-agents pn-members');
-    for (const m of team.members) {
-      const li = h('li', `pn-agent a-${m.status}`);
-      if (m.agentId && tab) {
-        li.classList.add('pn-clickable');
-        li.title = `クリックで @${m.name} の会話を表示`;
-        li.addEventListener('click', () => {
-          document.dispatchEvent(new CustomEvent('bantodesk:open-member', { detail: { tabId: tab.id, agentId: m.agentId, name: m.name } }));
-        });
-      }
-      const top = h('div', 'pn-arow');
-      const dot = h('span', 'pn-mdot');
-      dot.style.background = TEAM_COLORS[m.color] || 'var(--overlay)';
-      top.append(dot, h('span', 'pn-atype', '@' + m.name), statusGlyph(m.status), h('span', 'pn-mstat', AGENT_STATUS_LABEL[m.status] || m.status));
-      top.append(elapsedEl(m.elapsedMs, isLive(m.status), m.startedAt));
-      li.append(top);
-      if (m.description) li.append(h('div', 'pn-adesc', m.description));
-      const meta = [m.agentType, m.model].filter(Boolean);
-      if (m.status === 'starting') meta.push('起動待ち…');
-      if (m.toolCount) meta.push(`${m.toolCount} tools`);
-      if (m.tokens) meta.push(`${fmtK(m.tokens)} tok`);
-      const showSum = m.summary && m.status !== 'running';
-      const showLast = m.lastTool && m.status === 'running';
-      if (showSum || showLast || meta.length) {
-        const nest = h('div', 'pn-nest');
-        if (showSum) nest.append(h('div', 'pn-msum', m.summary));
-        if (showLast) nest.append(lastToolEl(m.lastTool));
-        if (meta.length) nest.append(h('div', 'pn-ameta', meta.join(' · ')));
-        li.append(nest);
-      }
-      ul.append(li);
-    }
-    box.append(ul);
-    if (!team.members.length) box.append(emptyLine('メンバーはまだいません'));
-    box.append(h('div', 'pn-team-hint', 'メンバーをクリックすると会話を表示します（Claude Code のメンバー画面は、ターミナルで ↓ キー → Enter）'));
-    return box;
+  // the workbench's own actions (core listens for the document events; same as the earlier panel buttons)
+  function ownAct(tab) {
+    return (op, arg) => {
+      const fire = (name, detail) => document.dispatchEvent(new CustomEvent(name, { detail }));
+      if (op === 'restart') fire('bantodesk:restart', { tabId: tab.id });
+      else if (op === 'handoff') fire('bantodesk:handoff', { tabId: tab.id });
+      else if (op === 'folder') fire('bantodesk:open-folder', { tabId: tab.id, path: tab.cwd });
+      else if (op === 'auto') fire('bantodesk:auto-send', { tabId: tab.id, on: !!arg });
+    };
+  }
+  function workOf(m) {
+    if (!m.w) m.w = workData(m.tab, m);
+    return m.w;
+  }
+  function renderWorkFor(tab, m) {
+    const d = workOf(m);
+    return renderWork(d, {
+      act: ownAct(tab),
+      files: d.filesTotal ? renderFiles(tab, m.s) : null,
+      member: (mbr) => document.dispatchEvent(new CustomEvent('bantodesk:open-member', { detail: { tabId: tab.id, agentId: mbr.agentId, name: mbr.name } })),
+    });
   }
 
   // ---- changed files
@@ -951,96 +908,19 @@
     return b;
   }
 
-  // ---- tool calls: one line "Name  arg  time"; click expands the full argument / error under a left rule.
-  function renderTools(s) {
-    const ul = h('ul', 'pn-tools');
-    for (const t of s.tools) {
-      const li = h('li', `pn-tool ${toolClass(t.name)}${t.error ? ' err' : ''}${t.open ? ' open' : ''}`);
-      const row = h('div', 'pn-trow');
-      row.append(h('span', 'name', t.name), h('span', 'arg', t.arg), h('span', 'time', t.time));
-      row.title = 'クリックで詳細を表示/折りたたみ';
-      row.addEventListener('click', () => {
-        const sel = window.getSelection && window.getSelection();
-        if (sel && !sel.isCollapsed && li.contains(sel.anchorNode)) return;
-        t.open = !t.open;
-        li.classList.toggle('open', t.open);
-      });
-      const det = h('div', 'pn-tdetail');
-      if (t.arg) det.append(h('div', 'pn-targ', t.arg));
-      if (t.error) det.append(h('div', 'pn-errtext', t.error));
-      li.append(row, det);
-      ul.append(li);
-    }
-    return ul;
-  }
-
-  // Body of one section, or null when it has nothing to show.
-  function sectionBody(id, m) {
-    const { tab, s, v, tasks, team, agents } = m;
-    switch (id) {
-      case 'overview': {
-        const frag = document.createDocumentFragment();
-        frag.append(renderHeader(tab, s), renderUsage(s, v, tab));
-        return frag;
-      }
-      case 'tasks': return tasks.length ? renderTasks(tasks) : null;
-      case 'team': return team ? renderTeam(team, tab) : null;
-      case 'agents': return agents.length ? renderAgents(agents) : null;
-      case 'files': return s.files.size ? renderFiles(tab, s) : null;
-      case 'tools': return s.tools.length ? renderTools(s) : null;
-      default: return null;
-    }
-  }
-
-  // Content of an attached section container.
+  // Body of the one section (この作業).
   function buildSection(id, tab, m) {
     const view = h('div', `pn-view pn-v-${id}`);
     if (!tab) {
       view.append(emptyLine('セッションがありません'));
       return view;
     }
-    const body = sectionBody(id, m || modelOf(tab));
-    view.append(body || emptyLine(EMPTY_TEXT[id]));
+    view.append(renderWorkFor(tab, m || modelOf(tab)));
     return view;
   }
-
-  // ---- legacy all-in-one #panel
-  function legacySection(key, title, badge, body, cls) {
-    const sec = h('section', 'pn-sec' + (collapsed.has(key) ? ' collapsed' : ''));
-    const head = h('div', 'pn-sec-head');
-    head.append(icon(ICONS.chevron, 'pn-chev'), h('span', 'pn-sec-title', title));
-    if (badge) head.append(h('span', 'pn-badge' + (cls ? ' ' + cls : ''), badge));
-    head.addEventListener('click', () => {
-      if (collapsed.has(key)) collapsed.delete(key);
-      else collapsed.add(key);
-      try {
-        localStorage.setItem('panel.collapsed', JSON.stringify([...collapsed]));
-      } catch {}
-      sec.classList.toggle('collapsed');
-    });
-    const wrap = h('div', 'pn-sec-body');
-    wrap.append(body);
-    sec.append(head, wrap);
-    return sec;
-  }
-
+  // the legacy all-in-one #panel (no dock): the same column
   function buildLegacy(tab, model) {
-    const frag = document.createDocumentFragment();
-    if (!tab) {
-      frag.append(emptyLine('セッションがありません'));
-      return frag;
-    }
-    const m = model || modelOf(tab);
-    const b = badgesOf(m);
-    frag.append(renderHeader(tab, m.s));
-    frag.append(legacySection('usage', '使用量', b.overview.badge, renderUsage(m.s, m.v, m.tab)));
-    for (const { id, title } of SECTIONS) {
-      if (id === 'overview') continue;
-      const body = sectionBody(id, m);
-      if (body) frag.append(legacySection(id, title, b[id].badge, body, b[id].cls));
-      else if (id === 'tools') frag.append(legacySection(id, title, '', emptyLine(EMPTY_TEXT.tools)));
-    }
-    return frag;
+    return buildSection('work', tab, model);
   }
 
   // ---- render loop
@@ -1082,33 +962,14 @@
   // the user scrolls with the wheel (the panel follows SCROLL_QUIET_MS after the last wheel event, at most
   // SCROLL_MAX_DEFER_MS late).
   const sigs = new Map(); // container key -> signature of what it shows now
-  const liveFree = function (k, v) {
-    return k === 'elapsedMs' && isLive(this.status) ? undefined : v; // ticks by itself (the 1 s timer below)
-  };
   function sectionSig(id, m) {
     if (!m) return 'none';
-    const { tab, s, v, tasks, team, agents } = m;
-    switch (id) {
-      case 'overview': {
-        const H = window.Handoff;
-        return JSON.stringify([
-          tab.id, tab.label, tab.status, tab.worktree, tab.cwd, tab.memMb, !!tab.exited, !!tab.handedOff, s.model,
-          v.messages, v.costUsd, v.turns, v.contextTokens, v.contextWindow, v.contextPct, v.cacheHitPct,
-          s.input, s.output, s.cacheRead, s.cacheCreate, s.autoYes, s.errors,
-          H ? [H.statusText(tab), H.threshold(), H.settings().memMb] : null,
-        ]);
-      }
-      case 'tasks': return JSON.stringify(tasks.map((t) => [t.id, t.status, t.text, t.activeForm]));
-      case 'team': return JSON.stringify([tab.id, team], liveFree);
-      case 'agents': return JSON.stringify(agents, liveFree);
-      case 'files': {
-        let k = `${tab.id}|${tab.cwd}|${filesMore.get(tab.id) || 0}|${s.files.size}`;
-        for (const [key, f] of s.files) k += `|${key}:${f.count}:${f.lastTs}`;
-        return k;
-      }
-      case 'tools': return JSON.stringify([s.toolTotal, s.errors, s.tools.map((t) => [t.name, t.arg, t.time, t.error, !!t.open])]);
-      default: return null;
-    }
+    if (id !== 'work') return null;
+    const { tab, s } = m;
+    let k = JSON.stringify(workOf(m));
+    k += `|${tab.id}|${filesMore.get(tab.id) || 0}`;
+    for (const [key, f] of s.files) k += `|${key}:${f.count}:${f.lastTs}`;
+    return k;
   }
   let sigSeq = 0;
   function sigOf(key, m) {
@@ -1259,16 +1120,15 @@
     return badgesOf(tab ? modelOf(tab) : null);
   }
 
-  // Ticks the elapsed time of running subagents / members in every container without a full re-render.
+  // Ticks 「最後の動き 40 秒前」 in every container without a full re-render.
   setInterval(() => {
     if (document.hidden) return;
-    const now = Date.now();
     const roots = [...hosts.values()];
     if (panelEl) roots.push(panelEl);
     for (const root of roots) {
-      for (const el of root.querySelectorAll('.pn-elapsed[data-start]')) {
-        const start = Number(el.dataset.start);
-        if (start) el.textContent = fmtElapsed(now - start);
+      for (const el of root.querySelectorAll('.wk-ago[data-at]')) {
+        const at = Number(el.dataset.at);
+        if (at) el.textContent = agoText(at);
       }
     }
   }, 1000);
@@ -1423,6 +1283,12 @@
     shown,
     badges,
     summary: summaryOf,
+    // UX15: the core's part of この作業 (fn(tab) -> ext, see workData), the data for the main window's view, its drawing
+    setInfo(fn) {
+      infoOf = typeof fn === 'function' ? fn : null;
+    },
+    workData: (tab) => (tab ? workData(tab, modelOf(tab)) : null),
+    renderWork,
     _pure: pure,
   };
 })();

@@ -1,6 +1,6 @@
 // Carry-over import (AT-carryover, docs/plan-carryover.md): when a folder is opened on a PC / userData that has no
 // backlog for it yet, the unfinished rows of its own PROGRESS.md (進行中 / 確認待ち / 保留 / 未着手) and the docs/roadmap.md
-// rows that PROGRESS.md does not list yet are put on the inbox as 'hold' items (source 'app'), and the PMO is told to
+// rows that PROGRESS.md does not list yet are put on the inbox as 'hold' items (source 'app'), and the ルーター is told to
 // sort them (route / merge / drop). The backlog is never written here.
 // Duplicates: every candidate has a key relative to the folder ("PROGRESS.md#AT-202", "docs/roadmap.md#14"), written
 // as a 取り込みの印 line in the item's text; a key already imported (userData/carryover.json), already in the inbox
@@ -16,7 +16,7 @@ const ROADMAP = path.join('docs', 'roadmap.md');
 const ROADMAP_KEY = 'docs/roadmap.md';
 const ROADMAP_MAX_BYTES = 1024 * 1024;
 const OPEN_STATES = ['進行中', '確認待ち', '保留', '未着手']; // the order candidates are listed in
-const IMPORT_MAX = 30; // inbox items per import (the rest are counted in the PMO line)
+const IMPORT_MAX = 30; // inbox items per import (the rest are counted in the ルーター line)
 const FOLDERS_MAX = 200;
 const KEYS_MAX = 500;
 const MARK = '取り込みの印';
@@ -179,7 +179,7 @@ function inboxItemOf(folder, c, today) {
   lines.push(
     '## 背景',
     `- このフォルダをこの環境で開いたとき、アプリが ${c.source} の未完了の行から取り込んだ候補（${today}）。`,
-    '- PMO が今の状態（PROGRESS.md・git log）と照らして仕分ける: 続けるなら route、ほかの項目と同じなら merge、済んでいれば drop。',
+    '- ルーターが今の状態（PROGRESS.md・git log）と照らして仕分ける: 続けるなら route、ほかの項目と同じなら merge、済んでいれば drop。',
     `- フォルダ: ${folder}`,
   );
   if (c.updated) lines.push(`- 更新日: ${c.updated}`);
@@ -193,7 +193,7 @@ function inboxItemOf(folder, c, today) {
   };
 }
 
-// The line for the PMO's prompt (manager.notifyManager imported).
+// The line for the ルーター's prompt (manager.notifyManager imported).
 function pmoLine(folder, added, more) {
   const nos = added.map((a) => a.reqNo).filter(Boolean);
   const range = nos.length > 1 ? `${nos[0]}〜${nos[nos.length - 1]}` : nos[0] || '';

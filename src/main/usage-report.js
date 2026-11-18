@@ -33,6 +33,7 @@ const ACTION_OF = Object.freeze({
   'session.band.restart': 'restart',
   'session.band.handoff': 'handoff',
   'topbar.more.terminal': 'terminal',
+  'palette.cmd.terminal': 'terminal', // UX16
   'session.send': 'send',
   'session.menu.restart': 'restart',
   'session.panel.restart': 'restart',
@@ -46,11 +47,11 @@ const ACTIONS = Object.freeze(['answer', 'send', 'restart', 'handoff', 'terminal
 // what the dashboard's card can do as well (a problem opened only for these: カードで済んだはず)
 const CARD_CAN = new Set(['answer', 'restart']);
 
-// what the app / PMO did instead of the user, next to the same thing done by hand
+// what the app / ルーター did instead of the user, next to the same thing done by hand
 const AUTO_PAIRS = Object.freeze([
   { kind: 'answer', auto: 'auto.answer', hand: ['dash.turn.answer', 'dash.turn.answer-send', 'dash.card.answer', 'session.answer'] },
-  { kind: 'restart', auto: 'auto.restart', hand: ['dash.card.restart', 'session.menu.restart', 'session.panel.restart', 'session.band.restart'] },
-  { kind: 'handoff', auto: 'auto.handoff', hand: ['session.menu.handoff', 'session.panel.handoff', 'session.band.handoff'] },
+  { kind: 'restart', auto: 'auto.restart', hand: ['dash.card.restart', 'session.menu.restart', 'session.panel.restart', 'session.band.restart', 'dash.view.restart'] },
+  { kind: 'handoff', auto: 'auto.handoff', hand: ['session.menu.handoff', 'session.panel.handoff', 'session.band.handoff', 'dash.view.handoff'] },
   { kind: 'nudge', auto: 'auto.nudge', hand: [] },
 ]);
 
@@ -233,7 +234,7 @@ function markdown(sum) {
   L.push('', '問題で開いた理由の上位: ' + (op.problemTop.length ? op.problemTop.map((r) => `${r.state} ${r.n}`).join('、') : 'なし'));
   L.push('', `開いて何をしたか（開いて閉じた ${op.paired} 回）: ` + ACTIONS.map((a) => `${ACTION_JA[a]} ${op.did[a]}`).join('、'));
   L.push('カードで済んだはずの操作（問題で開き、答える・再起動だけをした）: ' + (op.cardCould.length ? op.cardCould.map((r) => `${r.state} ${r.n}`).join('、') : 'なし'));
-  L.push('', '## 代わりにしてくれたこと', '', '| 操作 | アプリ・PMO | 手 | アプリの割合 |', '|---|---|---|---|');
+  L.push('', '## 代わりにしてくれたこと', '', '| 操作 | アプリ・ルーター | 手 | アプリの割合 |', '|---|---|---|---|');
   for (const r of sum.auto) L.push(`| ${AUTO_JA[r.kind]} | ${r.auto} | ${r.hand} | ${r.autoShare}% |`);
   L.push('', `上限を超えて数だけにした行 ${sum.over}、一覧の外の id ${sum.unknown}。`, '');
   return cap(L.join('\n'));

@@ -6,7 +6,7 @@
 //     手動はいつでも。取り込み済み・依頼にある（取り込みの印）・バックログの pending / active の番号は出さない。上限 30
 //   D inboxItemOf + inbox.add(source app): hold・source app・statusBy app・folder・取り込みの印・履歴「アプリが取り込み」、
 //     読み直しても source app のまま。renderer からの source は main が捨てる（inbox:add は text だけ渡す）
-//   E manager.notifyManager({ imported }) -> PMO のバックログの指示文に「取り込みの候補: …」。雛形 v24 に「積み残しの取り込み」
+//   E manager.notifyManager({ imported }) -> ルーターのバックログの指示文に「取り込みの候補: …」。雛形 v24 に「積み残しの取り込み」
 //   F carryover.json の保存と読み直し、record
 // node tmp/carryover/unit.js   （打ち切り 60 秒。AT_APP_ROOT = 別のアプリのフォルダ〈stable の確認〉）
 'use strict';
@@ -131,7 +131,7 @@ const row = (n, item, st, next = '—', d = '2026-11-12') => `| ${n} | ${item} |
     await manager.notifyManager(bdir, mdir, { imported: line });
     const mb = await backlog.getBacklog(bdir, mdir);
     const pend = mb.items.find((i) => i.status === 'pending');
-    ok('E2 the PMO prompt has 取り込みの候補', !!pend && pend.text.includes('（取り込みの候補: ') && pend.text.includes('依頼-3〜依頼-9'), pend && pend.text);
+    ok('E2 the ルーター prompt has 取り込みの候補', !!pend && pend.text.includes('（取り込みの候補: ') && pend.text.includes('依頼-3〜依頼-9'), pend && pend.text);
     manager.ensureManagerDir(mdir);
     const md = fs.readFileSync(path.join(mdir, 'CLAUDE.md'), 'utf8');
     ok('E3 template v24+ explains 積み残しの取り込み', manager.CLAUDE_MD_VERSION >= 24 && md.includes('積み残しの取り込み') && md.includes('取り込みの印'));

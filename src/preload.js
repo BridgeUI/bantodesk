@@ -18,6 +18,18 @@ ipcRenderer.on('win:fullscreen', (_e, on) => {
     else document.documentElement.removeAttribute('data-fullscreen');
   } catch {}
 });
+// SCH-FR2: the dashboard window is not throttled, so visibilityState stays 'visible' while it is hidden / minimized /
+// the screen is locked. main sends win:seen; <html data-unseen> marks "nobody can see it", 'bantodesk:seen' on window
+// tells dashboard.js to draw what it skipped (as visibilitychange did).
+ipcRenderer.on('win:seen', (_e, seen) => {
+  try {
+    const el = document.documentElement;
+    if (!el || el.hasAttribute('data-unseen') === !seen) return;
+    if (seen) el.removeAttribute('data-unseen');
+    else el.setAttribute('data-unseen', '');
+    window.dispatchEvent(new Event('bantodesk:seen'));
+  } catch {}
+});
 
 contextBridge.exposeInMainWorld('api', {
   // app / picker
@@ -48,6 +60,7 @@ contextBridge.exposeInMainWorld('api', {
   ptyStopTree: (o) => ipcRenderer.invoke('pty:stopTree', o), // { id, why? } -> { before, survivors, left } (claude + descendants stopped, PROGRESS 49)
   sessionTakeOpen: () => ipcRenderer.invoke('session:takeOpen'), // -> tabId[] the dashboard asked this window to reopen (closed 完了 sessions)
   onSessionOpenPending: on('session:openPending'), // () -> call sessionTakeOpen
+  onSessionNewTab: on('session:newTab'), // UX14: the home's ＋ chose this (open) folder -> one more session here
   ptyRestart: (o) => ipcRenderer.send('pty:restart', o), // { id, cols, rows, cwd?, team?, delegate?, model?, effort? }: kill, then claude --resume <id>
   ptyMem: () => ipcRenderer.invoke('pty:mem'), // -> { [tabId]: { mb, procs } } (private memory of the session's process tree)
   onPtyData: on('pty:data'),
@@ -63,6 +76,15 @@ contextBridge.exposeInMainWorld('api', {
   onAssistEvent: on('assist:event'),
   replay: (sessionId) => ipcRenderer.invoke('assist:replay', sessionId), // -> AssistEvent[]
   replayAgent: (o) => ipcRenderer.invoke('assist:replayAgent', o), // { sessionId, agentId } -> conversation events of a subagent / team member
+  // UX13: the main window's session view (src/main/oneview.js). Viewer (the dashboard): open / close / input and the
+  // relayed events and screen; owner (the folder window): the input's reply and its screen while watched
+  viewOpen: (o) => ipcRenderer.invoke('view:open', o), // { tabId } -> { ok, sessionId, owned, folder, events }
+  viewClose: () => ipcRenderer.send('view:close'),
+  viewInput: (o) => ipcRenderer.invoke('view:input', o), // { tabId, type: 'text'|'choice'|'key', value } -> '' | reason
+  onViewEvent: on('view:event'), // AssistEvent of the viewed session
+  onViewScreen: on('view:screen'), // { tabId, s } (the owner's Conversation.onScreen state)
+  viewInputDone: (o) => ipcRenderer.send('view:inputDone', o), // { reqId, why }
+  viewScreen: (o) => ipcRenderer.send('view:screen', o), // { tabId, s }
 
   // sessions
   sessionsSaved: () => ipcRenderer.invoke('sessions:saved'), // -> SavedTab[]
@@ -85,16 +107,20 @@ contextBridge.exposeInMainWorld('api', {
   backlogSaveSync: (o) => ipcRenderer.sendSync('backlog:saveSync', o), // for beforeunload -> boolean
   backlogGetFolder: (o) => ipcRenderer.invoke('backlog:getFolder', o), // { folder } -> { items, auto } (read-only, any folder)
   backlogDrop: (o) => ipcRenderer.invoke('backlog:drop', o), // { folder, id } -> { ok, item? , error? } (取り消す: a pending item -> dropped)
+  // UX15: the card's row menu (was the バックログ panel): { folder, id, op: 'reopen' (戻す) | 'done' (完了にする) } -> { ok, error? }
+  backlogSet: (o) => ipcRenderer.invoke('backlog:set', o),
+  onBacklogOp: on('backlog:op'), // { id, op } main -> the folder's own window (it holds the queue): reopen / finish there
   onBacklogChanged: on('backlog:changed'), // { folder, source: 'main'|'window' } (own window: only 'main' = reload)
   // backlog start rules across folders (src/main/sched.js): limit / resources / touches / after
   schedPlan: (o) => ipcRenderer.invoke('sched:plan', o), // { waiting: [{ id, kind, touches, after }], limit?, thresholds? } -> { start: id[], reasons: { [id]: { code, text } } }
   schedState: () => ipcRenderer.invoke('sched:state'), // -> { limit, thresholds, resources, running, waiting }
+  schedLimit: (o) => ipcRenderer.invoke('sched:limit', o), // UX10: { resetAt (ms), text } the API usage limit's reset -> boolean (main holds new starts: 上限待ち)
   schedAlert: (o) => ipcRenderer.invoke('sched:alert', o), // { backlogId, kind: 'stalled'|'deadlock'|'aborted'|'resumed', text, reply? (stalled: the last reply's tail) } -> boolean (told now)
   onSchedChanged: on('sched:changed'), // same shape as schedState() (only when it changed)
   // queue order on the dashboard cards (docs/queue-order.md, src/main/queueorder.js)
   queueOrder: (o) => ipcRenderer.invoke('queue:order', o), // { folders?: string[] } -> { limit, running, free, hold, next, line, folders: [...] } | null
   queueMove: (o) => ipcRenderer.invoke('queue:move', o), // { folder, id, dir: -1|1 } -> { ok, order?, userOrderAt?, error? } (the user's ↑ / ↓, 24 h lock)
-  queueAskPmo: (o) => ipcRenderer.invoke('queue:askPmo', o), // { folder, note } -> { ok, item?, unlocked?, error? } (a 依頼 to the PMO; lifts the user's lock)
+  queueAskPmo: (o) => ipcRenderer.invoke('queue:askPmo', o), // { folder, note } -> { ok, item?, unlocked?, error? } (a 依頼 to the ルーター; lifts the user's lock)
   teamUnread: (team) => ipcRenderer.invoke('teams:unread', { team }), // -> { unread: number } (-1 = no inboxes / unreadable)
   // what idle sessions wait for (PROGRESS 40, src/main/waits.js; CONTRACT.md "Waits")
   onWaitsState: on('waits:state'), // { [tabId]: Wait | null } for this window's tabs (only when it changed)
@@ -102,6 +128,9 @@ contextBridge.exposeInMainWorld('api', {
   waitSettings: () => ipcRenderer.invoke('waits:settings'), // -> { silentMin, longMin }
   setWaitSettings: (o) => ipcRenderer.invoke('waits:setSettings', o), // { silentMin, longMin } -> same | null (manager window only)
   // 進み具合の確認の間隔 (PM1 段 3, 依頼-189): -> { minutes (0 = off), choices: [[minutes, words]] }; set { minutes } -> same | null
+  // セッションからの依頼の上限（24 時間、依頼-414）: -> { max, near, min, maxRange, def }; set { max } -> same | null
+  proposeSettings: () => ipcRenderer.invoke('propose:settings'),
+  setProposeSettings: (o) => ipcRenderer.invoke('propose:setSettings', o),
   progressCheckSettings: () => ipcRenderer.invoke('progress:settings'),
   setProgressCheckSettings: (o) => ipcRenderer.invoke('progress:setSettings', o),
 
@@ -125,15 +154,24 @@ contextBridge.exposeInMainWorld('api', {
   // 「あなたの番」 (UIUX U3, src/main/attention.js; manager window only): -> { items: AttnItem[], at, notified } | null
   attentionList: () => ipcRenderer.invoke('attention:list'),
   onAttentionChanged: on('attention:changed'), // { items, at, notified } when the list changed
+  // UX12 (docs/ux12-check.md): the ルーター's heartbeat for the 安心の 1 行, and 事後の確認 (src/main/reviews.js)
+  pmoHeartbeat: () => ipcRenderer.invoke('pmo:heartbeat'), // -> manager/heartbeat.json's object | null (manager window only)
+  onPmoHeartbeat: on('pmo:heartbeat-changed'),
+  reviewAdd: (o) => ipcRenderer.invoke('review:add', o), // { backlogId, text (the last reply), tabId } -> boolean (a session window)
+  reviewsList: () => ipcRenderer.invoke('reviews:list'), // -> { items: Review[] } | null (manager window only)
+  onReviewsChanged: on('reviews:changed'), // { items }
+  reviewAnswer: (o) => ipcRenderer.invoke('review:answer', o), // { id, key, choice: 'wrong'|'ok', note? } -> { ok, inboxId? } | { error }
+  reviewSeen: (o) => ipcRenderer.invoke('review:seen', o), // { id } -> boolean (「見た」: the card folds)
   attentionDismiss: (o) => ipcRenderer.invoke('attention:dismiss', o), // { id } of a nudge item -> boolean (「様子を見る」)
   onDashboardShowWaiting: on('dashboard:showWaiting'), // the tray's 「あなたの番 N 件」 / a あなたの番 notification was clicked: open あなたの番
-  onDashboardFocusPmo: on('dashboard:focusPmo'), // 「PMO に相談」 (tray): show the PMO and focus its input box
+  onDashboardFocusPmo: on('dashboard:focusPmo'), // 「ルーターに相談」 (tray): show the ルーター and focus its input box
   onDashboardNewSession: on('dashboard:newSession'), // U5: the tray's 「新しいセッション…」 -> open the 新しいセッション panel
   dashboardNewWork: (o) => ipcRenderer.invoke('dashboard:newWork', { name: String((o && o.name) || '') }), // U5 「新しい作業」: { name } -> { ok, folder } | { error } (manager window only)
   dashboardOpenSession: (o) => ipcRenderer.send('dashboard:openSession', o), // { folder, tabId } -> opens the folder's window and that (closed) session in it
   dashboardRestart: (o) => ipcRenderer.send('dashboard:restart', o), // { wcId, tabId } -> claude --resume in that tab (refused while busy)
   dashboardRest: (o) => ipcRenderer.send('dashboard:rest', o), // { wcId, tabId } -> 休止: stop that tab's claude (refused while it works, 31)
-  dashboardOpen: (o) => ipcRenderer.send('dashboard:open', o && typeof o === 'object' ? { inbox: o.inbox === true, folder: String(o.folder || ''), tab: typeof o.tab === 'string' ? o.tab : '' } : undefined), // show + focus the manager window; { inbox: true, folder } also puts the caret in its request box (AT-139)
+  dashboardOpen: (o) => ipcRenderer.send('dashboard:open', o && typeof o === 'object' ? { inbox: o.inbox === true, folder: String(o.folder || ''), tab: typeof o.tab === 'string' ? o.tab : '', showFolder: typeof o.showFolder === 'string' ? o.showFolder : '' } : undefined), // show + focus the manager window; { inbox: true, folder } also puts the caret in its request box (AT-139); { showFolder } = the home on that folder (UX15 Ctrl+Shift+B)
+  onDashboardOpenConv: on('dashboard:openConv'), // UX14 { wcId, tabId, folder }: a folder window's notice clicked -> the session in the home
   onDashboardShowTab: on('dashboard:showTab'), // { tab: 'turn'|'proj'|'req'|'log' } (U4: Ctrl+Shift+E in a project window -> 'log')
   onDashboardFocusInbox: on('dashboard:focusInbox'), // { folder } -> the request box gets the caret (and 「@<folder> 」 when empty)
   dashboardProjects: () => ipcRenderer.invoke('dashboard:projects'), // -> Project[] (same as manager/projects.json)
@@ -141,26 +179,30 @@ contextBridge.exposeInMainWorld('api', {
   dashboardChooseWorkRoot: () => ipcRenderer.invoke('dashboard:chooseWorkRoot'), // folder dialog -> new path | null (cancelled)
   // AT-6: default model / effort of the claude starts (read: every window; set: the manager window only)
   modelsGet: () => ipcRenderer.invoke('models:get'), // -> { session: { model, effort }, pmo: { model, effort }, efforts, builtin } | null
-  modelsSet: (o) => ipcRenderer.invoke('models:set', o), // { claudeModel?, claudeEffort?, pmoModel?, pmoEffort? } -> view | { error }
+  codeModeSet: (o) => ipcRenderer.invoke('codemode:set', o), // 依頼-535: { codeMode: 'on'|'off'|'auto' } -> models view | { error }
+  leanSet: (o) => ipcRenderer.invoke('lean:set', o), // TK3: { on? } | { folder, keep } -> models view (lean: { on, off }) | { error }
+  modelsSet: (o) => ipcRenderer.invoke('models:set', o), // { claudeModel?, claudeEffort?, pmoModel?, pmoEffort?, <kind>Model?, <kind>Effort? } -> view | { error }
   // pre-answered QA per queued task (see CONTRACT.md "Inbox / manager")
   qaList: () => ipcRenderer.invoke('qa:list'), // -> { entries: [{ key, folder, itemId, inboxId, rows, status, … }] } | null (manager window only)
   qaAnswer: (o) => ipcRenderer.invoke('qa:answer', o), // { key, answers: string[] } -> entry | null (manager window only)
   qaForItem: (o) => ipcRenderer.invoke('qa:forItem', o), // { itemId, use? } -> entry | null (own folder's backlog item)
   onQaChanged: on('qa:changed'), // { entries } (manager windows)
   dashboardStale: () => ipcRenderer.invoke('dashboard:stale'), // -> [{ kind:'inbox'|'backlog', id, status, folder, since, age }] (manager window only)
+  overviewGet: () => ipcRenderer.invoke('overview:get'), // -> { flow, router, folders, updatedAt } | null (全体図, src/main/overview.js; manager window only)
   dashboardProgress: (o) => ipcRenderer.invoke('dashboard:progress', o), // { folder } -> { rows, counts, done, total, mtime } | null (PROGRESS.md; manager window only)
-  // 「PMO から」 notices (see CONTRACT.md "Inbox / manager"; manager window only)
+  // 「ルーターから」 notices (see CONTRACT.md "Inbox / manager"; manager window only)
   noticesList: () => ipcRenderer.invoke('notices:list'), // -> { notices: Notice[] } (live, newest first) | null
   noticesAnswer: (o) => ipcRenderer.invoke('notices:answer', o), // { id, choice: 'go'|'reject', comment? } -> Notice | null (proposals)
   onNoticesChanged: on('notices:changed'), // { notices } (debounced)
-  // 「PMO の記録」 (UIUX U4, notices.forLog; manager window only): -> { entries: LogEntry[] } (newest first) | null
+  // 「ルーターの記録」 (UIUX U4, notices.forLog; manager window only): -> { entries: LogEntry[] } (newest first) | null
   pmoLog: () => ipcRenderer.invoke('pmo:log'),
   onPmoLogChanged: on('pmo:log-changed'), // { entries } (debounced) after a pmo-actions.jsonl line or a notice change
-  noticesAdd: (o) => ipcRenderer.invoke('notices:add', o), // { title, text?, key? } -> Notice | null (app info, e.g. the PMO's automatic handoff)
+  noticesAdd: (o) => ipcRenderer.invoke('notices:add', o), // { title, text?, key? } -> Notice | null (app info, e.g. the ルーター's automatic handoff)
 
   // files / git
   gitDiff: (o) => ipcRenderer.invoke('git:diff', o), // { cwd, file } -> { ok, isGit, diff, untracked, error? }
   openFile: (p) => ipcRenderer.send('shell:openFile', p),
+  openFolder: (p) => ipcRenderer.send('shell:openFolder', p), // UX15 「この作業」 フォルダを開く (a known folder only)
   openExternal: (url) => ipcRenderer.send('shell:openExternal', url), // http(s) only, default browser
   pathForFile: (file) => webUtils.getPathForFile(file),
 
@@ -180,6 +222,43 @@ contextBridge.exposeInMainWorld('api', {
   viewerOpenExternal: (o) => ipcRenderer.send('viewer:openExternal', o), // { id } -> default app
   viewerShowInFolder: (o) => ipcRenderer.send('viewer:showInFolder', o), // { id }
   onViewerChanged: on('viewer:changed'), // { id, gone }
+  // IOS-SIM (src/main/simview.js, docs/plan-ios-sim.md): the iOS Simulator pane. Devices are named by UDID, never 'booted'.
+  simAvailable: () => ipcRenderer.invoke('sim:available'), // -> { ok } (Mac with Xcode's simctl)
+  simList: () => ipcRenderer.invoke('sim:list'), // -> { ok, devices: [{ udid, name, state, runtime }] }
+  simAttach: (o) => ipcRenderer.invoke('sim:attach', o), // { id, udid } -> { ok, reason? } starts the capture loop of the pane
+  simDetach: (o) => ipcRenderer.send('sim:detach', o), // { id }
+  simVisible: (o) => ipcRenderer.send('sim:visible', o), // { id, visible }
+  simPaused: (o) => ipcRenderer.send('sim:paused', o), // { id, paused }
+  simActivity: (o) => ipcRenderer.send('sim:activity', o), // { id } a click / an operation: two at a time for 10 s
+  simBoot: (o) => ipcRenderer.invoke('sim:boot', o), // { udid } headless boot of a Shutdown device (the button only)
+  simShutdown: (o) => ipcRenderer.invoke('sim:shutdown', o), // { udid }
+  simOpenApp: (o) => ipcRenderer.invoke('sim:openApp', o), // { udid, id? } -> { ok } the real Simulator window
+  simSave: (o) => ipcRenderer.invoke('sim:save', o), // { id } -> { ok, path } <folder>/.bantodesk/sim/<time>.jpg
+  simStats: () => ipcRenderer.invoke('sim:stats'), // tests
+  onSimFrame: on('sim:frame'), // { id, jpeg: Uint8Array, seq, capMs }
+  onSimState: on('sim:state'), // { id, error }
+
+  // 内蔵ブラウザ (src/main/browserview.js, docs/plan-browser.md): a WebContentsView over the pane's rectangle
+  browserAttach: (o) => ipcRenderer.invoke('browser:attach', o), // { id, url? } -> { ok }
+  browserPlace: (o) => ipcRenderer.send('browser:place', o), // { id, visible, rect: { x, y, w, h } } not visible = taken off the window
+  browserDetach: (o) => ipcRenderer.send('browser:detach', o), // { id } destroys the view
+  browserNav: (o) => ipcRenderer.invoke('browser:nav', o), // { id, action: go|back|forward|reload|stop, url? } -> { ok, url? }
+  browserSave: (o) => ipcRenderer.invoke('browser:save', o), // { id } -> { ok, path } <folder>/.bantodesk/browser/<time>.png
+  browserSnap: (o) => ipcRenderer.invoke('browser:snap', o), // { id } -> { ok, dataUrl } a picture of the page (15: pins are put on it)
+  commentsCapture: (o) => ipcRenderer.invoke('comments:capture', o), // { rect } -> { ok, dataUrl } a picture of a rectangle of this window (PDF / image pane)
+  commentsSave: (o) => ipcRenderer.invoke('comments:save', o), // { source, comments:[{ rect, text, page, crop }] } -> { ok, message, cropPaths, store } (15, docs/plan-pin-comment.md)
+  // 18 資料パネル (src/main/present.js, docs/plan-present.md): a pptx as pictures, one per slide
+  presentAvailable: () => ipcRenderer.invoke('present:available'), // -> { ok, hint? } is there a tool that turns a pptx into pictures
+  presentPick: () => ipcRenderer.invoke('present:pick'), // file dialog -> { ok, path }
+  presentOpen: (o) => ipcRenderer.invoke('present:open', o), // { id, path } -> { ok, name, path, count, sigs, titles, tool } | { ok: false, reason, hint? }
+  presentImage: (o) => ipcRenderer.invoke('present:image', o), // { id, n, thumb? } -> { ok, sig, dataUrl }
+  presentClose: (o) => ipcRenderer.send('present:close', o), // { id }
+  presentStats: () => ipcRenderer.invoke('present:stats'), // tests
+  onPresentUpdate: on('present:update'), // { id, state: 'rendering' | 'ready' | 'error', count?, sigs?, titles?, changed?, reason? }
+  commentsStats: () => ipcRenderer.invoke('comments:stats'), // tests
+  browserStats: () => ipcRenderer.invoke('browser:stats'), // tests
+  onBrowserState: on('browser:state'), // { id, url, title, loading, canBack, canForward, error }
+  onBrowserNewTab: on('browser:newtab'), // { id, url } target=_blank / window.open: opened as a new tab (pane)
 
   // keep the PC awake while this window has a running session (main aggregates all windows)
   powerBusy: (o) => ipcRenderer.send('power:busy', o),
@@ -194,7 +273,9 @@ contextBridge.exposeInMainWorld('api', {
     clear: () => ipcRenderer.invoke('usage:clear'), // -> { cleared, enabled } | { error }
   },
   appSettings: () => ipcRenderer.invoke('appSettings:get'), // PROGRESS 32: { disableGpu, atStart: { disableGpu }, gpu }
-  setAppSettings: (o) => ipcRenderer.invoke('appSettings:set', o), // { disableGpu } -> the same view (next start)
+  setAppSettings: (o) => ipcRenderer.invoke('appSettings:set', o), // { disableGpu } -> the same view (next start); UX18 { zoom } / { theme } now
+  zoomStep: (dir) => ipcRenderer.invoke('zoom:step', dir), // UX18: +1 / -1 / 0 (実際のサイズ) -> the zoom of every window
+  onZoomChanged: on('zoom:changed'), // UX18: (zoom) after the menu, a key or the settings changed it
   powerState: () => ipcRenderer.invoke('power:state'), // keep-awake status { busy, lid: { state, reason, note }, lidWanted } (docs/keep-awake.md) // { busy, keepAwake, gap, holdMin } of this window (main aggregates all windows)
   // update hold after a release (src/main/autorestart.js): status as in onAppUpdate; action 'now' (今すぐ更新) | 'later' (後で)
   updateState: () => ipcRenderer.invoke('update:state'),
@@ -205,7 +286,8 @@ contextBridge.exposeInMainWorld('api', {
   onAutoYesChanged: on('autoYes:changed'), // { on } (another window toggled it)
 
   // notifications
-  notify: (o) => ipcRenderer.send('notify', o), // { tabId, title, body, kind?: 'done'|'input'|'error', silent?: boolean }
+  notifyPrefs: (o) => ipcRenderer.send('notify:prefs', o), // UX16 { desktop }: the OS notification (A) on / off
+  notify: (o) => ipcRenderer.send('notify', o), // { tabId, title, body, kind?: 'done'|'input'|'error' } -> taskbar flash + 完了 / エラー in ルーターの記録 (UX16: no OS toast)
   onNotifyClick: on('notify:click'), // { tabId, kind, from? } (from: UA1 open.from.*, 'notif' / 'project' / 'turn' / …)
   onAppUpdate: on('app:update'), // { state: 'none'|'pending'|'postponed'|'restarting', version, since, deadline, force, resume, busy, blocked } – a new release was copied in (pending = queues hold)
 

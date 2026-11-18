@@ -214,7 +214,7 @@ ok(pmo.formatPatrol(wf).includes('（前提が failed（bf1））'), 'reason sho
   const tdir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmo-md-'));
   manager.ensureManagerDir(tdir);
   const text = md || fs.readFileSync(path.join(tdir, 'CLAUDE.md'), 'utf8');
-  ok(manager.CLAUDE_MD_VERSION >= 14 && text.includes('放置の立て直し') && text.includes('指摘だけで終わらせず PMO が立て直す') && !text.includes('update の note で指摘する'), 'template: recovery rule replaces "update の note で指摘する"');
+  ok(manager.CLAUDE_MD_VERSION >= 14 && text.includes('放置の立て直し') && text.includes('指摘だけで終わらせず ルーターが立て直す') && !text.includes('update の note で指摘する'), 'template: recovery rule replaces "update の note で指摘する"');
   ok(['reorder で前に出す', 'kind research と touches', 'backlog-update で dropped / done', 'トランスクリプトと git status', '前提を先に進めるか', '再開の条件を確かめ', '仮説付きの事前 QA'].every((s) => text.includes(s)), 'template: every recovery case');
   ok(text.includes('waiting / waitingCount / held / heldCount') && text.includes('確認待ち N 件・最古 D日') && text.includes('hold 3 日'), 'template: progress waiting / held and the new patrol lines');
   // 依頼-265: the screen word 要対応 (UXW); あなたの番 only as the older version's word

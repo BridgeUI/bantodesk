@@ -1,6 +1,7 @@
 // UIUX U7 (依頼-50 A / 依頼-52 B / 依頼-54 / 依頼-71): a routed session's "next thing to do" (src/main/propose.js),
-// the inbox's session source (src/main/inbox.js), the PMO's prompt and CLAUDE.md (src/main/manager.js), the routed-session
-// preface (docs/prompts/routed-session.md, claude-cmd fallback). Plain Node, no Electron.
+// the inbox's session source (src/main/inbox.js), the ルーター's prompt and CLAUDE.md (src/main/manager.js), the routed-session
+// preface (docs/prompts/routed-session.md, claude-cmd fallback; the tail -f line), the limits -> hold (7: proposeDayMax in
+// manager-settings.json, default 30, runaway 3 x -> failed). Plain Node, no Electron.
 // Run: node tmp/propose/unit.js   (AT_APP_ROOT=<app> tests another copy, e.g. the stable one)
 const fs = require('fs');
 const os = require('os');
@@ -89,7 +90,7 @@ const P = (o = {}) => ({ type: 'propose', title: '次の見出し', text: '自�
     ok('3d origin: folder, backlogId, no, tabId, reason, kind, touches', it.origin && it.origin.folder === W && it.origin.backlogId === 'r-i1-aaaa' && it.origin.no === 'AT-3' && it.origin.tabId.startsWith('1111') && it.origin.reason === 'テストが足りない' && it.origin.kind === 'verify' && it.origin.touches[0] === 'tmp/x/', it.origin);
     ok('3e it got a 依頼-N', /^依頼-\d+$/.test(it.reqNo), it.reqNo);
     ok('3f onChange add with source session', events.some((e) => e.type === 'add' && e.source === 'session'));
-    ok('3g no history (not a PMO change, nothing to undo)', it.history.length === 0);
+    ok('3g no history (not a ルーター change, nothing to undo)', it.history.length === 0);
     // duplicates
     const again = propose.apply({ folder: W, proposals: propose.validate([P({ title: 'テストを足す', text: '別の本文' }), P({ title: '新しい', text: '指示文 B' })], hints).proposals, backlogItems: bl, inbox });
     ok('3h same title (same folder) / same text -> duplicate, names the existing id', again.results.every((x) => x.duplicate) && again.results[0].itemId === r.results[0].itemId && again.results[1].itemId === r.results[1].itemId, again);
@@ -108,12 +109,19 @@ const P = (o = {}) => ({ type: 'propose', title: '次の見出し', text: '自�
     const n = inbox.get().items.filter((i) => i.origin && i.origin.backlogId === 'r-i1-aaaa').length;
     // checked proposals as validate makes them (more than one file's 5, as if several files came in)
     const many = (k, tag) => Array.from({ length: k }, (_, j) => ({ title: `${tag}${j}`, text: `${tag} 本文 ${j}`, reason: '', from: null, fields: {} }));
+    const workOf = () => inbox.get().items.filter((i) => i.origin && i.origin.backlogId === 'r-i1-aaaa');
     const over = propose.apply({ folder: W, proposals: many(propose.PER_WORK - n + 1, 'M').map((p) => ({ ...p, from: 'r-i1-aaaa' })), backlogItems: bl, inbox });
-    ok(`3n more than ${propose.PER_WORK} from one work -> error, nothing added`, /too many proposals from the work/.test(over.error || '') && inbox.get().items.filter((i) => i.origin && i.origin.backlogId === 'r-i1-aaaa').length === n, over);
-    // per-folder day limit (with an unknown work, so only the folder limit applies)
+    const overItems = (over.results || []).map((x) => inbox.find(x.itemId));
+    ok(`3n more than ${propose.PER_WORK} from one work -> the ones up to ${propose.PER_WORK} new, the one over it hold (note 上限を超えた propose), result hold: true`, !over.error && overItems.length === propose.PER_WORK - n + 1 && overItems.slice(0, -1).every((i) => i.status === 'new') && overItems.at(-1).status === 'hold' && overItems.at(-1).note.startsWith('上限を超えた propose') && /この作業 AT-3 の上限 10 件/.test(overItems.at(-1).note) && over.results.at(-1).hold === true && !over.results[0].hold, over);
+    const runaway = propose.apply({ folder: W, proposals: many(propose.PER_WORK * propose.HOLD_FACTOR - workOf().length + 1, 'R').map((p) => ({ ...p, from: 'r-i1-aaaa' })), backlogItems: bl, inbox });
+    ok(`3n2 more than ${propose.HOLD_FACTOR} x ${propose.PER_WORK} from one work (runaway) -> error, nothing added`, /too many proposals from the work/.test(runaway.error || '') && workOf().length === propose.PER_WORK + 1, runaway);
+    // per-folder day limit (with an unknown work, so only the folder limit applies); W2 has 1 session item (3k)
     const before = inbox.get().items.length;
     const day = propose.apply({ folder: W2, proposals: many(propose.PER_FOLDER_DAY, 'D'), backlogItems: [], inbox });
-    ok(`3o more than ${propose.PER_FOLDER_DAY} from one folder in 24 h -> error, nothing added`, /today/.test(day.error || '') && inbox.get().items.length === before, day);
+    const dayItems = (day.results || []).map((x) => inbox.find(x.itemId));
+    ok(`3o more than ${propose.PER_FOLDER_DAY} from one folder in 24 h -> up to ${propose.PER_FOLDER_DAY} new, the rest hold`, !day.error && inbox.get().items.length === before + propose.PER_FOLDER_DAY && dayItems.filter((i) => i.status === 'new').length === propose.PER_FOLDER_DAY - 1 && dayItems.at(-1).status === 'hold' && /このフォルダの 24 時間の上限 30 件/.test(dayItems.at(-1).note), day.error || dayItems.map((i) => i.status).join(','));
+    const dayRun = propose.apply({ folder: W2, proposals: many(propose.PER_FOLDER_DAY * propose.HOLD_FACTOR - propose.PER_FOLDER_DAY, 'E'), backlogItems: [], inbox });
+    ok(`3o2 past ${propose.HOLD_FACTOR} x ${propose.PER_FOLDER_DAY} from one folder in 24 h (runaway) -> error naming the limit, nothing added`, /today .*limit 30, held up to 90/.test(dayRun.error || '') && inbox.get().items.length === before + propose.PER_FOLDER_DAY, dayRun);
     // sanitize keeps origin through a reload; a non-session item has no origin
     await sleep(50);
     inbox.saveSync?.();
@@ -169,7 +177,7 @@ const P = (o = {}) => ({ type: 'propose', title: '次の見出し', text: '自�
     w.close();
   }
 
-  // --- 5. the PMO: the new-work line and CLAUDE.md -------------------------------------------------------------------
+  // --- 5. the ルーター: the new-work line and CLAUDE.md -------------------------------------------------------------------
   {
     const bdir = mk('backlog');
     const mdir = mk('manager');
@@ -178,7 +186,7 @@ const P = (o = {}) => ({ type: 'propose', title: '次の見出し', text: '自�
     await manager.notifyManager(bdir, mdir, { newItems: [userItem, item] });
     const st = await backlog.getBacklog(bdir, mdir);
     const p = st.items.find((i) => manager.isInboxPrompt(i.text));
-    ok('5a the PMO prompt lists the session item as 新規 with [セッションから: agent_terminal AT-3]', p && p.text.includes(`[セッションから: agent_terminal AT-3] ${item.id}`), p && p.text);
+    ok('5a the ルーター prompt lists the session item as 新規 with [セッションから: agent_terminal AT-3]', p && p.text.includes(`[セッションから: agent_terminal AT-3] ${item.id}`), p && p.text);
     ok('5b the user item has no such mark', p && p.text.includes(`、${userItem.id}`) === false && p.text.includes(`新規: ${userItem.id}`), p && p.text);
     manager.ensureManagerDir(mdir);
     const md = fs.readFileSync(path.join(mdir, 'CLAUDE.md'), 'utf8');
@@ -203,6 +211,88 @@ const P = (o = {}) => ({ type: 'propose', title: '次の見出し', text: '自�
     ok('6f preface: no double quotes (PowerShell start), under 4000 chars', !t.includes('"') && t.length < 4000, t.length);
     ok('6g fallback has the propose lines too', launcher.ROUTED_PROMPT_FALLBACK.includes('.bantodesk/outbox/') && launcher.ROUTED_PROMPT_FALLBACK.includes('迷ったら出す'));
     ok('6h the preface still ends with the 作業完了 rule', /作業完了 の 1 行だけを書く[^\n]*$/.test(t));
+    const tailRule = /バックグラウンドの見張りに tail -f \/ tail -F を使わない[^\n]*コマンドの完了の通知を待ち[^\n]*その都度 tail -n で読む/;
+    ok('6i preface: no tail -f / tail -F for a background watch, wait for the completion notice, read with tail -n', tailRule.test(t), t.length);
+    ok('6j fallback has the same tail -f line', tailRule.test(launcher.ROUTED_PROMPT_FALLBACK));
+  }
+
+  // --- 7. the limits go to hold (依頼 2026-11-16), the folder limit from manager-settings.json ------------------------------
+  {
+    ok('7a default limit 30, hold factor 3, note 上限を超えた propose', propose.PER_FOLDER_DAY === 30 && propose.HOLD_FACTOR === 3 && propose.HOLD_NOTE === '上限を超えた propose');
+    ok('7b dayLimitOf: missing / bad / out of range -> 30, a whole number in 1..1000 -> it', propose.dayLimitOf(null) === 30 && propose.dayLimitOf({}) === 30 && propose.dayLimitOf({ proposeDayMax: 'x' }) === 30 && propose.dayLimitOf({ proposeDayMax: 0 }) === 30 && propose.dayLimitOf({ proposeDayMax: 2.5 }) === 30 && propose.dayLimitOf({ proposeDayMax: 1001 }) === 30 && propose.dayLimitOf({ proposeDayMax: 5 }) === 5 && propose.dayLimitOf({ proposeDayMax: '12' }) === 12);
+    const sdir = mk('settings');
+    ok('7c readDayLimit: no manager-settings.json -> 30', propose.readDayLimit(sdir) === 30);
+    fs.writeFileSync(path.join(sdir, 'manager-settings.json'), JSON.stringify({ workRoot: '/x', proposeDayMax: 3 }));
+    ok('7d readDayLimit: manager-settings.json proposeDayMax 3 -> 3', propose.readDayLimit(sdir) === 3);
+    const ib = inboxStore.createInbox(path.join(sdir, 'inbox.json'));
+    ok('7e the inbox tells its file; dayLimitFor reads the settings next to it', ib.file === path.join(sdir, 'inbox.json') && propose.dayLimitFor({ inbox: ib }) === 3);
+    ok('7f dayLimitFor: ctx.dayLimit (number / function) wins, a bad one -> 30, nothing -> 30', propose.dayLimitFor({ inbox: ib, dayLimit: 7 }) === 7 && propose.dayLimitFor({ inbox: ib, dayLimit: () => 9 }) === 9 && propose.dayLimitFor({ inbox: ib, dayLimit: -1 }) === 30 && propose.dayLimitFor({}) === 30 && propose.dayLimitFor({ settingsDir: sdir }) === 3);
+    ok('7s 依頼-414: DAY_MAX_RANGE 1..1000 exported (the settings screen bounds)', Array.isArray(propose.DAY_MAX_RANGE) && propose.DAY_MAX_RANGE[0] === 1 && propose.DAY_MAX_RANGE[1] === 1000);
+    {
+      const mainSrc = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main.js'), 'utf8');
+      const pre = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'preload.js'), 'utf8');
+      const st = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'renderer', 'settings.js'), 'utf8');
+      ok('7t 依頼-414: main saves proposeDayMax (other keys kept), preload / settings screen use it', /ipcMain\.handle\('propose:setSettings'/.test(mainSrc) && /\.\.\.loadManagerSettings\(\), proposeDayMax: n/.test(mainSrc) && /setProposeSettings/.test(pre) && /num\('proposeDayMax'/.test(st));
+    }
+    // apply with dayMax 3: exactly 3 -> all new; the 4th -> hold
+    const F = mk('work', 'limit');
+    const many = (k, tag) => Array.from({ length: k }, (_, j) => ({ title: `${tag}${j}`, text: `${tag} 本文 ${j}`, reason: '', from: null, fields: {} }));
+    const r3 = propose.apply({ folder: F, proposals: many(3, 'L'), backlogItems: [], inbox: ib, dayMax: 3 });
+    ok('7g exactly the limit (3 of 3) -> all new, no hold', !r3.error && r3.results.length === 3 && r3.results.every((x) => !x.hold && ib.find(x.itemId).status === 'new'), r3);
+    const r4 = propose.apply({ folder: F, proposals: many(2, 'K'), backlogItems: [], inbox: ib, dayMax: 3 });
+    const held = r4.results && ib.find(r4.results[1].itemId);
+    ok('7h over the limit -> added as hold, note 上限を超えた propose（このフォルダの 24 時間の上限 3 件を超えた）, source / statusBy session, origin kept', !r4.error && r4.results.every((x) => x.hold === true && x.itemId) && held.status === 'hold' && held.note === '上限を超えた propose（このフォルダの 24 時間の上限 3 件を超えた）' && held.source === 'session' && held.statusBy === 'session' && held.origin && held.origin.folder === F && held.history.length === 0, held);
+    ok('7i the result names hold + the note', r4.results[0].note === held.note && /^依頼-\d+$/.test(r4.results[0].reqNo || ''), r4.results[0]);
+    const dupHeld = propose.apply({ folder: F, proposals: [{ title: 'other', text: 'K 本文 1', reason: '', from: null, fields: {} }], backlogItems: [], inbox: ib, dayMax: 3 });
+    ok('7j the same text as a held one -> duplicate (hold is open)', dupHeld.results[0].duplicate === true && dupHeld.results[0].itemId === held.id, dupHeld);
+    const run = propose.apply({ folder: F, proposals: many(5, 'Z'), backlogItems: [], inbox: ib, dayMax: 3 });
+    ok('7k past 3 x the limit (5 + 5 > 9) -> refused, nothing added', /too many proposals from this folder today \(5 in 24 h, limit 3, held up to 9\)/.test(run.error || '') && ib.get().items.length === 5, run);
+    ok('7l a renderer / user add cannot set hold or a note', (() => {
+      const u = ib.add({ text: 'ユーザーの保留', status: 'hold', note: 'n' });
+      return u.status === 'new' && u.note === '';
+    })());
+    // processFile: the limit comes from manager-settings.json next to the inbox; hold -> done/ with hold in the result
+    const G = mk('work', 'limit-file');
+    const out = propose.ensureOutbox(G);
+    const ib2 = inboxStore.createInbox(path.join(sdir, 'inbox2.json')); // same dir: proposeDayMax 3
+    const added = [];
+    const failed = [];
+    const ctx = { inbox: ib2, hints, backlogItems: async () => [], onAdded: (f, res) => added.push(res), onFailed: (f, n, e) => failed.push(e) };
+    fs.writeFileSync(path.join(out, 'p1.json'), JSON.stringify([1, 2, 3, 4].map((k) => P({ title: 'P' + k, text: 'p' + k }))));
+    const rp = await propose.processFile(path.join(out, 'p1.json'), G, ctx);
+    const res1 = JSON.parse(fs.readFileSync(path.join(out, 'done', 'p1.json.result.json'), 'utf8'));
+    ok('7m processFile, setting 3, 4 in a file -> done/, result: 3 without hold, the 4th hold: true + note', rp.ok && res1.length === 4 && res1.slice(0, 3).every((x) => !x.hold) && res1[3].hold === true && res1[3].note.startsWith('上限を超えた propose') && !fs.existsSync(path.join(out, 'failed', 'p1.json')), res1);
+    ok('7n the inbox: 3 new + 1 hold; onAdded got all 4', ib2.get().items.filter((i) => i.status === 'new').length === 3 && ib2.get().items.filter((i) => i.status === 'hold').length === 1 && added.length === 1 && added[0].length === 4);
+    fs.writeFileSync(path.join(out, 'p2.json'), JSON.stringify(P({ title: 'bad', text: 'x', folder: '/elsewhere' })));
+    const rb = await propose.processFile(path.join(out, 'p2.json'), G, ctx);
+    ok('7o a bad shape over the limit -> still failed/ + .error.txt, nothing added', !rb.ok && fs.existsSync(path.join(out, 'failed', 'p2.json')) && /folder is not accepted/.test(fs.readFileSync(path.join(out, 'failed', 'p2.json.error.txt'), 'utf8')) && ib2.get().items.length === 4 && failed.length === 1);
+    // the setting changed -> the next file uses it (no restart); a setting of 10 lets the next ones in as new
+    fs.writeFileSync(path.join(sdir, 'manager-settings.json'), JSON.stringify({ workRoot: '/x', proposeDayMax: 10 }));
+    fs.writeFileSync(path.join(out, 'p3.json'), JSON.stringify(P({ title: 'P5', text: 'p5' })));
+    await propose.processFile(path.join(out, 'p3.json'), G, ctx);
+    const res3 = JSON.parse(fs.readFileSync(path.join(out, 'done', 'p3.json.result.json'), 'utf8'));
+    ok('7p the setting raised to 10 -> the next file is new (read for every file)', res3.length === 1 && !res3[0].hold && ib2.find(res3[0].itemId).status === 'new', res3);
+    // default 30 when there is no setting: 30 new, the 31st hold
+    const sdir2 = mk('settings-none');
+    const ib3 = inboxStore.createInbox(path.join(sdir2, 'inbox.json'));
+    const H = mk('work', 'limit-default');
+    const out3 = propose.ensureOutbox(H);
+    const ctx3 = { inbox: ib3, hints, backlogItems: async () => [] };
+    for (let k = 0; k < 7; k++) {
+      fs.writeFileSync(path.join(out3, `d${k}.json`), JSON.stringify([0, 1, 2, 3, 4].map((j) => P({ title: `D${k}-${j}`, text: `d${k}-${j}` }))));
+      await propose.processFile(path.join(out3, `d${k}.json`), H, ctx3);
+    }
+    const st3 = ib3.get().items;
+    ok('7q no setting -> default 30: 35 proposals = 30 new + 5 hold, all files done/', st3.length === 35 && st3.filter((i) => i.status === 'new').length === 30 && st3.filter((i) => i.status === 'hold').length === 5 && st3.slice(30).every((i) => i.status === 'hold') && fs.readdirSync(path.join(out3, 'done')).filter((n) => !/result/.test(n)).length === 7, st3.map((i) => i.status).join(','));
+    // the patrol's near-limit line tells hold, not failed/
+    const pg = require(path.join(root, 'src/main/patrol-gaps'));
+    const near = pg.findProposals([], [{ folder: H, day: 26, max: 30 }]);
+    ok('7r patrol: near the limit says the rest go to the inbox as 保留 (not outbox/failed/)', near.length === 1 && /保留（note「上限を超えた propose」）で入る/.test(near[0].text) && !/failed/.test(near[0].text), near);
+    // the ルーター template line
+    const mdir = mk('manager-limit');
+    manager.ensureManagerDir(mdir);
+    const md = fs.readFileSync(path.join(mdir, 'CLAUDE.md'), 'utf8');
+    ok('7s ルーター CLAUDE.md v37+: over the limit -> hold (note 上限を超えた propose), picked up at the stocktake', manager.CLAUDE_MD_VERSION >= 37 && /上限を超えただけの propose は依頼に hold（note「上限を超えた propose」）で入る/.test(md) && /棚卸しの保留の一覧/.test(md));
   }
 
   fs.rmSync(tmp, { recursive: true, force: true });

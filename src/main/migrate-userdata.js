@@ -9,10 +9,10 @@
 //
 // What is copied: every entry except Chromium's caches and lock files (SKIP). Files already in the new place are kept
 // (a copy that stopped half way goes on at the next start: the mark says "copying"). Afterwards:
-//  - the absolute old path inside the copied JSON files at the top and in manager/ (sessions.json keys, the PMO's
+//  - the absolute old path inside the copied JSON files at the top and in manager/ (sessions.json keys, the ルーター's
 //    folder <userData>/manager ...) is replaced with the new path, in the NEW place only;
-//  - Claude Code's data of folders inside userData (~/.claude/projects/<encoded cwd>, e.g. the PMO's conversation in
-//    <userData>/manager) is copied to the encoded new cwd, so the PMO resumes its conversation. Nothing is removed.
+//  - Claude Code's data of folders inside userData (~/.claude/projects/<encoded cwd>, e.g. the ルーター's conversation in
+//    <userData>/manager) is copied to the encoded new cwd, so the ルーター resumes its conversation. Nothing is removed.
 // The mark <new userData>/migrated-from.json { state: 'copying' | 'done', from, to, startedAt, at, copied, failed,
 // rewritten, claude } records it (shown in docs/naming.md 3.3). EDR: plain file copies by the app's own main process;
 // no process is started, no other process is read.

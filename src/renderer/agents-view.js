@@ -1,14 +1,21 @@
 'use strict';
 // The dashboard's エージェント tab (roadmap 13, docs/plan-agents-view.md). Owner: core.
 // Every open folder's sessions with their Agent Teams team (members) and subagents, by state.
-//   関係図 (default): folder = lane, session = box, members / subagents = pills inside (parent-child = nesting);
-//                    clicking a pill shows what it is doing under the box.
+//   関係図 (default): folder = lane, session = box; inside it, an arrow from the session to each team member, subagent
+//                    and background command (依頼-481), each one a small box with its state and time. The arrow's colour
+//                    is the child's state (blue moving = 指示中 / 実行中, peach = 止まっている, red = エラー, grey = 待機・終わった).
+//                    Above the lanes sits the ルーター's box (AGV-ROUTER, 依頼-493): each session it gave work to (its active backlog item)
+//                    gets an arrow from it (blue moving 指示中 while the task runs) and a small mark for what it just did
+//                    to it (声をかけた / 止めて声をかけた / 確認に答えた, 10 minutes). From the backlog + 「ルーターの記録」 only.
+//                    Clicking a member / subagent shows what it is doing under the box; a command opens the session's tab.
 //   一覧: the same tree as table rows (folder → session → team members / subagents).
 // Data: the dashboard's folder rows (dashboard.js rows(): sessions with `kind`, plus WidgetState fields
-// `agents` { subagents, team }, `doing`, `contextPct`, `costUsd` from widget.js sessionOf).
+// `agents` { subagents, team }, `doing`, `contextPct`, `costUsd`, `cmds` from widget.js sessionOf).
+// Commands: the session's background commands from its transcript (Panel.summary cmds: running + ended in the last 15 min),
+// 止まっている from main's waits.js alerts (silent / gone) on the session's wait — no process list of its own (EDR rules).
 // Waiting for confirmation is known per session only (a member's permission prompt shows in the lead's screen).
 //
-// window.AgentsView.body(rows, { api, rerender }) -> HTMLElement; counts(rows) -> { wait, run, all }
+// window.AgentsView.body(rows, { api, rerender, log }) -> HTMLElement; (log = the dashboard's ルーターの記録 entries) counts(rows) -> { wait, run, all }
 (() => {
   // the state words (UX5: the word table's, the same as the dashboard's session rows; not the old 確認待ち / 実行中 / 待機)
   const W = (k, d) => (window.Labels && window.Labels.WORDS && window.Labels.WORDS[k]) || d;
@@ -43,12 +50,35 @@
   }
   const ktok = (n) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n || 0));
   const toolText = (t) => (t ? `${t.name}${t.arg ? ` ${t.arg}` : ''}` : '');
+  // ms -> 「26分」「1時間5分」「1分未満」 (the same steps as waits.js durShort)
+  function span(ms) {
+    const m = Math.floor(Math.max(0, ms) / 60e3);
+    if (m < 1) return '1分未満';
+    if (m < 60) return `${m}分`;
+    return `${Math.floor(m / 60)}時間${m % 60 ? `${m % 60}分` : ''}`;
+  }
+  // a command's text for its box: first line, long absolute paths as their last two parts (waits.js cmdLabel)
+  function cmdLabel(c) {
+    const t = String(c || '').split(/\r?\n/)[0].trim().split(/\s+/)
+      .map((w) => {
+        const parts = w.replace(/\\/g, '/').split('/');
+        return w.length > 24 && parts.length > 3 && /^([A-Za-z]:|~)?$/.test(parts[0]) ? '…/' + parts.slice(-2).join('/') : w;
+      })
+      .join(' ');
+    return t || '（コマンド）';
+  }
+  // the command's own words (依頼-481): 動いている / 止まっている / 終わった
+  const CMD_JA = { run: '動いている', stall: '止まっている', done: '終わった', err: '失敗' };
+  const CMD_ORDER = { stall: 0, run: 1, err: 2, done: 3 };
 
   // dashboard kindOf -> state; panel / transcript status -> state
   // fin (完了: claude stopped after 作業完了, PROGRESS 35) / rest (休止中, 31) / off -> 完了, not 待機
   const sessSt = (k) => (k === 'input' ? 'wait' : k === 'error' ? 'err' : k === 'busy' ? 'run' : k === 'off' || k === 'fin' || k === 'rest' ? 'done' : 'idle');
   const agentSt = (s) => (s === 'running' || s === 'starting' ? 'run' : s === 'idle' ? 'idle' : s === 'error' ? 'err' : 'done');
   const byState = (a, b) => ORDER[a.st] - ORDER[b.st] || (b.at || 0) - (a.at || 0);
+
+  // a team is shown while it has members (or was disbanded); the lead-only team Claude Code makes per session is not
+  const teamShown = (x) => !!x.team && (x.team.removed || x.members.length > 0);
 
   // folder rows -> [{ folder, name, sessions: [{ s, st, team, members, subs }] }]
   function model(rows) {
@@ -62,28 +92,79 @@
           .map((m) => ({ kind: 'member', id: m.agentId || m.name, name: m.name, st: agentSt(m.status), at: m.updatedAt, m }))
           .sort(byState);
         const subs = (a.subagents || [])
-          .map((x) => ({ kind: 'sub', id: x.agentId || '', name: x.agentType || 'agent', st: agentSt(x.status), at: x.updatedAt, m: x }))
+          .map((x) => ({ kind: 'sub', id: x.agentId || '', name: x.teamName || x.agentType || 'agent', st: agentSt(x.status), at: x.updatedAt, m: x }))
           .sort(byState);
-        return { s, st: sessSt(s.kind), team, members, subs };
+        return { s, st: sessSt(s.kind), team, members, subs, cmds: cmdsOf(s) };
       });
-      out.push({ folder: r.folder, name: baseName(r.folder), sessions });
+      out.push({ folder: r.folder, name: baseName(r.folder), backlog: r.backlog || [], sessions });
     }
     return out;
   }
 
+  // session -> [{ kind: 'cmd', id, name, st, at, c, why }] newest first by state. A running command of an idle session that
+  // main's wait does not list belongs to an earlier claude of the tab (waits.js: started before its pty) and is left out.
+  function cmdsOf(s) {
+    const w = s.wait && typeof s.wait === 'object' ? s.wait : null;
+    const alerts = w && Array.isArray(w.alerts) ? w.alerts : [];
+    const listed = w && Array.isArray(w.items) && w.kind !== 'running' ? new Set(w.items.filter((i) => i && i.type === 'command').map((i) => i.id)) : null;
+    const out = [];
+    for (const c of Array.isArray(s.cmds) ? s.cmds : []) {
+      if (!c || !c.id) continue;
+      const running = c.status === 'running';
+      if (running && listed && s.status === 'idle' && !listed.has(c.id)) continue;
+      let st = running ? 'run' : c.status === 'completed' || c.status === 'exited' ? 'done' : 'err';
+      let why = '';
+      if (running) {
+        const a = alerts.find((x) => x && (x.ref === `${c.id}:gone` || x.ref === `${c.id}:silent`));
+        if (a) {
+          st = 'stall';
+          why = a.code === 'gone' ? 'プロセスが無い' : '出力が止まっている';
+          why = { short: why, text: String(a.text || '') };
+        }
+      }
+      out.push({ kind: 'cmd', id: c.id, name: cmdLabel(c.command), st, at: c.startedAt || 0, c, why: why || null });
+    }
+    return out.sort((a, b) => CMD_ORDER[a.st] - CMD_ORDER[b.st] || (b.at || 0) - (a.at || 0));
+  }
+
+  // ---- ルーター → セッション (AGV-ROUTER, 依頼-493) ----------------------------------------------------
+  // What the app already holds, nothing looked up: the folder's backlog (an active item with the session's tabId = the ルーター
+  // gave it this work) and the 「ルーターの記録」 lines of the last 10 minutes (answer / nudge / interrupt carry the session's tabKey).
+  const PUSH_MS = 10 * 60e3;
+  const PUSH_JA = { nudge: '声をかけた', interrupt: '止めて声をかけた', answer: '確認に答えた' };
+  function routerOf(f, x, log, now) {
+    const tabId = String(x.s.tabId ?? '');
+    const item = tabId ? (f.backlog || []).find((i) => i && i.status === 'active' && String(i.tabId ?? '') === tabId) || null : null;
+    const marks = [];
+    for (const e of Array.isArray(log) ? log : []) {
+      if (!e || !PUSH_JA[e.type] || e.bad || !tabId || String(e.tabKey || '') !== tabId || !(now - e.at < PUSH_MS) || now < e.at) continue;
+      marks.push({ type: e.type, at: e.at, word: PUSH_JA[e.type], text: e.title || '' });
+    }
+    marks.sort((a, b) => b.at - a.at);
+    if (!item && !marks.length) return null;
+    return { item, marks, st: item ? 'run' : 'idle' };
+  }
+  const taskName = (i) => [i.no, i.title].filter(Boolean).join(' ') || i.id || '';
+
   function counts(rows) {
-    const c = { wait: 0, run: 0, all: 0, sessions: 0, teams: 0, folders: 0 };
+    const c = { wait: 0, run: 0, all: 0, sessions: 0, teams: 0, folders: 0, cmd: 0, cmdRun: 0, cmdStall: 0 };
     for (const f of model(rows)) {
       const live = f.sessions.filter((x) => x.s.kind !== 'fin' && x.s.kind !== 'rest');
       if (live.length) c.folders++;
       for (const x of live) {
         // 完了 / 休止中 sessions (claude stopped) are not counted (PROGRESS 35)
         c.sessions++;
-        if (x.team && !x.team.removed) c.teams++;
+        if (teamShown(x) && !x.team.removed) c.teams++;
         for (const y of [x, ...x.members, ...x.subs]) {
           c.all++;
           if (y.st === 'wait') c.wait++;
           if (y.st === 'run') c.run++;
+        }
+        for (const y of x.cmds) {
+          if (y.st === 'done' || y.st === 'err') continue;
+          c.cmd++;
+          if (y.st === 'run') c.cmdRun++;
+          if (y.st === 'stall') c.cmdStall++;
         }
       }
     }
@@ -111,6 +192,11 @@
     num(c.wait, ST_JA.wait, 'agv-t-wait');
     num(c.run, ST_JA.run);
     num(c.all, `エージェント（${c.folders} フォルダ・${c.sessions} セッション・${c.teams} チーム）`);
+    // 依頼-481: the commands that run now; the stopped ones in peach
+    if (c.cmd) {
+      num(c.cmd, "コマンド");
+      if (c.cmdStall) num(c.cmdStall, CMD_JA.stall, 'agv-t-stall');
+    }
     const sw = h('span', 'agv-sw');
     for (const [m, label] of [['graph', '関係図'], ['list', '一覧']]) {
       const b = h('button', opt.mode === m ? 'on' : '', label);
@@ -144,7 +230,7 @@
       wrap.append(h('div', 'agv-empty', opt.waitOnly ? `${ST_JA.wait}のセッションはありません。` : '開いているセッションがありません。'));
       return wrap;
     }
-    wrap.append(opt.mode === 'list' ? list(folders, focus) : graph(folders, focus, rerender));
+    wrap.append(opt.mode === 'list' ? list(folders, focus) : graph(folders, focus, rerender, ctx.log));
     return wrap;
   }
 
@@ -158,9 +244,37 @@
     return w ? waitText(w) : x.s.doing || '';
   };
 
+  // a command's state word and time: 「動いている」「開始から 3分」 / 「終わった」「2分で 5分前」
+  function cmdWords(y) {
+    const c = y.c;
+    const ended = y.st === 'done' || y.st === 'err';
+    const word = y.st === 'err' ? `${CMD_JA.done}（${c.status === 'failed' ? '失敗' : '止めた'}）` : CMD_JA[y.st];
+    const t = ended
+      ? [c.endedAt && c.startedAt ? `${span(c.endedAt - c.startedAt)}で終了` : '', rel(c.endedAt)].filter(Boolean).join(' ・ ')
+      : c.startedAt
+        ? `開始から ${span(Date.now() - c.startedAt)}`
+        : '';
+    return { word, t };
+  }
+
   // ---- 関係図 --------------------------------------------------------------------------------
-  function graph(folders, focus, rerender) {
+  function graph(folders, focus, rerender, log) {
+    const now = Date.now();
     const lanes = h('div', 'agv-lanes');
+    let nRun = 0;
+    let nMark = 0;
+    for (const f of folders) for (const x of f.sessions) {
+      x.rt = routerOf(f, x, log, now);
+      if (x.rt && x.rt.item) nRun++;
+      if (x.rt) nMark += x.rt.marks.length;
+    }
+    // the ルーター's box: who it is working through now (the arrows below start here)
+    const rb = h('div', 'agv-router');
+    rb.append(h('span', 'agv-router-n', 'ルーター'));
+    rb.append(h('span', 'agv-router-s', nRun ? `${nRun} セッションに指示中` : '指示中のセッションはありません'));
+    if (nMark) rb.append(h('span', 'agv-mark', `後押し ${nMark}（10分以内）`));
+    rb.title = 'ルーターが作業を振り分けたセッションへ、上から矢印が出ます（青＝振り分けた作業が進行中）。声をかけた・止めた・確認に答えた直後の 10 分は印が付きます。';
+    lanes.append(rb);
     for (const f of folders) {
       const lane = h('div', 'agv-lane');
       const head = h('div', 'agv-lane-h', f.name);
@@ -170,7 +284,7 @@
       if (nw) cnt.append(h('span', 'agv-t-wait', ` ・ ${ST_JA.wait} ${nw}`));
       head.append(cnt);
       const lb = h('div', 'agv-lane-b');
-      for (const x of f.sessions) lb.append(box(x, focus, rerender));
+      for (const x of f.sessions) lb.append(box(x, focus, rerender, f));
       lane.append(head, lb);
       lanes.append(lane);
     }
@@ -179,8 +293,27 @@
 
   function box(x, focus, rerender) {
     const s = x.s;
+    const rt = x.rt || null;
     const small = x.st === 'done' && opt.foldDone;
-    const el = h('div', `agv-box agv-b-${x.st}${small ? ' agv-small' : ''}`);
+    const el = h('div', `agv-box agv-b-${x.st}${small ? ' agv-small' : ''}${rt ? ' agv-routed' : ''}`);
+    // the arrow from the ルーター: its task while it runs (指示中), a mark per recent push
+    if (rt) {
+      const rin = h('div', 'agv-rin');
+      const arrow = h('span', `agv-redge agv-e-${rt.st}`);
+      rin.append(arrow);
+      const lab = h('span', 'agv-rin-t');
+      if (rt.item) {
+        lab.append(h('span', 'agv-rin-run', '指示中'), document.createTextNode(` ・ ${taskName(rt.item)}`));
+        lab.title = `ルーターが振り分けた作業: ${taskName(rt.item)}（進行中）`;
+      } else lab.append(h('span', 'agv-t-idle', 'ルーターから'));
+      rin.append(lab);
+      for (const m of rt.marks.slice(0, 2)) {
+        const mk = h('span', `agv-mark agv-mk-${m.type}`, `${m.word} ${rel(m.at)}`);
+        mk.title = m.text;
+        rin.append(mk);
+      }
+      el.append(rin);
+    }
     const head = h('div', 'agv-box-h');
     const t = h('button', 'agv-title', s.label || '(無題)');
     t.type = 'button';
@@ -202,33 +335,65 @@
     // UX5: answered only on あなたの番; the box points there
     if (x.st === 'wait' && (s.options || []).length && window.Dashboard?.turnLink) el.append(window.Dashboard.turnLink());
     const key = (y) => `${s.wcId}/${s.tabId}/${y.kind}/${y.id || y.name}`;
-    const pills = (items, cls) => {
-      const p = h('div', 'agv-pills');
+    // one child: the arrow from the session (its colour = the child's state; 指示中 / 実行中 while it works) and its box
+    const edge = (y) => {
+      const e = h('span', `agv-edge agv-e-${y.st}`);
+      const verb = y.st === 'run' ? (y.kind === 'cmd' ? '実行中' : '指示中') : '';
+      if (verb) e.append(h('span', 'agv-e-l', verb));
+      return e;
+    };
+    const agentNode = (y, cls) => {
+      const b = h('button', `agv-pill agv-node agv-n-${y.st} agv-p-${y.st}${cls ? ` ${cls}` : ''}${sel === key(y) ? ' on' : ''}`);
+      b.type = 'button';
+      const m = y.m || {};
+      const what = m.summary || m.description || toolText(m.lastTool) || '';
+      b.title = `${y.name}（${ST_JA[y.st]}）${what ? `\n${what}` : ''}`;
+      // a subagent started at a known time: 「開始から N分」 while it works; otherwise its last move
+      const t = y.st === 'run' && y.kind === 'sub' && m.startedAt ? `開始から ${span(Date.now() - m.startedAt)}` : rel(m.updatedAt);
+      if (y.kind === 'sub' && m.teamName) b.title = `チームメンバー ${b.title}`;
+      b.append(dot(y.st), h('span', 'agv-n-name', y.name), h('span', `agv-n-st agv-t-${y.st}`, ST_JA[y.st]));
+      if (y.kind === 'sub' && m.teamName) b.append(h('span', 'agv-kind', 'チームメンバー'));
+      if (t) b.append(h('span', 'agv-n-t', t));
+      b.addEventListener('click', () => {
+        sel = sel === key(y) ? '' : key(y);
+        rerender();
+      });
+      return b;
+    };
+    const cmdNode = (y) => {
+      const c = y.c;
+      const b = h('button', `agv-node agv-cmd agv-n-${y.st}`);
+      b.type = 'button';
+      const { word, t } = cmdWords(y);
+      b.title = [String(c.command || ''), `${word}${t ? ` ・ ${t}` : ''}`, y.why ? y.why.text : '', 'クリックでタブを開く'].filter(Boolean).join('\n');
+      b.append(dot(y.st), h('span', 'agv-n-name', y.name), h('span', `agv-n-st agv-t-${y.st}`, y.why ? `${word}（${y.why.short}）` : word));
+      if (t) b.append(h('span', 'agv-n-t', t));
+      b.addEventListener('click', () => focus(s));
+      return b;
+    };
+    const group = (title, titleCls, items, node, hidWord) => {
+      const g = h('div', 'agv-grp');
+      g.append(h('div', `agv-grp-h${titleCls ? ` ${titleCls}` : ''}`, title));
       for (const y of items.filter(shown)) {
-        const b = h('button', `agv-pill agv-p-${y.st}${cls ? ` ${cls}` : ''}${sel === key(y) ? ' on' : ''}`);
-        b.type = 'button';
-        b.title = `${y.name}（${ST_JA[y.st]}）`;
-        b.append(dot(y.st), h('span', '', y.name));
-        b.addEventListener('click', () => {
-          sel = sel === key(y) ? '' : key(y);
-          rerender();
-        });
-        p.append(b);
+        const r = h('div', 'agv-row');
+        r.append(edge(y), node(y));
+        g.append(r);
       }
       const hid = items.length - items.filter(shown).length;
-      if (hid) p.append(h('span', 'agv-hid', `＋完了 ${hid}`));
-      return p;
+      if (hid) {
+        const r = h('div', 'agv-row agv-row-hid');
+        r.append(h('span', 'agv-edge agv-e-done'), h('span', 'agv-hid', `＋${hidWord} ${hid}`));
+        g.append(r);
+      }
+      el.append(g);
     };
-    if (x.team) {
-      const g = h('div', 'agv-grp');
-      g.append(h('div', 'agv-grp-h agv-team', `チーム ${x.team.name}${x.team.removed ? '（解散）' : ''}`), pills(x.members));
-      el.append(g);
+    if (teamShown(x)) {
+      // AGV-TEAM: a team with nobody but its lead (Claude Code makes one per session) has no head; a disbanded one keeps its note
+      const nm = x.members.length;
+      group(`チーム ${x.team.name}${x.team.removed ? '（解散）' : ` ・ ${nm} 人`}`, 'agv-team', x.members, (y) => agentNode(y), '完了');
     }
-    if (x.subs.length) {
-      const g = h('div', 'agv-grp');
-      g.append(h('div', 'agv-grp-h', 'サブエージェント'), pills(x.subs, 'agv-sub'));
-      el.append(g);
-    }
+    if (x.subs.length) group('サブエージェント', '', x.subs, (y) => agentNode(y, 'agv-sub'), '完了');
+    if (x.cmds.length) group('コマンド', 'agv-cmds', x.cmds, cmdNode, CMD_JA.done);
     const picked = [...x.members, ...x.subs].find((y) => sel === key(y));
     if (picked) el.append(detail(s, picked, focus));
     return el;
@@ -259,7 +424,7 @@
   function list(folders, focus) {
     const t = h('table', 'agv-table');
     const cg = h('colgroup');
-    for (const w of ['32%', '76px', '', '170px', '96px']) {
+    for (const w of ['30%', '120px', '', '160px', '96px']) {
       const col = h('col');
       if (w) col.style.width = w;
       cg.append(col);
@@ -317,20 +482,29 @@
           const nowText = [m.summary || m.description, toolText(m.lastTool)].filter(Boolean).join(' ・ ');
           row(`agv-agent agv-r-${y.st}`, depth, y.st, els, nowText, m.tokens ? ktok(m.tokens) : '', m.agentId ? link('会話を見る', () => focus(s, { agentId: m.agentId, name: y.name })) : null);
         };
-        if (x.team) {
+        if (teamShown(x)) {
           const live = x.members.filter((y) => y.st === 'run' || y.st === 'idle').length;
           row('agv-teamrow', 1, null, [h('span', 'agv-kind agv-team', 'チーム'), h('span', 'agv-mono', x.team.name)], `${live} / ${x.members.length} 人が動いている`, '', null);
           for (const y of x.members.filter(shown)) agentRow(y, 2, '');
           const hid = x.members.length - x.members.filter(shown).length;
           if (hid) row('agv-hidrow', 2, null, [h('span', 'agv-hid', `＋完了 ${hid} 人`)], '', '', null);
         }
-        for (const y of x.subs.filter(shown)) agentRow(y, 1, 'サブ');
+        for (const y of x.subs.filter(shown)) agentRow(y, 1, y.m.teamName ? 'チームメンバー' : 'サブ');
         const hs = x.subs.length - x.subs.filter(shown).length;
         if (hs) row('agv-hidrow', 1, null, [h('span', 'agv-hid', `＋完了したサブエージェント ${hs}`)], '', '', null);
+        // 依頼-481: the background commands (動いている / 止まっている / 終わった, from the transcript and main's waits)
+        for (const y of x.cmds.filter(shown)) {
+          const { word, t } = cmdWords(y);
+          const tr = row(`agv-agent agv-cmdrow agv-r-${y.st}`, 1, y.st, [h('span', 'agv-kind', 'コマンド'), h('span', 'agv-mono', y.name)], [y.why && y.why.short, t].filter(Boolean).join(' ・ '), '', link('タブを開く', () => focus(s)));
+          tr.children[1].replaceChildren(h('span', `agv-t-${y.st}`, word));
+          tr.children[2].title = [y.c.command, y.why && y.why.text].filter(Boolean).join('\n');
+        }
+        const hc = x.cmds.length - x.cmds.filter(shown).length;
+        if (hc) row('agv-hidrow', 1, null, [h('span', 'agv-hid', `＋終わったコマンド ${hc}`)], '', '', null);
       }
     }
     return t;
   }
 
-  window.AgentsView = { body, counts, _model: model };
+  window.AgentsView = { body, counts, _model: model, _teamShown: teamShown, _routerOf: routerOf };
 })();

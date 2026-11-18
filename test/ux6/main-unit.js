@@ -100,8 +100,24 @@ test('every allowed channel is a real channel name (in src/preload.js)', () => {
     assert.ok(pre.includes(`${name}: (`) || pre.includes(`${name}: ()`), `preload has ${name}`);
     assert.ok(pre.includes(`'${ch}'`), `preload uses ${ch}`);
   }
-  assert.equal(snapshot.ALLOWED.size, 18);
+  assert.equal(snapshot.ALLOWED.size, 20);
   assert.ok(pre.includes("dashboardSnapshot: (o) => ipcRenderer.invoke('dashboard:snapshot', o)"));
+});
+
+// SNAP-ALLOW: a channel the renderer reads through the snapshot (dashboard.js SNAP_VIA) but main does not allow is
+// answered 「not allowed」 on every refresh (read again one by one, warned once). UX12's pmo:heartbeat / reviews:list were.
+test('every channel of the renderer SNAP_VIA is allowed by main, under the same preload name', () => {
+  const fs = require('node:fs');
+  const src = fs.readFileSync(path.join(__dirname, '../../src/renderer/dashboard.js'), 'utf8');
+  const i = src.indexOf('const SNAP_VIA = {');
+  assert.ok(i > 0, 'SNAP_VIA found');
+  const body = src.slice(i, src.indexOf('};', i));
+  const pairs = [...body.matchAll(/'([a-z]+:[A-Za-z]+)':\s*'([A-Za-z]+)'/g)].map((m) => [m[1], m[2]]);
+  assert.ok(pairs.length >= 20, `SNAP_VIA pairs ${pairs.length}`);
+  for (const [ch, name] of pairs) {
+    assert.ok(snapshot.ALLOWED.has(ch), `main allows ${ch}`);
+    assert.equal(snapshot.CHANNELS[name], ch, `CHANNELS.${name} = ${ch}`);
+  }
 });
 
 test('sig / same: a known sig drops the value; a changed value sends it again', async () => {

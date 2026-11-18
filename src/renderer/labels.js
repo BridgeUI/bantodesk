@@ -17,9 +17,9 @@
     inboxOpen: '対応中',
     inboxHistory: '対応履歴',
     yourTurn: '要対応', // ユーザーにしか決められないもの（旧 あなたの番・確認待ち / 入力待ち / 回答待ち。タブ名は名詞: docs/ui-wording.md）
-    checking: '確認中', // PMO が受け持つ確認
+    checking: '確認中', // ルーターが受け持つ確認
     queue: '待ち', // 旧 キュー / バックログ / 待ち行列
-    pmo: 'PMO', // 旧 管理エージェント
+    pmo: 'ルーター', // 旧 PMO・管理エージェント（表示だけ。内部の名前 pmo・manager・pmo: の key は互換のため変えない）
     done: '完了', // タブの rest（旧 休止）も含む
     hold: '保留', // 依頼の hold（旧 休止）
     resume: '再開', // --resume を見せない
@@ -27,7 +27,7 @@
     projects: 'プロジェクト', // 旧 受け箱・フォルダ
     allDone: 'すべて完了', // U8: 見直しで次の作業が出なかったフォルダの印（新しい依頼で外れる）
     reviewing: '見直し中', // U8: アプリが積んだ見直しが動いている
-    pmoLog: 'PMO の記録', // 旧 PMO から（お知らせ・解決した指摘）
+    pmoLog: 'ルーターの記録', // 旧 PMO から（お知らせ・解決した指摘）
     settings: '設定',
     dashboard: 'ダッシュボード',
     running: '動作中',
@@ -36,9 +36,28 @@
     dropReq: '取り下げ', // 依頼をやめる
     dropTask: '取り消し', // 待ちのタスクをやめる
     proposal: '提案',
-    pmoChat: 'PMO に相談',
+    pmoChat: 'ルーターに相談',
     newReq: '受付',
     stalled: '止まって', // 「止まって 4 分」（旧 放置）
+    // UX12: ホームの安心の 1 行と要対応の下の欄（docs/ux12-check.md、src/renderer/reassure.js）
+    away: '留守の間', // 最後に画面を離れてから起きたことの数
+    postCheck: '事後の確認', // 仮説で進めたことの見直し（答えなくても進む）
+    wrongHypo: '違う', // 事後の確認の 1 行を ルーターに返す
+    lastMove: '最後の動き',
+    afterThis: 'この後', // 何も起きなければ次にアプリ・ルーターがすること
+    needWindows: 'Windows の PC が要るもの',
+    needHands: '手で見てほしいもの',
+    notUrgent: '急ぎでない',
+    // UX13: ホームの中で会話を開く（src/renderer/session-view.js、docs/ux13-check.md）
+    home: 'ホーム', // 会話から戻る先（「← ホーム」）
+    workbench: '作業台', // フォルダの窓（ターミナル・並べる・ビューア）
+    openWorkbench: '作業台で開く',
+    directTalk: 'このセッションに直接話す（ルーターを通さない）', // ホームの会話の入力欄
+    sessionClosed: 'このセッションは閉じています',
+    // UX14: メインの窓の左のナビとパンくず、作業台の入口（docs/ux14-check.md）
+    terminal: 'ターミナル', // 会話の上の行: 作業台でこのセッションをターミナルで開く
+    modeConv: '会話', // 作業台のペインの表示（会話 / ターミナル / 並べる をメニューで選ぶ）
+    modeSplit: '並べる',
     // U5: ダッシュボードの「新しいセッション」の欄（旧 フォルダを開く窓 picker）
     newSession: '新しいセッション',
     pickFolder: 'フォルダを選ぶ…', // 旧 Browse for folder…
@@ -49,10 +68,16 @@
     keptEdits: '編集中のファイル（残したもの）',
     openNow: '開いている', // 旧 OPEN
     // U6: セッション画面の上のバー（常に出すのは 新しいセッション・ダッシュボード・その他・設定・サイドパネル）
-    more: 'その他', // 「⋯」のメニュー（ビューア・待ちの一覧・チートシート・リモート・新しいセッションの選択肢）
+    // UX16: ⌘K のコマンドパレット（旧「⋯ その他」のメニューの中身もここ）
+    palette: 'コマンドパレット',
+    palettePlaceholder: '操作・タスクの番号・フォルダ・ファイルを探す',
+    paletteEmpty: '見つかりません',
+    paletteKinds: '操作 / タスク / 依頼 / セッション / フォルダ / ファイル', // 結果の段の名前（下の PALETTE_KIND）
+    dropSee: '見る', // ドロップの帯の左の的: ビューアで開く（MD / HTML / 画像 / PDF / xlsx）
+    dropEdit: '直す', // ドロップの帯の右の的: 編集モード（作業用コピー）で開く
     sessionOptions: '新しいセッション・履歴',
     viewer: 'ファイルをビューアで開く',
-    queueList: '待ちの一覧', // 旧 バックログの窓
+    queueList: 'ホームで待ちを見る', // UX15: ホームをこのフォルダに絞る（旧 待ちの一覧 = バックログのパネル）
     cheatsheet: 'チートシート',
     remote: 'リモート（スマホから）',
     hiddenTabs: '入りきらないタブ', // 右端の「▾ N」
@@ -61,20 +86,44 @@
     ops: '件の操作', // 古いターンのツールの行をまとめた 1 行「12 件の操作」
     openDiffs: '差分を開いて表示', // 設定。既定はオフ（差分は 1 行の要約で閉じる）
     openResults: '結果を開いて表示', // 設定。既定はオフ（Bash などの出力は 1 行の要約で閉じる）
+    leanPreamble: '前置きを削る', // TK3。⚙ 設定のスイッチ（アプリ全体、manager-settings.json leanPreamble）
+    leanPreambleTip: '切ると使えなくなるもの: claude.ai のコネクタ（Gmail・Drive・Adobe など）と、アカウントの skill・プラグイン（docx・pptx・xlsx・deep-research など）。次に起動する claude から効きます（動いている claude は変わりません）', // TK3。スイッチの説明の 1 行
+    leanKeep: 'このフォルダでは削らない', // TK3。ホームのカード。leanPreambleOff に足す
+    leanKeepOn: 'このフォルダは削らない', // TK3。足したあとの印（押すと外す = 削る に戻す）
+    pmoMaxTok: 'ルーターの文脈の上限', // TK1。設定 > 引き継ぎ。トークン数（既定 200000、0 で使わない）
+    look: '見た目', // UX17。設定の節
+    theme: '地の色', // UX17。設定 > 見た目。暗い / 明るい / OS に合わせる（localStorage theme、theme.js）
+    themeOs: 'OS に合わせる',
+    themeDark: '暗い',
+    themeLight: '明るい',
+    zoom: '拡大率', // UX18。設定 > 見た目。80〜150%。全部のウィンドウで同じ（app-settings.json zoom）
+    zoomNormal: '標準',
+    zoomTip: '画面の文字と部品の大きさ。全部のウィンドウで同じです。キーでも変えられます: {keys}', // {keys} = Labels.key の mod+= / mod+- / mod+0
+    zoomTipTerm: 'ターミナルの中では、縮小と 100% のキーは Claude Code に送ります', // UX18。Windows だけ添える（Ctrl+- は Claude Code の取り消し）
+    themeTip: '窓の地の色。OS に合わせるなら、OS のダーク / ライトの切り替えについていきます。全部のウィンドウで同じ設定です。ターミナルは明るい地でも暗いままです（Claude Code が暗い地の色で描くため）',
     // 待ちの順番（docs/queue-order.md）: ホームのカードの待ちの欄
     queueOrder: '送る順', // カードの待ちの欄の見出し。上から順に新しいセッションで始める
     nextStart: '次', // 全体（フォルダをまたぐ）で次に始まるタスクの行の状態（旧 次に始まる）
     nextTask: '次のタスク', // プロジェクトのタブの上の 1 行の見出し「次のタスク: A · AT-61 見出し」（src/main/queueorder.js の line）
     startSoon: 'まもなく開始', // 空きがあり、次の見回りで始まるタスク（旧 すぐ始まる）
-    orderLocked: '手で並べた順', // ↑ ↓ の後 24 時間は PMO が並べ替えない印（残り時間を添える）
-    askPmoOrder: '順番の見直し', // ひとこと書いて PMO への依頼に足すボタン（旧 PMO に順番を見直してもらう）
-    pmoReordered: 'PMO の並べ替え', // PMO の最後の reorder と理由
+    orderLocked: '手で並べた順', // ↑ ↓ の後 24 時間は ルーターが並べ替えない印（残り時間を添える）
+    askPmoOrder: '順番の見直し', // ひとこと書いて ルーターへの依頼に足すボタン（旧 PMO に順番を見直してもらう）
+    pmoReordered: 'ルーターの並べ替え', // ルーターの最後の reorder と理由
     // UX5: 設定の節
     workAndModel: '作業とモデル', // 旧「ダッシュボード」の節（置き場所・モデル・止まりの見張り）。上から 2 番目
     phone: 'スマホ', // スマホから操作する（リモート）の ON / OFF の節。ホームの上の帯には ON のときだけ印
     // UA3: 問題のときのセッション画面（docs/usage-analytics.md §5）
-    workDetail: 'この作業の詳しく', // ⋯ の中。旧 サイドパネル（アシストパネル）を出す
-    showTerminal: 'ターミナル', // ⋯ の中。会話 ⇄ ターミナルの切り替え（旧 ペインの見出しのボタン）
+    workDetail: 'この作業', // パレット（旧 ⋯ の中）。「この作業」の欄を出す・しまう（旧 この作業の詳しく = アシストパネル）
+    // UX15: 「この作業」の欄（作業台とホームの会話の右）とカードの行のメニュー
+    thisWork: 'この作業', // 欄の名前（旧 アシストパネルの 6 タブ: 概要・タスク・チーム・エージェント・変更ファイル・ツール）
+    autoSend: '一通り終わったら自動で送る', // この作業の「待ち」の行（旧 バックログのパネルの見出し）
+    restart: '再起動', // この作業の下（再起動の入口はここだけ。終わった claude の「再開」はタブのメニューと帯にも残る）
+    handoff: '引き継ぐ', // この作業の下（引き継ぎの入口はここだけ）
+    openFolder: 'フォルダを開く', // この作業の下。Finder / エクスプローラーで開く
+    markDone: '完了にする', // カードの行の ⋯（動作中のタスク。旧 バックログのパネルの「完了」）
+    fixTitle: '見出しを直す', // カードの行の ⋯（待ちのタスク）と依頼の ⋯。空なら本文の先頭から（旧 バックログのパネルの「編集」の見出し）
+    reopen: '戻す', // カードの行の ⋯（完了・失敗・取り消しのタスクをもう一度待ちに）
+    showTerminal: 'ターミナル', // パレット（旧 ⋯ の中）。会話 ⇄ ターミナルの切り替え（旧 ペインの見出しのボタン）
     slimSession: 'セッション画面を問題のときの形にする', // 設定（会話の表示）。既定はオン
     backToDash: 'ダッシュボードに戻る', // 問題の帯。問題が消えたら出す
   });
@@ -86,9 +135,9 @@
     { from: '受け箱: 対応済み', to: WORDS.inboxHistory, note: '依頼タブの絞り込み' },
     { from: '受け箱・フォルダ', to: WORDS.projects, note: 'フォルダの進み具合はプロジェクトタブへ' },
     { from: '受-N', to: REQ_PREFIX + '-N', note: '振り分け前の仮の番号' },
-    { from: '確認待ち', to: WORDS.yourTurn, note: 'ユーザー宛て。PMO が受け持つものは「確認中」' },
-    { from: '入力待ち', to: WORDS.yourTurn, note: 'ユーザー宛て。PMO が受け持つものは「確認中」' },
-    { from: '回答待ち', to: WORDS.yourTurn, note: 'ユーザー宛て。PMO が受け持つものは「確認中」' },
+    { from: '確認待ち', to: WORDS.yourTurn, note: 'ユーザー宛て。ルーターが受け持つものは「確認中」' },
+    { from: '入力待ち', to: WORDS.yourTurn, note: 'ユーザー宛て。ルーターが受け持つものは「確認中」' },
+    { from: '回答待ち', to: WORDS.yourTurn, note: 'ユーザー宛て。ルーターが受け持つものは「確認中」' },
     { from: 'キュー', to: WORDS.queue, note: '' },
     { from: 'バックログ', to: WORDS.queue, note: '' },
     { from: '待ち行列', to: WORDS.queue, note: '' },
@@ -103,15 +152,15 @@
     { from: '待機中 / 待機', to: WORDS.queue, note: 'タスクの pending の語を「待ち」にそろえる。セッションの idle の呼び名は U6 で決める' },
     { from: '振り分け済み', to: WORDS.inboxOpen, note: '依頼の routed' },
     { from: '放置', to: '止まって N 分', note: 'アプリの内部の語を見せない' },
-    { from: '見回り', to: '（出さない）', note: '結果は「PMO の記録」に残す' },
+    { from: '見回り', to: '（出さない）', note: '結果は「ルーターの記録」に残す' },
     { from: '待ちが長い / 待ちの見張り', to: '止まって N 分', note: '' },
   ]);
 
   const INBOX_STATUS = Object.freeze({
-    new: { short: '受付', full: 'PMO がまだ振り分けていない依頼' },
-    asking: { short: '要対応', full: 'PMO が質問しています。「要対応」で答えてください' },
-    hold: { short: '保留', full: '保留にした依頼。再開するまで PMO は振り分けません' },
-    routed: { short: '対応中', full: 'PMO がプロジェクトのタスクに振り分けました' },
+    new: { short: '受付', full: 'ルーターがまだ振り分けていない依頼' },
+    asking: { short: '要対応', full: 'ルーターが質問しています。「要対応」で答えてください' },
+    hold: { short: '保留', full: '保留にした依頼。再開するまで ルーターは振り分けません' },
+    routed: { short: '対応中', full: 'ルーターがプロジェクトのタスクに振り分けました' },
     done: { short: '完了', full: '振り分けたタスクが済みました' },
     failed: { short: '失敗', full: '振り分けたタスクが失敗しました' },
     dropped: { short: '取り下げ', full: '取り下げた依頼' },
@@ -137,9 +186,9 @@
     closed: { short: '待ち（閉じている）', full: 'フォルダを開くと始まります' },
   });
 
-  // 「PMO の記録」の種類（UIUX U4。src/main/notices.js forLog の kind）。short は絞り込みの印、full はツールチップ。
+  // 「ルーターの記録」の種類（UIUX U4。src/main/notices.js forLog の kind）。short は絞り込みの印、full はツールチップ。
   const LOG_KIND = Object.freeze({
-    push: { short: '後押し', full: '止まったセッションの確認を PMO が押した・待っているセッションに声をかけた' },
+    push: { short: '後押し', full: '止まったセッションの確認を ルーターが押した・待っているセッションに声をかけた' },
     route: { short: '振り分け', full: '依頼をフォルダのタスクに分けた' },
     order: { short: '順番', full: '待ちのタスクの順番を変えた' },
     fix: { short: '立て直し', full: 'タスクの状態を直した・止まりが解けた' },
@@ -147,8 +196,8 @@
     done: { short: '完了', full: 'タスクが済んだ・失敗した' },
     release: { short: '更新', full: '新しい版を入れた（release）・再起動' },
     handoff: { short: '引き継ぎ', full: 'コンテキストやメモリが満ちて新しいセッションへ引き継いだ' },
-    info: { short: 'お知らせ', full: 'PMO やアプリからのお知らせ' },
-    warn: { short: '指摘', full: 'PMO やアプリの見回りで見つけたこと（PMO が立て直します）' },
+    info: { short: 'お知らせ', full: 'ルーターやアプリからのお知らせ' },
+    warn: { short: '指摘', full: 'ルーターやアプリの見回りで見つけたこと（ルーターが立て直します）' },
   });
 
   const TABLES = { inbox: INBOX_STATUS, backlog: BACKLOG_STATUS, wait: WAIT_REASON, log: LOG_KIND };
@@ -210,7 +259,8 @@
   }
 
   // AT-6: the small mark of the model / effort a routed item's session starts with. item.model / item.effort = set by
-  // the PMO at route / create (own); defaults = { model, effort } of the settings (models:get session), optional.
+  // the ルーター at route / create (own); defaults = { model, effort } of the settings (models:get session, or kinds[kind]
+  // for an item with a kind, MODEL-KIND), optional.
   // -> { text: 'opus-5-5 · high', title, own } or null (nothing to show: no own value and no defaults)
   function modelMark(item, defaults) {
     const it = item || {};
@@ -221,30 +271,49 @@
     const own = !!(it.model || it.effort);
     const short = String(model).replace(/^claude-/, '');
     const text = [short, effort].filter(Boolean).join(' · ');
-    const title = `モデル: ${model || '既定'}${it.model ? '（PMO の指定）' : '（既定）'}\neffort: ${effort || '既定'}${it.effort ? '（PMO の指定）' : '（既定）'}`;
+    const dflt = it.kind ? `（${it.kind} の既定）` : '（既定）';
+    const title = `モデル: ${model || '既定'}${it.model ? '（ルーターの指定）' : dflt}\neffort: ${effort || '既定'}${it.effort ? '（ルーターの指定）' : dflt}`;
     return { text, title, own };
   }
 
-  // ---- キーと近道（UX4 = docs/mac-polish.md M2〜M4、docs/ux-journey.md §5.7） ----
-  // 近道の表は 1 つ（UX16 のコマンドパレットも同じ表を使う）。keys は 'mod+shift+B' の形で書く: mod は Mac で ⌘
-  // （metaKey）、Windows で Ctrl（ctrlKey）。ctrl は両方で Control のキー。画面の表記は key() で出し分け、画面の文に
-  // 「Ctrl」を直に書かない（Claude Code 自身のキーは Mac でも Ctrl なので、それだけはそのまま書く）。
-  // sheet: チートシートの「BantoDesk」に出す。
-  const SHORTCUTS = Object.freeze([
-    { id: 'newTab', keys: 'mod+shift+T', label: '新しいセッション（タブ）', sheet: true },
-    { id: 'closeTab', keys: 'mod+shift+W', label: 'タブを閉じる', sheet: true },
-    { id: 'folder', keys: 'mod+shift+O', label: 'フォルダを切り替え', sheet: true },
-    { id: 'autoYes', keys: 'mod+shift+Y', label: '安全な確認は自動で通す の ON / OFF', sheet: true },
-    { id: 'layout', keys: 'mod+shift+L', label: 'レイアウトのプリセット切替（1 / 2 / 2×2）', sheet: true },
-    { id: 'history', keys: 'mod+shift+H', label: 'セッション履歴', sheet: true },
-    { id: 'cheatsheet', keys: 'mod+shift+P', label: 'チートシート', sheet: true },
-    { id: 'viewMode', keys: 'mod+shift+M', label: '会話 → ターミナル → 並べる の切り替え', sheet: true },
-    { id: 'backlog', keys: 'mod+shift+B', label: '待ちの一覧', sheet: true },
-    { id: 'viewer', keys: 'mod+shift+F', label: 'ファイルをビューアで開く', sheet: true },
-    { id: 'pmoLog', keys: 'mod+shift+E', label: 'PMO の記録', sheet: true },
-    { id: 'tempSession', keys: 'mod+shift+N', label: '一時セッション（別ウィンドウ）', sheet: true },
-    { id: 'cycleTab', keys: 'ctrl+Tab', label: '次のタブへ（Shift で前へ）', sheet: true, shiftAny: true },
+  // ---- 操作の表（UX16 = docs/ux-journey.md §6、docs/ux16-check.md。UX4 の近道の表を広げた） ----
+  // 操作は表 1 つ: ここからコマンドパレット（palette.js）・近道（shortcutOf）・チートシートのキーの一覧（cheatsheet.js）
+  // を作る。何をするかだけは renderer.js の COMMAND_RUN（id → 関数）にある。
+  //   id: 操作の名前（usage の key.* / palette.cmd.* にも使う）。label: パレットとキーの一覧に出す文
+  //   keys: 近道（無ければパレットだけ）。'mod+shift+B' の形で書く: mod は Mac で ⌘（metaKey）、Windows で Ctrl（ctrlKey）。
+  //         ctrl は両方で Control のキー。画面の表記は key() で出し分け、画面の文に「Ctrl」を直に書かない（Claude Code
+  //         自身のキーは Mac でも Ctrl なので、それだけはそのまま書く）。
+  //   win: Windows だけの近道（keys が Claude Code のキーとぶつかるとき。Ctrl+K は Claude Code の「行末まで消す」）
+  //   where: どこで効くか（パレットに出す場所）: 'all' どこでも / 'work' 作業台（フォルダの窓）/ 'home' ホーム（メインの窓）
+  //   sheet: チートシートの「BantoDesk」に出す（keys があるものだけ）。words: 探すときの別の言い方
+  // Auto-yes（安全な確認は自動で通す）は設定の中だけ（UX16。旧 ⋯ と ⇧⌘Y）。
+  const WHERE = Object.freeze({ all: 'どこでも', work: '作業台', home: 'ホーム' });
+  const COMMANDS = Object.freeze([
+    { id: 'palette', keys: 'mod+K', win: 'mod+shift+K', label: 'コマンドパレット（操作・タスク・フォルダ・ファイルを探す）', where: 'all', sheet: true, words: '探す 検索 search' },
+    { id: 'newTab', keys: 'mod+shift+T', label: '新しいセッション（タブ）', where: 'work', sheet: true },
+    { id: 'closeTab', keys: 'mod+shift+W', label: 'タブを閉じる', where: 'work', sheet: true },
+    { id: 'cycleTab', keys: 'ctrl+Tab', label: '次のタブへ（Shift で前へ）', where: 'work', sheet: true, shiftAny: true },
+    { id: 'layout', keys: 'mod+shift+L', label: 'レイアウトのプリセット切替（1 / 2 / 2×2）', where: 'work', sheet: true },
+    { id: 'terminal', label: 'ターミナルを表示（会話 ⇄ ターミナル）', where: 'all', words: 'terminal 作業台 端末' },
+    { id: 'detail', label: '「この作業」の欄を出す / しまう', where: 'work', words: 'パネル 概要' },
+    { id: 'viewer', keys: 'mod+shift+F', label: 'ファイルをビューアで開く', where: 'work', sheet: true, words: 'プレビュー 見る' },
+    { id: 'sim', label: 'iOS シミュレータを表示', where: 'work', words: 'simulator ios iphone アプリ 画面 スマホ' }, // IOS-SIM（Mac で simctl があるときだけパレットに出す）
+    { id: 'present', label: '資料（pptx）を開く', where: 'work', words: 'present スライド パワポ powerpoint プレゼン 資料 pptx' }, // 18 資料パネル
+    { id: 'browser', label: 'ブラウザを開く', where: 'work', words: 'browser web サイト localhost url 内蔵 ページ' }, // 内蔵ブラウザ（PROGRESS 6）
+    { id: 'editFile', label: 'ファイルを編集…（作業用コピーで直して書き戻す）', where: 'all', words: '直す 編集 edit' },
+    { id: 'backlog', keys: 'mod+shift+B', label: 'ホームでこのフォルダの待ちを見る', where: 'work', sheet: true, words: '待ち バックログ キュー' }, // UX15（旧 待ちの一覧）
+    { id: 'history', keys: 'mod+shift+H', label: 'セッション履歴・新しいセッションの種類', where: 'work', sheet: true, words: 'チーム ワークツリー 再開' },
+    { id: 'newSession', label: '新しいセッション（フォルダを開く・新しい作業）', where: 'home', words: 'フォルダ 作業' },
+    { id: 'tempSession', keys: 'mod+shift+N', label: '一時セッション（別ウィンドウ）', where: 'all', sheet: true },
+    { id: 'folder', keys: 'mod+shift+O', label: 'フォルダを切り替え', where: 'all', sheet: true },
+    { id: 'home', label: 'ホームを開く', where: 'work', words: 'ダッシュボード あなたの番' },
+    { id: 'pmoLog', keys: 'mod+shift+E', label: 'ルーターの記録', where: 'all', sheet: true, words: 'ログ 履歴 通知' },
+    { id: 'remote', label: 'リモート（スマホから）', where: 'work', words: 'スマホ remote' },
+    { id: 'settings', label: '設定', where: 'all', words: '安全な確認は自動で通す 通知 引き継ぎ settings' },
+    { id: 'cheatsheet', keys: 'mod+shift+P', label: 'チートシート（キーの一覧）', where: 'all', sheet: true, words: 'キー 近道 ショートカット' },
   ]);
+  // 近道のあるものだけ（UX4 からの名前。usage の key.* はこの id）
+  const SHORTCUTS = Object.freeze(COMMANDS.filter((c) => c.keys));
 
   function detectOs() {
     try {
@@ -317,19 +386,39 @@
     if (mac && want.has('mod') && want.has('shift') && !want.has('ctrl')) return same({ ctrl: true, meta: false, alt: need.alt, shift: true });
     return false;
   }
+  // a command's keys on this OS (win: the Windows one when it has one)
+  function keysOf(c, o) {
+    if (!c || !c.keys) return '';
+    return !isMac(o) && c.win ? c.win : c.keys;
+  }
   // the shortcut id of a keydown, or null
   function shortcutOf(e, o) {
     if (!e || (e.type && e.type !== 'keydown')) return null;
-    for (const s of SHORTCUTS) if (matchKey(e, s.keys, o, s.shiftAny)) return s.id;
+    for (const s of SHORTCUTS) if (matchKey(e, keysOf(s, o), o, s.shiftAny)) return s.id;
     return null;
   }
   function shortcutKey(id, o) {
     const s = SHORTCUTS.find((x) => x.id === id);
-    return s ? key(s.keys, o) : '';
+    return s ? key(keysOf(s, o), o) : '';
+  }
+  // the cheat sheet's BantoDesk rows: [[key], label] for each command with keys and sheet (UX16: from the one table, so a
+  // removed key cannot stay in the list)
+  function sheetRows(o) {
+    return SHORTCUTS.filter((s) => s.sheet).map((s) => [[key(keysOf(s, o), o)], s.label]);
+  }
+  // the palette's command rows for a window: where 'all' and the window's own ('work' | 'home')
+  // -> [{ id, label, key, where, words }]
+  function paletteCommands(place, o) {
+    return COMMANDS.filter((c) => c.where === 'all' || c.where === place).map((c) => ({ id: c.id, label: c.label, key: c.keys ? key(keysOf(c, o), o) : '', where: WHERE[c.where] || '', words: c.words || '' }));
   }
 
   return {
+    COMMANDS,
+    WHERE,
     SHORTCUTS,
+    keysOf,
+    sheetRows,
+    paletteCommands,
     os,
     isMac,
     key,

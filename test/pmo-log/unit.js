@@ -1,4 +1,4 @@
-// Unit (plain Node): UIUX U4 「PMO の記録」 — src/main/notices.js forLog / parseActions and the info expiry without a
+// Unit (plain Node): UIUX U4 「ルーターの記録」 — src/main/notices.js forLog / parseActions and the info expiry without a
 // read operation. AT_APP_ROOT = the app to test (stable check), else this repo.
 'use strict';
 const path = require('path');
@@ -36,7 +36,7 @@ const notices = [
   { id: 'n4', kind: 'info', title: 'answer の要約', key: 'app:answer:abc', createdAt: t0 + 14000, updatedAt: t0 + 14000 },
   { id: 'n5', kind: 'proposal', title: '未回答の提案', createdAt: t0 + 15000, updatedAt: t0 + 15000, answer: null },
   { id: 'n6', kind: 'proposal', title: '答えた提案', createdAt: t0 + 16000, updatedAt: t0 + 16000, answer: { choice: 'go', comment: '', at: t0 + 17000 } },
-  { id: 'n7', kind: 'info', title: 'PMO を引き継ぎました', key: 'app:pmo-handoff:t1', createdAt: t0 + 18000, updatedAt: t0 + 18000 },
+  { id: 'n7', kind: 'info', title: 'ルーターを引き継ぎました', key: 'app:pmo-handoff:t1', createdAt: t0 + 18000, updatedAt: t0 + 18000 },
   { id: 'n8', kind: 'info', title: '片付けました', key: 'app:autodrop:x', createdAt: t0 + 19000, updatedAt: t0 + 19000 },
 ];
 const log = N.forLog(notices, actions);

@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/media/flow.svg" alt="You write requests into the inbox; the PMO agent picks a folder for each and queues it; each folder's queue feeds Claude Code sessions; the dashboard shows everything and is where you answer questions." width="100%">
+  <img src="docs/media/flow.svg" alt="You write requests into the inbox; the Router agent picks a folder for each and queues it; each folder's queue feeds Claude Code sessions; the dashboard shows everything and is where you answer questions." width="100%">
 </p>
 
 <p align="center">
@@ -35,7 +35,7 @@ the sessions stopped an hour ago.
 BantoDesk is a desktop app that takes that juggling off your hands:
 
 - **You only do three things:** give instructions, answer the questions that really need you, and pick up the results.
-- **A manager agent — the "PMO" — does the rest:** it reads every request, sends it to the right project folder,
+- **A manager agent — the "Router" (shown as ルーター in the app UI) — does the rest:** it reads every request, sends it to the right project folder,
   decides the order, asks you up front when something is ambiguous, and gets stuck sessions moving again.
 - **Each folder has its own queue**, and the app starts Claude Code sessions from it — in parallel where the work does
   not overlap, within the CPU and memory you have.
@@ -45,7 +45,7 @@ BantoDesk is a desktop app that takes that juggling off your hands:
 | Feature | What it does |
 |---|---|
 | 📥 **Inbox** | Type or paste a request (or drop a file) at the top of the dashboard; the 依頼 (Requests) tab tracks each one. Nothing is lost: it stays until it is routed. |
-| 🧭 **PMO agent** | A Claude Code session that manages the others: routes requests to folders, orders the queues, writes up-front Q&A with its own best guess (leave it blank to accept), nudges stuck sessions and answers permission prompts that are safe. |
+| 🧭 **Router agent** | A Claude Code session that manages the others: routes requests to folders, orders the queues, writes up-front Q&A with its own best guess (leave it blank to accept), nudges stuck sessions and answers permission prompts that are safe. |
 | 🗂 **Per-folder queues** | Requests become work items in each project. Items that touch different files run in parallel; a global limit (default 3) and resource checks keep the machine responsive. A session reports `作業完了` (done) or `作業中断` (stopped) and the next item starts. |
 | 💬 **Session windows** | One window per folder, one tab per Claude Code session. A conversation view (Markdown, tool calls, folded diffs, subagents and Agent Teams members) with the real terminal one click away. |
 | 📊 **Dashboard** | Every folder, queue and session at a glance. "要対応" (Needs you) collects the questions, proposals and permission prompts waiting for you — answer them in place, even for windows that are hidden. |
@@ -55,8 +55,8 @@ BantoDesk is a desktop app that takes that juggling off your hands:
 ## Screenshots
 
 <p align="center">
-  <img src="docs/media/screenshot-dashboard.png" alt="The dashboard's Projects tab: three folders, each with a running Claude Code session and a queue behind it, and the PMO conversation on the right" width="100%">
-  <br><b>Dashboard</b> — every project with its running session and queue (3 running, limit 3); the PMO explains its routing on the right.
+  <img src="docs/media/screenshot-dashboard.png" alt="The dashboard's Projects tab: three folders, each with a running Claude Code session and a queue behind it, and the Router conversation on the right" width="100%">
+  <br><b>Dashboard</b> — every project with its running session and queue (3 running, limit 3); the Router explains its routing on the right.
 </p>
 
 <table>
@@ -81,7 +81,7 @@ BantoDesk is a desktop app that takes that juggling off your hands:
 ### Requirements
 
 - [Claude Code](https://docs.claude.com/en/docs/claude-code), installed and signed in (`claude` works in a terminal).
-  The PMO and every session are ordinary Claude Code processes under your own account and plan.
+  The Router and every session are ordinary Claude Code processes under your own account and plan.
 - [Node.js](https://nodejs.org/) 20 or later and Git.
 - macOS (Apple silicon or Intel) or Windows 10/11 (x64). Linux is untested.
 
@@ -115,26 +115,26 @@ through PowerShell or `cmd`.
 
 ### First steps
 
-1. Start the app. The dashboard opens; the PMO gets its own folder inside the app's data directory.
+1. Start the app. The dashboard opens; the Router gets its own folder inside the app's data directory.
 2. Add the project folders you work on (the "new session" panel, or `npm start -- <folder>`).
 3. Write a request in the inbox — for example *"web-shop: add a dark mode toggle to the settings page"* — and watch the
-   PMO route it and a session pick it up.
+   Router route it and a session pick it up.
 4. When something needs you, it shows up under **要対応** ("needs you") on the dashboard.
 
-> Every session and the PMO use your Claude Code usage. The PMO patrols on an interval you can change in the settings.
+> Every session and the Router use your Claude Code usage. The Router patrols on an interval you can change in the settings.
 
 ## How it works
 
 ```text
-you ──► inbox ──► PMO (Claude Code) ──route──► <folder>/ queue ──► Claude Code session ──► 作業完了 / 作業中断
+you ──► inbox ──► Router (Claude Code) ──route──► <folder>/ queue ──► Claude Code session ──► 作業完了 / 作業中断
                      ▲                                                    │
                      └──────── questions · proposals · stuck sessions ◄───┘
 ```
 
-- The PMO talks to the app through small JSON files (an *outbox*): `route`, `create`, `reorder`, `qa`, `notice`,
+- The Router talks to the app through small JSON files (an *outbox*): `route`, `create`, `reorder`, `qa`, `notice`,
   `answer`, `nudge`. The app checks every one before acting on it.
 - Sessions can propose follow-up work the same way (`.agent-terminal/outbox/` in the project folder); proposals come
-  back to the PMO, never straight into a queue.
+  back to the Router, never straight into a queue.
 - Progress per folder can be kept in a `PROGRESS.md` table that the dashboard reads.
 - Everything runs locally. The app has no server and no telemetry.
 
@@ -163,7 +163,7 @@ rails:
 - every Claude Code process it starts gets deny rules and a `PreToolUse` hook that stop risky command shapes
   (inline interpreter code that starts processes, encoded commands, `curl | sh`, …) and tell the agent how to rewrite
   them;
-- the PMO only ever presses a one-time "Yes" on prompts the app classifies as safe; deletions, secrets, network access
+- the Router only ever presses a one-time "Yes" on prompts the app classifies as safe; deletions, secrets, network access
   and paths outside the folder always go to you;
 - remote debugging is refused unless it is a test run bound to `127.0.0.1`.
 

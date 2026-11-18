@@ -54,7 +54,7 @@ async function openZip(file) {
       const commentLen = cd.readUInt16LE(p + 32);
       const local = cd.readUInt32LE(p + 42);
       const name = cd.toString('utf8', p + 46, p + 46 + nameLen);
-      entries.set(name, { method, compSize, size: size0, local });
+      entries.set(name, { method, compSize, size: size0, local, crc: cd.readUInt32LE(p + 16) });
       p += 46 + nameLen + extraLen + commentLen;
     }
     return { file, entries, inflated: 0 };

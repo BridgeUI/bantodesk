@@ -9,7 +9,7 @@ screen. Two things follow from that:
    processes. A developer tool that does any of this gets blocked (and gets its user a call from IT), even when the
    intent is harmless. BantoDesk is built so that none of these shapes appear — in the app *and* in the commands
    the agents it starts are allowed to run.
-2. **Unattended agents need guard rails, not just good intentions.** The manager agent (PMO) may press "Yes" on a
+2. **Unattended agents need guard rails, not just good intentions.** The manager agent (ルーター) may press "Yes" on a
    permission prompt for you, but only for prompts the app classifies as safe.
 
 This page describes the rules the code follows. Where a rule is enforced in code, the file is named.
@@ -68,12 +68,12 @@ The end-to-end tests drive the app over the Chrome DevTools Protocol. The prefer
 also has the e2e marker (`--agent-terminal-e2e`) **and** `--remote-debugging-address=127.0.0.1`. An app you start
 normally never exposes a debugging port.
 
-## The PMO pressing "Yes" (`src/main/stuck.js`)
+## The ルーター pressing "Yes" (`src/main/stuck.js`)
 
-When a session has been stuck on a permission prompt for a while, the PMO may answer it — only with a one-time "Yes",
+When a session has been stuck on a permission prompt for a while, the ルーター may answer it — only with a one-time "Yes",
 and only when the app classifies the prompt as safe. Deletions, anything touching secrets, network access, paths
 outside the work folder and anything matching the guard rails above go to you instead, marked in red, and are never
-answered by the PMO.
+answered by the ルーター.
 
 ## Phone view (`src/main/remote.js`)
 

@@ -111,7 +111,7 @@ function planStarts({ waiting = [], running = [], items = null, limit = DEFAULT_
   const reasons = {};
   const runningIds = new Set(running.map((r) => r && r.id));
   // running + started by this call, each with its scope
-  const busy = running.filter(Boolean).map((r) => ({ id: r.id, folder: normFolder(r.folder), scope: scopeOf(r), planned: false }));
+  const busy = running.filter(Boolean).map((r) => ({ id: r.id, folder: normFolder(r.folder), scope: scopeOf(r), planned: false, starting: r.starting === true }));
   const seen = new Set();
   for (const w of Array.isArray(waiting) ? waiting : []) {
     if (!w || typeof w.id !== 'string' || seen.has(w.id) || runningIds.has(w.id)) continue;
@@ -146,7 +146,8 @@ function planStarts({ waiting = [], running = [], items = null, limit = DEFAULT_
     if (clash) {
       const [mine, theirs] = clash.o;
       const where = mine === theirs || theirs === '*' ? shownPath(mine) : `${shownPath(mine)}（相手は ${shownPath(theirs)}）`;
-      reasons[w.id] = { code: 'overlap', text: `${where}${where.endsWith('）') ? '' : ' '}が${clash.b.planned ? '先に始める' : '実行中の'} ${nameOf(nos, clash.b.id)} と重なります` };
+      const whom = clash.b.planned ? '先に始める' : clash.b.starting ? '開始を待っている' : '実行中の';
+      reasons[w.id] = { code: 'overlap', text: `${where}${where.endsWith('）') ? '' : ' '}が${whom} ${nameOf(nos, clash.b.id)} と重なります` };
       continue;
     }
     // a. limit
@@ -163,6 +164,59 @@ function planStarts({ waiting = [], running = [], items = null, limit = DEFAULT_
     busy.push({ id: w.id, folder, scope, planned: true });
   }
   return { start, reasons };
+}
+
+// --- assigned, start not confirmed (SCH-AS, docs/sched-assigned.md) -----------------------------------------------
+// A routed item the window gave a new tab (tabId set) stays pending until its text is sent to that tab (backlogSend:
+// active). Before, main counted every pending item with a tabId as running for as long as it stayed so: a tab that never
+// got ready held the limit and the overlap of its scope for 10 / 58 min (SSA-161, AT-147, AT-149). Now such an item counts
+// as running (starting: true) only for ASSIGN_COUNT_MS from when main first saw it assigned to that tab; after that it is
+// stale and counts for nothing (the window gives it back to the queue at ASSIGN_START_MS, src/renderer/startwatch.js;
+// main waits a little longer, so a window that is only slow does not lose the guard, and a window that never acts does
+// not hold the queue).
+const ASSIGN_START_MS = 60_000;
+const ASSIGN_COUNT_MS = 90_000;
+const ROUTED_RE = /^r-/;
+
+/**
+ * One folder's routed items that count as running. -> { running: [{ folder, id, kind, touches, startedAt, starting? }], stale: id[] }
+ * items: the folder's backlog items; seen: Map id -> { tabId, at } (main keeps it; updated here: a new assignment
+ * starts its clock, entries of items no longer assigned are removed by pruneAssigned); now / countMs: clock.
+ * active r- items run; pending r- items with a tabId run while their clock is younger than countMs (starting: true).
+ */
+function routedRunning(folder, items, { now = Date.now(), seen = null, countMs = ASSIGN_COUNT_MS } = {}) {
+  const running = [];
+  const stale = [];
+  for (const i of Array.isArray(items) ? items : []) {
+    if (!i || typeof i.id !== 'string' || !ROUTED_RE.test(i.id)) continue;
+    const base = { folder, id: i.id, kind: i.kind || null, touches: Array.isArray(i.touches) ? i.touches : [], startedAt: i.startedAt || null };
+    if (i.status === 'active') {
+      running.push(base);
+      continue;
+    }
+    if (i.status !== 'pending' || !i.tabId) continue;
+    let s = seen ? seen.get(i.id) : null;
+    if (!s || s.tabId !== i.tabId) {
+      s = { tabId: i.tabId, at: now };
+      if (seen) seen.set(i.id, s);
+    }
+    if (now - s.at > countMs) stale.push(i.id);
+    else running.push({ ...base, startedAt: s.at, starting: true });
+  }
+  return { running, stale };
+}
+
+// Drops the clocks of items that are no longer pending with a tab (started, back in the queue, gone). keep = ids still
+// assigned (all open folders). -> number removed
+function pruneAssigned(seen, keep) {
+  let n = 0;
+  for (const id of [...seen.keys()]) {
+    if (!keep.has(id)) {
+      seen.delete(id);
+      n++;
+    }
+  }
+  return n;
 }
 
 // --- folders without a window -------------------------------------------------------------------
@@ -379,6 +433,10 @@ module.exports = {
   planStarts,
   planClosed,
   closedWaiting,
+  routedRunning,
+  pruneAssigned,
+  ASSIGN_START_MS,
+  ASSIGN_COUNT_MS,
   settingsOf,
   createResourceMonitor,
   overOf,

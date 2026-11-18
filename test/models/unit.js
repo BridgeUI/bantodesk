@@ -1,6 +1,6 @@
-// Unit checks for AT-6 (default model claude-opus-5-5 / effort medium for every claude start; the PMO picks another per
+// Unit checks for AT-6 (default model claude-opus-5-5 / effort medium for every claude start; the ルーター picks another per
 // routed item): src/main/models.js, claude-cmd buildClaudeArgs / buildClaudeCmd / launchSpec, backlog / sessions keep the
-// fields, manager route / create check and store them, projects.json pendingItems, the PMO CLAUDE.md template, the mark
+// fields, manager route / create check and store them, projects.json pendingItems, the ルーター CLAUDE.md template, the mark
 // on the screens (labels.modelMark). No Electron, no claude.  Run: node tmp/models/unit.js
 // AT_APP_ROOT = another app folder (e.g. the stable copy after a release): its src is tested
 const path = require('path');
@@ -21,6 +21,7 @@ const ok = (name, c, ev) => {
   console.log(c ? 'PASS' : 'FAIL', name, ev !== undefined && !c ? JSON.stringify(ev).slice(0, 400) : '');
 };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const sp2 = (d) => ({ session: d.session, pmo: d.pmo }); // MODEL-KIND: kinds are checked in tmp/model-kind/unit.js
 const after = (args, flag) => {
   const i = args.indexOf(flag);
   return i < 0 ? undefined : args[i + 1];
@@ -36,12 +37,12 @@ const after = (args, flag) => {
   for (const e of models.EFFORTS) ok(`effort ok: ${e}`, models.isEffort(e));
   for (const e of ['', 'Medium', 'HIGH', 'ultra', 'none', 'auto', null, 3]) ok(`effort refused: ${JSON.stringify(e)}`, !models.isEffort(e));
 
-  // fromSettings: missing / bad -> built-in default; session and PMO separate
+  // fromSettings: missing / bad -> built-in default; session and ルーター separate
   const D = { model: 'claude-opus-5-5', effort: 'medium' };
-  ok('fromSettings(null) = defaults for both', same(models.fromSettings(null), { session: D, pmo: D }));
-  ok('fromSettings({}) = defaults', same(models.fromSettings({ workRoot: '/x' }), { session: D, pmo: D }));
-  ok('fromSettings reads both', same(models.fromSettings({ claudeModel: 'sonnet', claudeEffort: 'low', pmoModel: 'claude-opus-5-5', pmoEffort: 'high' }), { session: { model: 'sonnet', effort: 'low' }, pmo: { model: 'claude-opus-5-5', effort: 'high' } }));
-  ok('fromSettings: bad values -> default', same(models.fromSettings({ claudeModel: 'bad model', claudeEffort: 'ultra', pmoModel: '', pmoEffort: 7 }), { session: D, pmo: D }));
+  ok('fromSettings(null) = defaults for both', same(sp2(models.fromSettings(null)), { session: D, pmo: D }));
+  ok('fromSettings({}) = defaults', same(sp2(models.fromSettings({ workRoot: '/x' })), { session: D, pmo: D }));
+  ok('fromSettings reads both', same(sp2(models.fromSettings({ claudeModel: 'sonnet', claudeEffort: 'low', pmoModel: 'claude-opus-5-5', pmoEffort: 'high' })), { session: { model: 'sonnet', effort: 'low' }, pmo: { model: 'claude-opus-5-5', effort: 'high' } }));
+  ok('fromSettings: bad values -> default', same(sp2(models.fromSettings({ claudeModel: 'bad model', claudeEffort: 'ultra', pmoModel: '', pmoEffort: 7 })), { session: D, pmo: D }));
 
   // settingsPatch (the ⚙ screen)
   ok('settingsPatch: values', same(models.settingsPatch({ claudeModel: ' sonnet ', claudeEffort: 'high' }).fields, { claudeModel: 'sonnet', claudeEffort: 'high' }));
@@ -54,7 +55,7 @@ const after = (args, flag) => {
   // pick: own value wins when valid, else the role's default
   const defs = models.fromSettings({ claudeModel: 'sonnet', claudeEffort: 'low', pmoModel: 'opus', pmoEffort: 'high' });
   ok('pick: session default', same(models.pick(defs, 'project', null), { model: 'sonnet', effort: 'low' }));
-  ok('pick: manager = PMO default', same(models.pick(defs, 'manager', {}), { model: 'opus', effort: 'high' }));
+  ok('pick: manager = ルーター default', same(models.pick(defs, 'manager', {}), { model: 'opus', effort: 'high' }));
   ok('pick: own values win', same(models.pick(defs, 'project', { model: 'haiku', effort: 'max' }), { model: 'haiku', effort: 'max' }));
   ok('pick: only own effort', same(models.pick(defs, 'project', { effort: 'xhigh' }), { model: 'sonnet', effort: 'xhigh' }));
   ok('pick: bad own values -> default', same(models.pick(defs, 'project', { model: 'x y', effort: 'ultra' }), { model: 'sonnet', effort: 'low' }));
@@ -206,7 +207,7 @@ const after = (args, flag) => {
   pi = pr[0].pendingItems;
   ok('pendingItems follow the settings default', pi.find((i) => i.text === 'plain').model === 'sonnet' && pi.find((i) => i.text === 'plain').effort === 'low' && pi.find((i) => i.text === 'heavy').model === 'claude-opus-5-5');
 
-  // --- PMO CLAUDE.md template ------------------------------------------------------------------------------------
+  // --- ルーター CLAUDE.md template ------------------------------------------------------------------------------------
   const mgr = path.join(tmp, 'mgr2');
   fs.mkdirSync(mgr, { recursive: true });
   fs.writeFileSync(path.join(mgr, 'CLAUDE.md'), `<!-- agent-terminal manager v21 -->\nold\n${manager.USER_MARKER}\nmine\n`);
@@ -226,7 +227,7 @@ const after = (args, flag) => {
   let mm = Labels.modelMark({}, dflt);
   ok('mark: default', mm && mm.text === 'opus-5-5 · medium' && mm.own === false && /既定/.test(mm.title), mm);
   mm = Labels.modelMark({ model: 'claude-sonnet-5-5', effort: 'high' }, dflt);
-  ok('mark: own', mm.text === 'sonnet-5-5 · high' && mm.own === true && /PMO の指定/.test(mm.title), mm);
+  ok('mark: own', mm.text === 'sonnet-5-5 · high' && mm.own === true && /ルーターの指定/.test(mm.title), mm);
   mm = Labels.modelMark({ effort: 'low' }, null);
   ok('mark: own effort without defaults', mm.text === 'low' && mm.own === true, mm);
   ok('mark: nothing known -> null', Labels.modelMark({}, null) === null);

@@ -123,4 +123,14 @@ function watchPoolHog(dir, { everyMs = 500 } = {}) {
   return t;
 }
 
-module.exports = { MARK, isE2E, switchValue, remoteDebugProblem, watchParent, watchPoolHog };
+// E2E-SEEN (依頼-487): an app a test started (the e2e mark) tells its windows "seen" always. A test run while the Mac's
+// screen is locked / asleep (the ルーター runs e2e while the user is away) got win:seen false, <html data-unseen>, and the
+// dashboard drew nothing (SCH-FR2, dashboard.js pageHidden): tmp/dash4/e2e.mjs and others failed with no app bug.
+// AGENT_TERMINAL_E2E_REAL_SEEN=1 keeps the real value (tmp/sched-fresh/e2e-dash.mjs tests SCH-FR2 itself).
+// The user's app (no mark) is unchanged. -> the value main sends as win:seen.
+function seenFor(seen, argv = process.argv, env = process.env) {
+  if (isE2E(argv, env) && env.AGENT_TERMINAL_E2E_REAL_SEEN !== '1') return true;
+  return !!seen;
+}
+
+module.exports = { MARK, isE2E, switchValue, remoteDebugProblem, watchParent, watchPoolHog, seenFor };

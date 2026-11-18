@@ -2,7 +2,7 @@
 // Notification store + sound settings (roadmap 3, docs/plan-notify.md). Owner: core.
 // Core (renderer.js) decides WHEN something is notified (signals, suppression, sounds); this module keeps the
 // list (tab unread state) and the settings. The 通知 panel is gone (UIUX U4): its settings are drawn by
-// settings.js (⚙ 設定), the things to answer are in the dashboard's「あなたの番」, the rest in「PMO の記録」.
+// settings.js (⚙ 設定), the things to answer are in the dashboard's「あなたの番」, the rest in「ルーターの記録」.
 //
 // window.Notify:
 //   init({ open(tabId), label(tabId) -> string, onChange() })
@@ -31,7 +31,15 @@
     const next = { ...settings(), ...patch };
     if (patch.kinds) next.kinds = { ...settings().kinds, ...patch.kinds };
     localStorage.setItem('notifySettings', JSON.stringify(next));
+    tellMain();
   }
+  // UX16: the OS notification is main's (あなたの番 grew, src/main.js attentionToast): it follows デスクトップ通知
+  function tellMain() {
+    try {
+      window.api?.notifyPrefs?.({ desktop: settings().desktop !== false });
+    } catch {}
+  }
+  tellMain();
 
   function push({ tabId, kind, title, body }) {
     const e = { id: ++seq, tabId, kind, title: String(title || ''), body: String(body || '').slice(0, 300), ts: Date.now() };

@@ -1,5 +1,5 @@
 // AT-closedq: queues of folders without a window start (sched.planClosed) + why an item waits goes to
-// projects.json pendingItems[].blocked (manager.buildProjects blockedOf) + the PMO template documents it.
+// projects.json pendingItems[].blocked (manager.buildProjects blockedOf) + the ルーター template documents it.
 // Run: node tmp/closed-queue/unit.js
 const fs = require('fs');
 const os = require('os');
@@ -131,7 +131,7 @@ ok('without a no: the id as before', r.reasons['r-1'].text === '前提の r-0 �
     const plain = await manager.buildProjects({ recent: [work], managerDir: path.join(tmp, 'mgr'), backlogDir: bdir });
     ok('without blockedOf: no blocked', plain[0].pendingItems.every((i) => !('blocked' in i)));
 
-    // --- PMO template
+    // --- ルーター template
     const mgr = path.join(tmp, 'mgr');
     fs.mkdirSync(mgr, { recursive: true });
     manager.ensureManagerDir(mgr);

@@ -19,13 +19,15 @@ let usageTabId = null; // UA1: the session whose open is being timed (src/render
 let band = null; // UA3: the problem band of the opened session { el, tabId, kind, line, resolved, ranAt, note }
 let lastPointerAt = 0; // UA1: a user's pointer press (assist panel tabs chosen by hand)
 window.addEventListener('pointerdown', () => (lastPointerAt = Date.now()), { capture: true, passive: true });
-const PMO_LABEL = 'PMO'; // the manager window's resident session (computeLabel, PROGRESS 45)
+const PMO_LABEL = 'ルーター'; // the manager window's resident session (computeLabel, PROGRESS 45)
 
+// xterm's colours (UX17: the one place with colours outside tokens.css — xterm takes values, not CSS variables).
+// The terminal stays dark on the light ground too; background = tokens.css --term-bg. The ANSI 16 are Claude Code's palette.
 const THEME = {
-  background: '#1e1e2e',
-  foreground: '#cdd6f4',
-  cursor: '#f5e0dc',
-  cursorAccent: '#1e1e2e',
+  background: '#1b1c21',
+  foreground: '#e7e8eb',
+  cursor: '#e7e8eb',
+  cursorAccent: '#1b1c21',
   selectionBackground: 'rgba(137, 180, 250, 0.3)',
   black: '#45475a', red: '#f38ba8', green: '#a6e3a1', yellow: '#f9e2af',
   blue: '#89b4fa', magenta: '#f5c2e7', cyan: '#94e2d5', white: '#bac2de',
@@ -298,7 +300,7 @@ function makePane(id) {
   const wt = h('span', 'wt-badge');
   const st = h('span', 'pane-status');
   const modeBtn = h('span', 'pane-mode');
-  modeBtn.title = `クリックで 会話 → ターミナル → 並べる の順に切り替え（${scKey('viewMode')}）`;
+  modeBtn.title = '会話 / ターミナル / 並べる を選ぶ'; // UX14: a menu (the 3-way cycle and its key are gone)
   const close = h('span', 'pane-close', '×');
   close.title = 'ペインを閉じる（セッションは閉じません）';
   head.append(dot, label, wt, st, modeBtn, close);
@@ -319,7 +321,7 @@ function makePane(id) {
   modeBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     const tab = tabs.get(pane.tabId);
-    if (tab) toggleViewMode(tab);
+    if (tab) openModeMenu(modeBtn, tab);
   });
 
   el.addEventListener('mousedown', () => {
@@ -411,11 +413,10 @@ function addPane(position, opts = {}) {
   return paneById.get(id);
 }
 
-// ---- assist sections (roadmap 12) ---------------------------------------------
-// The assist panel is split into one dock panel per function (Panel.SECTIONS from panel.js:
-// 概要 / タスク / チーム / エージェント / 変更ファイル / ツール), id `sec-<id>`, component 'section'.
-// They open as tabs of one group on the right; users can drag any of them elsewhere.
-// Without Panel.SECTIONS (older panel.js) the single legacy 'assist' panel (#panel) is used.
+// ---- assist column (roadmap 12, UX15) ------------------------------------------
+// One dock panel per Panel.SECTIONS entry, id `sec-<id>`, component 'section'. UX15 (docs/ux15-check.md): one section,
+// 「この作業」 (sec-work); the six of a saved layout (概要 / タスク / チーム / エージェント / 変更ファイル / ツール) close
+// themselves and 「この作業」 takes their place. Without Panel.SECTIONS the single legacy 'assist' panel (#panel) is used.
 const sectionHosts = new Map(); // section id -> container element (handed to Panel.attach)
 const sectionApis = new Map(); // section id -> dock panel api
 const sectionTitles = new Map(); // section id -> last title set (avoid redundant setTitle)
@@ -449,20 +450,13 @@ function addAssist() {
   const missing = secs.filter((s) => !sectionApis.has(s.id));
   if (!missing.length) return;
   const fresh = missing.length === secs.length;
-  // Fresh column: state on top (概要 タスク チーム エージェント), activity below (変更ファイル ツール),
-  // so the tabs of each group fit a ~320px column. Sections added later join an open section's group.
-  const LOWER = new Set(['files', 'tools']);
   for (const s of missing) {
-    const sameRow = secs.find((x) => x !== s && sectionApis.has(x.id) && (!fresh || LOWER.has(x.id) === LOWER.has(s.id)));
-    let position;
-    if (sameRow) position = { referencePanel: `sec-${sameRow.id}`, direction: 'within' };
-    else if (fresh && LOWER.has(s.id) && sectionApis.size) position = { referencePanel: `sec-${secs[0].id}`, direction: 'below' };
-    else position = { direction: 'right' };
+    const sameRow = secs.find((x) => x !== s && sectionApis.has(x.id));
+    const position = sameRow ? { referencePanel: `sec-${sameRow.id}`, direction: 'within' } : { direction: 'right' };
     safe(() => dock.addPanel({ id: `sec-${s.id}`, component: 'section', title: s.title, position, initialWidth: ASSIST_WIDTH, inactive: true }));
   }
   if (fresh) {
-    safe(() => sectionApis.get(secs[0].id)?.setActive()); // 概要 in front
-    safe(() => sectionApis.get('tools')?.setActive()); // ツール in front of the lower group
+    safe(() => sectionApis.get(secs[0].id)?.setActive());
     safe(() => anyAssistApi()?.group?.api.setSize({ width: ASSIST_WIDTH }));
   }
   updateSectionTitles();
@@ -488,28 +482,17 @@ function updateSectionTitles() {
 }
 
 // The 通知 dock panel is gone (UIUX U4): its settings are in ⚙ 設定 (settings.js), what to answer in the dashboard's
-// 「あなたの番」, the rest in「PMO の記録」(Ctrl+Shift+E). A saved layout's 'notify' panel closes itself (createComponent).
+// 「あなたの番」, the rest in「ルーターの記録」(Ctrl+Shift+E). A saved layout's 'notify' panel closes itself (createComponent).
 function openPmoLog() {
   if (info.role === 'manager') safe(() => window.Dashboard?.showTab?.('log'));
   else safe(() => api.dashboardOpen?.({ tab: 'log' }));
 }
 
-// The バックログ panel (dock panel kind 'backlog', element from backlog.js), next to the assist panel.
-let backlogApi = null;
-const backlogHost = h('div', 'backlog-host');
-function toggleBacklogPanel(force) {
-  const on = force ?? !backlogApi;
-  if (!on) {
-    safe(() => backlogApi?.close());
-    return;
-  }
-  if (backlogApi) {
-    safe(() => backlogApi.setActive());
-    return;
-  }
-  const ref = anyAssistApi();
-  const position = ref ? { referencePanel: ref.id, direction: 'within' } : { direction: 'right' };
-  safe(() => dock.addPanel({ id: 'backlog', component: 'backlog', title: (window.Labels && window.Labels.WORDS.queueList) || '待ちの一覧', position, initialWidth: ASSIST_WIDTH }));
+// UX15: the バックログ panel is gone. Its key (Ctrl+Shift+B) and the ⋯ item open the home on this folder (the project
+// card has the queue: ↑↓ 取り消す 戻す 完了にする); 一通り終わったら自動で送る is in 「この作業」.
+function showQueueAtHome() {
+  if (info.role === 'manager') safe(() => window.Dashboard?.showFolder?.(''));
+  else safe(() => api.dashboardOpen?.({ tab: 'proj', showFolder: info.workDir }));
 }
 
 // Manager window (app:info role 'manager') = the integrated dashboard (roadmap 20): a full page
@@ -530,7 +513,7 @@ const DASH_CHAT_DEFAULT = 420;
 const DASH_CHAT_MIN = 280;
 const DASH_PAGE_MIN = 480;
 function setupDashSplit(dashEl) {
-  const col = document.getElementById('dash-chat') || termsEl; // the 「PMO に相談」 column (heading + the session)
+  const col = document.getElementById('dash-chat') || termsEl; // the 「ルーターに相談」 column (heading + the session)
   const split = h('div', 'dash-split');
   split.title = 'ドラッグで幅を変更（ダブルクリックで既定の幅）';
   col.parentNode.insertBefore(split, col);
@@ -539,7 +522,8 @@ function setupDashSplit(dashEl) {
     const box = col.parentNode;
     const cs = getComputedStyle(box);
     const inner = box.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
-    const room = inner - split.offsetWidth - DASH_PAGE_MIN;
+    const navW = document.getElementById('side-nav')?.offsetWidth || 0; // UX14
+    const room = inner - navW - split.offsetWidth - DASH_PAGE_MIN;
     const px = Math.round(Math.max(DASH_CHAT_MIN, Math.min(w, room)));
     col.style.width = `${px}px`;
     return px;
@@ -586,15 +570,96 @@ function setupDashSplit(dashEl) {
   });
 }
 
-// The manager window's right column: 「PMO に相談」 heading with the PMO's role, above its session (PROGRESS 45).
+// The manager window's right column: 「ルーターに相談」 heading with the ルーター's role, above its session (PROGRESS 45).
 const PMO_ROLE_TEXT = '全プロジェクトを見て、依頼の振り分け・順番決め・指摘をする。何でも相談できます';
+// UX14 (docs/ux-journey.md §5.1・§5.7, docs/ux14-check.md): the main window's frame. The left nav (drawn by dashboard.js:
+// ホーム / プロジェクト → セッション / ＋ / ⚙) before the page; the top bar's breadcrumb (ホーム / フォルダ / 見出し) in place of
+// the folder name; under 1000px the ルーター column hides and the bar's 「ルーターに相談」 pulls it out over the page (Esc / the
+// button again puts it back). Under 1180px the nav is icons only (dashboard.css).
+function buildMainFrame(dashEl) {
+  const nav = h('nav', 'side-nav');
+  nav.id = 'side-nav';
+  nav.setAttribute('aria-label', 'ナビゲーション');
+  dashEl.parentNode.insertBefore(nav, dashEl);
+  const bar = document.getElementById('topbar');
+  const folderEl = document.getElementById('folder');
+  const crumb = h('div', 'crumb');
+  crumb.id = 'crumb';
+  if (bar) bar.insertBefore(crumb, folderEl ? folderEl.nextSibling : bar.firstChild);
+  // HOME-ROLES (依頼-479, docs/ux-journey.md §8): the ルーター is one pane, not a tab. The bar's 「ルーター」 opens / closes it from
+  // any screen of the window (home, a project, a conversation); closing hides the pane only, the ルーター's session goes on.
+  // Wide (≥ 1000px) the pane is a column (closed state kept: folderLayout.pmoClosed); narrow it is a drawer over the page.
+  const pill = h('button', 'pill pmo-pill');
+  pill.id = 'pmo-pill';
+  pill.type = 'button';
+  pill.dataset.usage = 'dash.pmo.drawer';
+  pill.append(h('span', 'dot'), h('span', 'pmo-pill-t', 'ルーター'));
+  pill.addEventListener('click', () => setPmoShown(!pmoShown()));
+  const spacer = document.getElementById('spacer');
+  if (bar) bar.insertBefore(pill, spacer ? spacer.nextSibling : null);
+  document.body.classList.toggle('pmo-closed', !!folderLayout.pmoClosed);
+  syncPmoPill();
+  window.addEventListener('resize', () => syncPmoPill());
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.body.classList.contains('pmo-open') && !e.isComposing) setPmoShown(false);
+  });
+}
+const pmoNarrow = () => window.matchMedia('(max-width: 999px)').matches;
+const pmoShown = () => (pmoNarrow() ? document.body.classList.contains('pmo-open') : !document.body.classList.contains('pmo-closed'));
+function setPmoShown(on) {
+  if (pmoNarrow()) document.body.classList.toggle('pmo-open', !!on);
+  else {
+    document.body.classList.toggle('pmo-closed', !on);
+    folderLayout.pmoClosed = !on;
+    saveFolderLayout();
+  }
+  syncPmoPill();
+  fitSoon();
+  if (on) setTimeout(() => focusPmo(), 50);
+}
+const setPmoDrawer = (on) => setPmoShown(on); // the name of UX14
+function syncPmoPill() {
+  const pill = document.getElementById('pmo-pill');
+  if (!pill) return;
+  const on = pmoShown();
+  pill.classList.toggle('on', on);
+  pill.setAttribute('aria-pressed', String(on));
+  pill.title = `${on ? 'ルーターの欄を閉じる' : 'ルーターの欄を開く'}（閉じても ルーターは動き続けます）`;
+}
+// the ルーター pane's head: 「ルーターに相談」, the session's state in words (待機中 / 実行中 / 応答待ち …), 閉じる. The dock's tab
+// strip of the column is not shown (dashboard.css): the pane holds the one resident session, there is nothing to switch.
+function renderPmoHead() {
+  if (info.role !== 'manager') return;
+  const st = document.querySelector('#dash-chat .dash-pmo-state');
+  if (!st) return;
+  const tab = residentTab();
+  const w = tab ? waitOf(tab) : null;
+  const text = !tab ? '起動中' : tab.rest === 'idle' ? '休止中' : `${STATUS_JA[tab.status] || ''}${w && w.short ? ` · ${w.short}` : ''}`;
+  if (st.textContent !== text) st.textContent = text;
+  const status = tab ? tab.status : 'starting';
+  if (st.dataset.status !== status) st.dataset.status = status;
+  const dot = document.querySelector('#pmo-pill .dot');
+  if (dot && dot.dataset.status !== status) dot.dataset.status = status;
+}
+
 function buildPmoColumn() {
   const col = h('div', '');
   col.id = 'dash-chat';
   termsEl.parentNode.insertBefore(col, termsEl);
   const head = h('div', 'dash-pmo-head');
   // U4 (docs/ui-copy.md 1): the role is the heading's tooltip, not a line of text under it
-  head.append(h('div', 'dash-pmo-title', 'PMO に相談'));
+  const title = h('div', 'dash-pmo-title', 'ルーターに相談');
+  const state = h('span', 'dash-pmo-state', '起動中');
+  const hide = h('button', 'dash-pmo-hide', '閉じる');
+  hide.type = 'button';
+  hide.dataset.usage = 'dash.pmo.hide';
+  hide.title = 'ルーターの欄を閉じる（ルーターは動き続けます。上のバーの「ルーター」で開き直せます）';
+  hide.addEventListener('mousedown', (e) => e.stopPropagation());
+  hide.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setPmoShown(false);
+  });
+  head.append(title, state, hide);
   head.title = `${PMO_ROLE_TEXT}。下の入力欄から話しかけられます。重くなったら自動で新しいセッションに引き継ぎます`;
   // a click on the heading puts the caret in the input box (without ending an IME composition elsewhere first)
   head.addEventListener('mousedown', (e) => e.preventDefault());
@@ -602,7 +667,7 @@ function buildPmoColumn() {
   col.append(head, termsEl);
 }
 
-// 「PMO に相談」 (widget / tray, main sends dashboard:focusPmo; PROGRESS 45): the PMO's session shown, caret in its
+// 「ルーターに相談」 (widget / tray, main sends dashboard:focusPmo; PROGRESS 45): the ルーター's session shown, caret in its
 // input box. Before the window's init it is kept and done after the restore. A composition already going on in that
 // box is left alone (focusing again would end it); the caret is put there at most a few times while the window comes up.
 let pmoFocusWanted = false;
@@ -613,6 +678,11 @@ function focusPmo() {
     return;
   }
   pmoFocusWanted = false;
+  // HOME-ROLES: 「ルーターに相談」 (tray, the pane's head) opens the pane when it was closed
+  if (!pmoShown()) {
+    setPmoShown(true);
+    return;
+  }
   const tab = residentTab();
   if (!tab) return;
   if (activeId !== tab.id) activate(tab.id);
@@ -627,15 +697,23 @@ function focusPmo() {
   };
   requestAnimationFrame(put);
 }
-// the PMO's input box (the composer textarea in the dock), null in the plain terminal mode
+// the ルーター's input box (the composer textarea in the dock), null in the plain terminal mode
 function pmoInputOf(tab) {
   const dock = tab?.conv?.dock;
   if (!dock || !dock.isConnected) return null;
   return dock.querySelector('textarea');
 }
 if (typeof api !== 'undefined' && api.onDashboardFocusPmo) api.onDashboardFocusPmo(() => focusPmo());
-// dashboard:open { tab } from another window (Ctrl+Shift+E there -> PMO の記録): main sends dashboard:showTab here
-if (typeof api !== 'undefined') api.onDashboardShowTab?.((o) => info.role === 'manager' && safe(() => window.Dashboard?.showTab?.(o && o.tab)));
+// dashboard:open { tab } from another window (Ctrl+Shift+E there -> ルーターの記録): main sends dashboard:showTab here
+if (typeof api !== 'undefined') api.onDashboardShowTab?.((o) => {
+  if (info.role !== 'manager') return;
+  safe(() => window.Dashboard?.showTab?.(o && o.tab));
+  // UX15: Ctrl+Shift+B in a folder window -> the home on that folder (its card has the queue)
+  if (o && typeof o.folder === 'string' && o.folder) {
+    safe(() => window.SessionView?.isOpen?.() && window.SessionView.close());
+    safe(() => window.Dashboard?.showFolder?.(o.folder));
+  }
+});
 
 function setAssistShown(on) {
   folderLayout.assistShown = !!on;
@@ -693,10 +771,31 @@ function setViewMode(tab, mode) {
   if (tab.id === activeId) requestAnimationFrame(() => focusTab(tab));
 }
 
-function toggleViewMode(tab) {
-  // The pane tab's button (and Ctrl+Shift+M) steps through the modes in order.
-  const next = { rich: 'term', term: 'split', split: 'rich' }[tab.mode] || 'rich';
-  setViewMode(tab, next);
+// UX14 (docs/ux-journey.md §5.4): the pane's mode button opens a menu of the three modes (the workbench is where a
+// session is shown as a terminal or side by side; the 会話 → ターミナル → 並べる cycle and Ctrl+Shift+M are gone)
+const MODE_WORDS = { rich: Labels.WORDS.modeConv || '会話', term: Labels.WORDS.terminal || 'ターミナル', split: Labels.WORDS.modeSplit || '並べる' };
+function openModeMenu(anchor, tab) {
+  if (menuEl && menuAnchor === anchor) {
+    closeMenu();
+    return;
+  }
+  closeMenu(false);
+  const m = h('div', 'popover mode-pop');
+  const r = anchor.getBoundingClientRect();
+  m.style.top = `${Math.round(r.bottom + 6)}px`;
+  m.style.left = `${Math.round(Math.max(8, Math.min(r.left, window.innerWidth - 200)))}px`;
+  for (const mode of VIEW_MODES) {
+    const b = menuItem(`${tab.mode === mode ? '✓ ' : ''}${MODE_WORDS[mode] || mode}`, '', () => {
+      closeMenu(false);
+      if (tabs.has(tab.id)) setViewMode(tab, mode);
+    });
+    b.dataset.mode = mode;
+    m.append(b);
+  }
+  overlayRoot.append(m);
+  menuEl = m;
+  menuAnchor = anchor;
+  document.addEventListener('mousedown', onMenuOutside, true);
 }
 
 // Automatic view switches move the keyboard focus only when it is already on this session (or
@@ -820,6 +919,58 @@ function memberActivity(tab, evt) {
 
 document.addEventListener('bantodesk:open-member', (e) => openMemberView(e.detail));
 
+// ---- IOS-SIM (docs/plan-ios-sim.md): the iOS Simulator pane (sim-view.js on the external-view.js shell) ---------------
+// Offered only on a Mac with Xcode's simctl (main checks once). The pane is built from its id, so it also comes back with a
+// saved layout. 「スクショを渡す」 puts the saved picture's path in the active session's input (as a dropped file).
+var simAvail = false;
+safe(() => api.simAvailable?.().then((r) => { simAvail = !!(r && r.ok); }, () => {}));
+function openSim() {
+  if (!dock || !window.ExternalView) return;
+  const pane = paneOfTab(activeId);
+  const position = pane?.dv ? { referencePanel: pane.id, direction: 'right' } : { direction: 'right' };
+  window.ExternalView.open(dock, 'sim', { title: 'iOS シミュレータ', position });
+}
+// 18 資料パネル (docs/plan-present.md): a pptx as big pictures (present-view.js). openPresent(path) opens a file (none: the pane asks).
+function openPresent(file) {
+  if (!dock || !window.ExternalView) return null;
+  const pane = paneOfTab(activeId);
+  const position = pane?.dv ? { referencePanel: pane.id, direction: 'right' } : { direction: 'right' };
+  return window.ExternalView.open(dock, 'present', { title: '資料', position, again: !!file, params: file ? { path: file } : null });
+}
+window.openPresent = openPresent;
+// 内蔵ブラウザ (docs/plan-browser.md): the pane (browser-view.js on the same shell). A new window of a page (target=_blank) opens
+// as a new tab = a pane in the same group. window.openBrowser(url) opens an address (blank: the address box takes the focus).
+function openBrowser(url, { near } = {}) {
+  if (!dock || !window.ExternalView) return null;
+  const ref = near && dock.panels.find((p) => p.id === near);
+  const pane = paneOfTab(activeId);
+  const position = ref ? { referencePanel: ref.id, direction: 'within' } : pane?.dv ? { referencePanel: pane.id, direction: 'right' } : { direction: 'right' };
+  return window.ExternalView.open(dock, 'browser', { title: 'ブラウザ', position, again: !!url, params: url ? { url } : null });
+}
+window.openBrowser = openBrowser;
+window.addEventListener('bantodesk:browser-newtab', (e) => openBrowser(e.detail?.url, { near: e.detail?.id }));
+safe(() => window.ExternalView?.setHandText((text, files) => { // 15: the pin comments (text + the cut pictures) into the active session's input
+  const tab = tabs.get(activeId);
+  if (!text || !tab || tab.exited) return false;
+  if (tab.conv?.composer && (tab.mode === 'term' || (tab.mode === 'rich' && !tab.peek))) {
+    tab.conv.composer.addFiles(files || []);
+    tab.conv.composer.insertText(text);
+    return true;
+  }
+  tab.term.paste(`${text} `);
+  return true;
+}));
+safe(() => window.ExternalView?.setHandPath((p) => {
+  const tab = tabs.get(activeId);
+  if (!p || !tab || tab.exited) return false;
+  if (tab.conv?.composer && (tab.mode === 'term' || (tab.mode === 'rich' && !tab.peek))) {
+    tab.conv.composer.addFiles([p]);
+    return true;
+  }
+  tab.term.paste(`${/\s/.test(p) ? `"${p}"` : p} `);
+  return true;
+}));
+
 // ---- viewer panels (roadmap 5b, docs/plan-viewer.md): MD / image / HTML / PDF of a local file ---------------------
 // Dock panel kind 'viewer', id `viewer-<n>`. Not restored after a restart (user decision 2026-11-03): a viewer panel
 // found in a saved layout closes itself, like 'member'. Main checks every path (src/main/viewer.js).
@@ -913,47 +1064,18 @@ document.addEventListener('bantodesk:open-viewer', (e) => {
   openViewer(d.path, { source: 'event', tabId: d.tabId || null });
 });
 
-// Dragging files from the OS over the window: a band on top of the layout 「ビューアで開く」. Dropping there (or on a
-// viewer panel) opens them; dropping on a pane / the conversation / the composer still attaches them as before.
-const viewerBand = h('div', 'vw-dropband', 'ここにドロップしてビューアで開く（MD / HTML / 画像 / PDF / xlsx）');
-viewerBand.hidden = true;
-document.getElementById('content')?.append(viewerBand);
-let viewerDragDepth = 0;
 const dragHasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
 const droppedViewerPaths = (e) => [...(e.dataTransfer?.files || [])]
   .map((f) => safe(() => api.pathForFile(f), ''))
   .filter((p) => p && window.Viewer?.canOpen(p));
-function hideViewerBand() {
-  viewerDragDepth = 0;
-  viewerBand.hidden = true;
-  viewerBand.classList.remove('over');
-}
-// capture phase: the panes stop the propagation of their own drops
-window.addEventListener('dragenter', (e) => {
-  if (!dragHasFiles(e) || !window.Viewer) return;
-  viewerDragDepth++;
-  viewerBand.hidden = false;
-}, true);
-window.addEventListener('dragleave', (e) => {
-  if (!dragHasFiles(e)) return;
-  if (--viewerDragDepth <= 0) hideViewerBand();
-}, true);
-window.addEventListener('drop', hideViewerBand, true);
-window.addEventListener('dragend', hideViewerBand, true);
-viewerBand.addEventListener('dragover', (e) => {
-  e.preventDefault();
-  e.dataTransfer.dropEffect = 'copy';
-  viewerBand.classList.add('over');
-});
-viewerBand.addEventListener('dragleave', () => viewerBand.classList.remove('over'));
-viewerBand.addEventListener('drop', (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  const list = droppedViewerPaths(e);
-  hideViewerBand();
-  if (!list.length) toast('ビューアで開ける形式（MD / HTML / 画像 / PDF）のファイルではありません');
+// UX16: dragging files from the OS over the window shows one band with two targets (edit-drop.js): 見る opens them in a
+// viewer panel here, 直す in edit mode. Dropping on a pane / the conversation / the composer still attaches them.
+safe(() => window.EditDrop?.setSee?.(window.Viewer ? (paths) => {
+  const list = paths.filter((p) => window.Viewer.canOpen(p));
+  if (!list.length) toast('ビューアで開ける形式（MD / HTML / 画像 / PDF / xlsx）のファイルではありません');
   for (const p of list) openViewer(p, { source: 'drop' });
-});
+  return list.length;
+} : null));
 // panel.js 「新しいセッションへ引き継ぐ」 (document event 'bantodesk:handoff' { tabId })
 document.addEventListener('bantodesk:handoff', (e) => {
   const tab = tabs.get(e.detail?.tabId);
@@ -975,13 +1097,8 @@ function buildDock() {
         return { element: h('div', 'dashboard-host'), init: () => {}, dispose: () => {} };
       }
       if (name === 'backlog') {
-        const el = safe(() => window.Backlog?.panel?.(), null);
-        if (el && el.parentNode !== backlogHost) backlogHost.append(el);
-        return {
-          element: backlogHost,
-          init: (p) => { backlogApi = p.api; safe(() => window.Backlog?.render?.()); },
-          dispose: () => { backlogApi = null; },
-        };
+        // earlier layouts only (the バックログ panel is gone, UX15): an empty host that closes itself
+        return { element: h('div', 'backlog-host'), init: (p) => queueMicrotask(() => safe(() => p.api.close())), dispose: () => {} };
       }
       if (name === 'notify') {
         // earlier layouts only (the 通知 panel is gone, UIUX U4): an empty host that closes itself
@@ -1041,6 +1158,8 @@ function buildDock() {
           },
         };
       }
+      // IOS-SIM / 内蔵ブラウザ: panes that show something from outside the page (external-view.js builds them from the id)
+      if (window.ExternalView?.has(name)) return window.ExternalView.component(name, id);
       if (name === 'conv') {
         const tabId = id.replace(/^conv-/, '');
         const host = h('div', 'conv-host');
@@ -1076,6 +1195,17 @@ function buildDock() {
       }
       if (name === 'section') {
         const sid = id.replace(/^sec-/, '');
+        if (!panelSections().some((s) => s.id === sid)) {
+          // UX15: a section of a saved layout that is gone (概要 … ツール): it closes itself, 「この作業」 comes instead
+          return {
+            element: h('div', 'section-host'),
+            init: (p) => queueMicrotask(() => {
+              safe(() => p.api.close());
+              if (folderLayout.assistShown !== false) addAssist();
+            }),
+            dispose: () => {},
+          };
+        }
         const host = sectionHost(sid);
         return {
           element: host,
@@ -1275,7 +1405,7 @@ function noTabsCard() {
   const el = h('div', 'no-tabs');
   el.id = 'no-tabs';
   el.append(h('div', 'no-tabs-title', 'このフォルダで動いているセッションはありません'));
-  el.append(h('div', 'no-tabs-sub', '作業はダッシュボード（PMO）から頼めます。claude はタブを作ったときだけ起動します。'));
+  el.append(h('div', 'no-tabs-sub', '作業はダッシュボード（ルーター）から頼めます。claude はタブを作ったときだけ起動します。'));
   const row = h('div', 'no-tabs-actions');
   const btn = (cls, text, fn) => {
     const b = h('button', `no-tabs-btn ${cls}`, text);
@@ -1514,7 +1644,7 @@ function cycleLayout() {
 // ---- tabs -----------------------------------------------------------------
 function computeLabel(tab) {
   if (tab.manualLabel && tab.manualText) return tab.manualText;
-  // The manager window's resident session is always 「PMO」 (PROGRESS 45): not its first prompt (the app's request)
+  // The manager window's resident session is always 「ルーター」 (PROGRESS 45): not its first prompt (the app's request)
   // nor the window title, also after a handoff / restart. A name the user typed still wins (above).
   if (info.role === 'manager') return PMO_LABEL;
   return taskLabel(tab) || tab.titleLabel || tab.promptLabel || tab.defaultLabel;
@@ -1719,6 +1849,7 @@ function renderTab(tab) {
   tab.btn.title = `${tab.label} — ${st}${tab.worktree ? ` (worktree: ${tab.worktree})` : ''}${mem}\nダブルクリックで名前を変更・右クリックでメニュー・ドラッグで並べ替え`;
   const pane = paneOfTab(tab.id);
   if (pane) renderPaneHead(pane);
+  if (info.role === 'manager') renderPmoHead(); // HOME-ROLES: the ルーター pane's head says the state
   scheduleTabsMore(); // UIUX U6: a label change can push tabs out of the bar
 }
 
@@ -1829,11 +1960,58 @@ document.addEventListener('bantodesk:mem-threshold', () => {
   scheduleRemote();
   safe(() => window.Dashboard?.renderOwn?.());
 });
-// side panel 「再起動」 (panel.js dispatches it, like bantodesk:handoff)
+// 「この作業」 再起動 (panel.js dispatches it, like bantodesk:handoff)
 document.addEventListener('bantodesk:restart', (e) => {
   const tab = tabs.get(e.detail?.tabId);
   if (tab) restartTab(tab);
 });
+// 「この作業」 フォルダを開く (Finder / エクスプローラー; main checks it is a known folder) and 一通り終わったら自動で送る
+document.addEventListener('bantodesk:open-folder', (e) => {
+  const tab = tabs.get(e.detail?.tabId);
+  safe(() => api.openFolder?.(String((tab && tab.cwd) || info.workDir || '')));
+});
+document.addEventListener('bantodesk:auto-send', (e) => {
+  const tab = tabs.get(e.detail?.tabId);
+  if (tab) setAutoSend(tab, !!e.detail.on);
+});
+function setAutoSend(tab, on) {
+  safe(() => window.Backlog?.setAuto?.(tab.id, on, on ? null : { why: 'user', at: Date.now() }));
+  renderPanelSoon();
+}
+
+// UX15: the core's part of 「この作業」 (panel.js workData): the request and who started it, the last move, what happens
+// next (reassure.js afterOf, the same words as the home's rows), the next items (this session's queue and the items
+// waiting on this one), the auto send switch and why a restart now would cut something off.
+function workInfo(tab) {
+  const B = window.Backlog;
+  const R = window.Reassure;
+  const title = (x) => safe(() => window.Labels.taskTitle(x), '') || String(x.title || x.text || '').split('\n')[0].slice(0, 40);
+  const act = safe(() => B?.activeOf?.(tab.id), null);
+  const done = tab.forBacklog ? (safe(() => B?.items?.(tab.id), []) || []).filter((i) => i.status !== 'pending').slice(-1)[0] : null;
+  const it = act || done || null;
+  const item = it ? { id: it.id, no: it.no || '', title: title(it), text: String(it.text || '').slice(0, 2000) } : null;
+  const routed = it ? String(it.id).startsWith('r-') : !!tab.forBacklog;
+  const kind = tab.status === 'running' ? 'busy' : tab.status === 'asking' ? 'input' : tab.status === 'idle' ? 'idle' : tab.status;
+  const s = { kind, status: tab.status, rest: tab.rest || null, wait: tab.wait || null, eventAt: tab.eventAt || 0, at: tab.statusAt || 0 };
+  const after = tab.exited ? null : safe(() => R?.afterOf?.(s, it), null) || null;
+  const pend = safe(() => B?.pendingOf?.(tab.id), []) || [];
+  const keys = it ? [it.id, it.no].filter(Boolean) : [];
+  const followers = keys.length ? (safe(() => B?.items?.(), []) || []).filter((x) => x.status === 'pending' && !pend.includes(x) && Array.isArray(x.after) && x.after.some((a) => keys.includes(a))) : [];
+  const next = [...pend.map((x, i) => ({ no: x.no || '', title: title(x), why: i === 0 ? '次に送る' : '' })), ...followers.map((x) => ({ no: x.no || '', title: title(x), why: 'この作業の後' }))];
+  const off = safe(() => B?.autoOff?.(tab.id), null);
+  return {
+    item,
+    by: routed ? 'ルーター' : 'あなた',
+    startedAt: (it && it.startedAt) || tab.createdAt || 0,
+    lastMoveAt: Math.max(tab.eventAt || 0, tab.statusAt || 0),
+    after,
+    next,
+    auto: B && info.role !== 'manager' && !tab.handedOff ? !!B.auto(tab.id) : null,
+    autoWhy: off && window.AutoSend ? safe(() => window.AutoSend.whyText(off), '') || '' : '',
+    busy: safe(() => restartBusy(tab), []) || [],
+  };
+}
+safe(() => window.Panel?.setInfo?.(workInfo));
 
 // Why a restart now would cut something off ([] = safe). Same signals as the handoff's "do not switch" list.
 function restartBusy(tab) {
@@ -1864,10 +2042,13 @@ function openTabMenu(tab, ev) {
       openWaitPop(tab, at);
     }, 'session.menu.wait'));
   }
-  m.append(menuItem(tab.exited ? window.Labels?.WORDS?.resume || '再開' : '再起動（会話はそのまま）', 'メモリを空ける', () => {
-    closeMenu(false);
-    restartTab(tab);
-  }, 'session.menu.restart'));
+  // UX15: 再起動 / 引き継ぐ are at the bottom of 「この作業」 (one door); an ended claude's 再開 stays here
+  if (tab.exited) {
+    m.append(menuItem(window.Labels?.WORDS?.resume || '再開', '同じ会話のまま起動', () => {
+      closeMenu(false);
+      restartTab(tab);
+    }, 'session.menu.restart'));
+  }
   // 休ませる (31): stop its claude now; opening the tab, Enter or a send wakes it with --resume
   if (!tab.exited && !tab.rest && info.role !== 'manager') {
     m.append(menuItem('休ませる', 'claude を止めてメモリを空ける（開くと再開）', () => {
@@ -1875,12 +2056,6 @@ function openTabMenu(tab, ev) {
       const why = restByHand(tab);
       if (why) safe(() => raise(tab, 'error', why));
     }, 'session.menu.rest'));
-  }
-  if (!tab.exited && !tab.handedOff && window.Handoff) {
-    m.append(menuItem('新しいセッションへ引き継ぐ', 'メモを書かせて続ける', () => {
-      closeMenu(false);
-      handoffStart(tab);
-    }, 'session.menu.handoff'));
   }
   m.append(menuItem('名前を変更', 'ダブルクリック', () => {
     closeMenu(false);
@@ -1931,12 +2106,91 @@ function restartTab(tab, o = {}) {
   safe(() => tab.term.reset()); // the old process's screen and scrollback
   setStatus(tab, 'starting');
   renderTab(tab);
-  api.ptyRestart({ id: tab.id, cols: tab.term.cols, rows: tab.term.rows, cwd: tab.cwd, team: tab.team, delegate: tab.delegate, ...(tab.model ? { model: tab.model } : {}), ...(tab.effort ? { effort: tab.effort } : {}) });
+  api.ptyRestart({ id: tab.id, cols: tab.term.cols, rows: tab.term.rows, cwd: tab.cwd, team: tab.team, delegate: tab.delegate, ...(tab.model ? { model: tab.model } : {}), ...(tab.effort ? { effort: tab.effort } : {}), ...(tab.kind ? { kind: tab.kind } : {}) });
   saveSessions();
   if (tab.id === activeId) focusTab(tab);
   renderPanelSoon();
   safe(() => window.Dashboard?.renderOwn?.());
   return '';
+}
+
+// UX10 (§1.6 row 16): the ルーター's resident claude ended (a crash, /exit, killed from outside). Nobody woke it and the
+// queue of the ルーター stood still until the user pressed Enter. Now it is started again with `claude --resume`
+// (restartTab) after Nonstop.WAKE_DELAY_MS, at most WAKE_MAX times an hour (more = something is wrong: left to the
+// user with the error). Not for a handed-off old ルーター tab (a closed tab is gone from tabs), nor while quitting for an update.
+// -> 'soon' (a wake is due) | 'over' (too many) | ''
+function pmoWakeMaybe(tab) {
+  const NS = window.Nonstop;
+  if (!NS || info.role !== 'manager' || tab.rest || tab.handedOff || appUpdate.state === 'restarting') return '';
+  const r = NS.wakeAllowed(tab.wakes, Date.now());
+  tab.wakes = r.times;
+  if (!r.ok) {
+    console.log('[pmo] claude ended again: no more automatic wakes this hour', tab.id);
+    return 'over';
+  }
+  const ms = schedMs('pmoWake', NS.WAKE_DELAY_MS);
+  setTimeout(() => {
+    if (!tabs.has(tab.id) || !tab.exited || tab.rest || tab.handedOff || appUpdate.state === 'restarting') return;
+    const why = restartTab(tab, { noConfirm: true });
+    console.log('[pmo] claude ended: woken with --resume', tab.id, why || 'ok', `${tab.wakes.length}/${NS.WAKE_MAX}`);
+    if (!why) safe(() => api.noticesAdd?.({ title: 'ルーターの claude が終了したので、自動で再開しました（会話はそのまま）', text: `1 時間に ${NS.WAKE_MAX} 回まで自動で再開します（今回 ${tab.wakes.length} 回目）。`, key: 'app:pmo-wake' }));
+  }, ms);
+  return 'soon';
+}
+
+// UX11 (§1.6 row 6): the ルーター's interrupt (outbox interrupt -> main checked the tab is 実行中 with no transcript line):
+// Esc, once more after INTERRUPT_ESC2_MS if it still runs, then the text when its input box takes text again (≤
+// INTERRUPT_WAIT_MS; else only a line in the panel). The routed item stays active (the report is its next turn).
+function interruptTab(tab, text) {
+  if (!tab || tab.exited || tab.rest) return 'not running';
+  const id = tab.id;
+  const t0 = Date.now();
+  const waitMs = schedMs('interrupt', 30_000);
+  const esc2 = schedMs('interruptEsc2', 5_000);
+  let escs = 1;
+  tab.interruptAt = t0;
+  api.ptyInput({ id, data: '\x1b' });
+  safe(() => P.addLocal(tab, { name: 'ルーター', arg: `実行中のまま止まっていたので止めました（Esc）。この後「状況を報告して」を送ります` }));
+  if (tab.id === activeId) renderPanelSoon();
+  const step = () => {
+    if (!tabs.has(id) || tab.exited) return;
+    const ready = tab.status === 'idle' && !tab.choices && safe(() => hasInputPrompt(physicalScreen(tab)), false);
+    if (ready) {
+      sendText(tab, text, 'auto');
+      safe(() => P.addLocal(tab, { name: 'ルーター', arg: `状況を聞きました: ${text.slice(0, 160)}` }));
+      if (tab.id === activeId) renderPanelSoon();
+      return;
+    }
+    const age = Date.now() - t0;
+    if (escs < 2 && age >= esc2 && tab.status === 'running') {
+      escs++;
+      api.ptyInput({ id, data: '\x1b' });
+    }
+    if (age >= waitMs) {
+      console.warn('interrupt: the session did not take input after Esc', id, tab.status);
+      safe(() => P.addLocal(tab, { name: 'ルーター', arg: '止めましたが、入力欄が戻りませんでした（文は送っていません）' }));
+      return;
+    }
+    setTimeout(step, 500);
+  };
+  setTimeout(step, 700);
+  scheduleScan(tab);
+  return '';
+}
+// UX11 (§1.6 row 17): main's heartbeat found the ルーター not taking its prompt for 20 min: mode 'esc' (its claude stuck
+// 実行中: the pending prompt is sent by the backlog once it is idle) or 'restart' (idle / ended: claude --resume).
+function pmoHeartbeatWake(tab, mode) {
+  if (!tab || info.role !== 'manager' || tab.rest || tab.handedOff || appUpdate.state === 'restarting') return 'no';
+  if (mode === 'esc') {
+    if (tab.exited || tab.status !== 'running') return 'not running';
+    api.ptyInput({ id: tab.id, data: '\x1b' });
+    console.log('[pmo] heartbeat: Esc to a ルーター stuck running', tab.id);
+    scheduleScan(tab);
+    return '';
+  }
+  const why = restartTab(tab, { noConfirm: true });
+  console.log('[pmo] heartbeat: ルーター restarted', tab.id, why || 'ok');
+  return why;
 }
 
 // The rename box being typed in, if any (activate asked document.querySelector('.tab-rename'), which walked every
@@ -2069,9 +2323,10 @@ function createTab(opts = {}) {
     worktree: opts.worktree || worktreeFromCwd(opts.cwd) || null,
     team: !!opts.team, // Agent Teams enabled (in-process teammates)
     delegate: !!opts.delegate, // routed item: started with the delegation prompt (docs/prompts/routed-session.md)
-    // AT-6: a routed item's own model / effort (the PMO's route / create); null = the default (main checks both)
+    // AT-6: a routed item's own model / effort (the ルーター's route / create); null = the default (main checks both)
     model: typeof opts.model === 'string' && opts.model ? opts.model : null,
     effort: typeof opts.effort === 'string' && opts.effort ? opts.effort : null,
+    kind: typeof opts.kind === 'string' && opts.kind ? opts.kind : null, // MODEL-KIND: the routed item's kind (main picks its default)
     status: 'starting',
     stats: P.newStats(),
     autoYesAns: null,
@@ -2193,6 +2448,7 @@ function createTab(opts = {}) {
   if (tab.delegate) req.delegate = true;
   if (tab.model) req.model = tab.model;
   if (tab.effort) req.effort = tab.effort;
+  if (tab.kind) req.kind = tab.kind;
   if (mode === 'resume' && REST_TEXT[opts.rest]) {
     // restored resting (PROGRESS 35 / 31): no claude until the tab is opened (wakeTab -> pty:restart --resume)
     tab.rest = opts.rest;
@@ -2201,7 +2457,7 @@ function createTab(opts = {}) {
     tab.exited = true;
     tab.status = 'exited';
     term.write(`\x1b[2m[${REST_TEXT[opts.rest]}]\x1b[0m\r\n`);
-    safe(() => C.onScreen(tab, { status: 'exited', exited: true, rest: tab.rest, choices: null, spinner: '', needTerminal: false, mode: tab.mode, peek: tab.peek }));
+    safe(() => screenOut(tab, { status: 'exited', exited: true, rest: tab.rest, choices: null, spinner: '', needTerminal: false, mode: tab.mode, peek: tab.peek }));
   } else {
     api.ptyCreate(req);
   }
@@ -2243,7 +2499,7 @@ function closeTab(id) {
   if (tabs.size === 0) {
     activeId = null;
     // AT-139: no new claude by itself; the empty screen (noTabsCard) instead. The manager window keeps its resident
-    // session (the PMO) as before.
+    // session (the ルーター) as before.
     if (info.role === 'manager') createTab();
     else {
       applyLayout();
@@ -2282,6 +2538,7 @@ function saveSessions() {
       delegate: !!t.delegate,
       ...(t.model ? { model: t.model } : {}), // AT-6: resumed with the same model / effort
       ...(t.effort ? { effort: t.effort } : {}),
+      ...(t.kind ? { kind: t.kind } : {}),
       forBacklog: !!t.forBacklog,
       rest: t.rest || null, // resting (PROGRESS 35 / 31): restored without starting its claude
       usedAt: usedAtOf(t), // last talked to / opened by the user: a session used after its item ended is resumed (42)
@@ -2346,6 +2603,7 @@ function applyEvent(tab, evt, live) {
     updateLabel(tab);
   }
   if (live) {
+    tab.eventAt = Date.now(); // UX11: the last transcript event (main's waits.runningOf: 実行中 with no line for 15 min)
     if (evt.kind === 'prompt') {
       tab.lastPromptAt = Date.now(); // sendText checks that a message really started a turn
       // Who started this turn: the latest of "typed in the terminal" and "sent by the app" decides.
@@ -2359,11 +2617,14 @@ function applyEvent(tab, evt, live) {
     } else if (evt.kind === 'api_error') {
       tab.apiErrorAt = Date.now();
       tab.apiErrorText = String(evt.text || evt.error || '').slice(0, 200); // the reason on あなたの番 (autosend.js)
+      tab.apiErrorCode = String(evt.error || '').slice(0, 80); // UX10: a usage limit (nonstop.js parseLimit)
       tab.started = true;
       raise(tab, 'error', evt.text || evt.error || 'API エラー');
     } else if (evt.kind === 'assistant_text') {
       // backlog: the routed item's marker (作業完了 / 作業中断) is read from the last reply
       tab.lastAssistantText = String(evt.text || '').slice(-2000);
+      // UX12 事後の確認: the whole last reply (its 「仮説で決めたこと」 heading may be far above the marker)
+      tab.lastReplyLong = /仮説で決めたこと|事後の確認/.test(String(evt.text || '')) ? String(evt.text).slice(-20000) : '';
       tab.lastAssistantAt = Date.now();
       tab.started = true;
     } else if (evt.kind === 'turn_end') {
@@ -2667,7 +2928,7 @@ function dialogContext(lines, firstIdx) {
     .join(' | ');
 }
 
-// The dialog on the screen as the PMO (manager agent) sees it (roadmap 27, src/main/stuck.js): what it is, its text from
+// The dialog on the screen as the ルーター (manager agent) sees it (roadmap 27, src/main/stuck.js): what it is, its text from
 // the top border of the dialog down to the options, and a key that changes when the dialog does (the manager's answer
 // action names the key, so a different dialog that replaced it is never pressed). since = when this dialog appeared.
 const PROMPT_TOP_RE = /^\s*[╭┌]|[─━]{8,}/;
@@ -2897,7 +3158,7 @@ function screenToConversation(tab, logical, running, choices, autoAnswered) {
     const l = lines.find((x) => /(esc|enter) to interrupt/i.test(x));
     if (l) spinner = cleanLine(l);
   }
-  C.onScreen(tab, { status: tab.status, exited: tab.exited, rest: tab.rest || null, choices: tab.choices, spinner, needTerminal, mode: tab.mode, peek: tab.peek });
+  screenOut(tab, { status: tab.status, exited: tab.exited, rest: tab.rest || null, choices: tab.choices, spinner, needTerminal, mode: tab.mode, peek: tab.peek });
 }
 
 // Input from the conversation view / phone UI: paste, then Enter.
@@ -3041,6 +3302,7 @@ function setStatus(tab, st) {
   if (tab.status === st) return;
   const prev = tab.status;
   tab.status = st;
+  tab.statusAt = Date.now(); // UX15: 「この作業」 最後の動き
   // A finished dialog / new turn makes its "input" / "done" notice stale.
   if (st === 'running' || (st === 'idle' && prev === 'asking' && tab.unread?.kind === 'input')) clearUnread(tab);
 
@@ -3076,6 +3338,7 @@ function doneWorthNotifying(tab) {
 // at most once per turn.
 function maybeNotifyDone(tab) {
   if (tab.status !== 'idle' || tab.doneNotifiedFor === tab.turnStartAt || !doneWorthNotifying(tab)) return;
+  if (safe(() => beyondTurn(tab), false)) return; // the background commands / subagents are still running: not 完了 (依頼-524)
   tab.doneNotifiedFor = tab.turnStartAt;
   raise(tab, 'done', '応答が完了しました');
 }
@@ -3110,10 +3373,10 @@ function raise(tab, kind, text) {
   safe(() => window.Notify?.push?.({ tabId: tab.id, kind, title: tab.label, body: text }));
   const sound = s.sound && s.kinds?.[kind] !== false && window.Sounds;
   if (sound) playSoon(tab, kind, s.volume);
-  if (s.desktop && s.kinds?.[kind] !== false) {
-    const prefix = { input: '確認待ち: ', error: 'エラー: ', done: '' }[kind] || '';
-    safe(() => api.notify({ tabId: tab.id, kind, silent: !!sound, title: `${tab.label} - ${folderName || 'BantoDesk'}`, body: `${prefix}${text || ''}` }));
-  }
+  // UX16 (docs/ux-journey.md §5.4): no OS notification of its own any more (was B). The OS notification is main's A
+  // (あなたの番 grew: this session's confirm / question is in it), so one confirm rings once. main flashes the taskbar
+  // and writes 完了 / エラー to 「ルーターの記録」 (notify, kind 'session').
+  safe(() => api.notify({ tabId: tab.id, kind, title: tab.label, body: String(text || '').slice(0, 300) }));
   renderTab(tab);
   scheduleRemote();
 }
@@ -3160,8 +3423,8 @@ function clearSeen() {
 const BACKLOG_STABLE_MS = 3000;
 const BACKLOG_QUIET_MS = 5000;
 const BACKLOG_SEND_TIMEOUT_MS = 60_000;
-const SCHED_STALL_MS = 2 * 60_000; // routed: quiet without a marker this long -> 「途中で止まった可能性」 to the PMO
-const SCHED_DEADLOCK_MS = 5 * 60_000; // routed with a team whose members all wait: 「待ち合い」 to the PMO
+const SCHED_STALL_MS = 2 * 60_000; // routed: quiet without a marker this long -> 「途中で止まった可能性」 to the ルーター
+const SCHED_DEADLOCK_MS = 5 * 60_000; // routed with a team whose members all wait: 「待ち合い」 to the ルーター
 const SCHED_FAIL_MS = 30 * 60_000; // routed: quiet without a marker this long -> failed
 const SCHED_PLAN_MS = 3000; // how often a window with waiting routed items asks main (sched:plan)
 const SCHED_UNREAD_MS = 30_000; // teams:unread at most this often per session
@@ -3216,6 +3479,10 @@ function liveAgents(tab, s = P.summary(tab), now = Date.now()) {
 // were running continue in their restored tab (same conversation through --resume) with RESUME_PROMPT.
 let appUpdate = { state: 'none' };
 const updateHolds = () => appUpdate.state === 'pending' || appUpdate.state === 'restarting';
+// PMO-SEND (docs/pmo-send.md): the queue's own hold. The manager window's queue (the ルーター's 「依頼を確認して」 prompts)
+// is not held while the update is only reserved: before, every release kept the ルーター from its prompts for up to the hold
+// limit (30 min) and 「ルーターへの知らせが N分 送られていません」 came after 15 min.
+const queueHolds = () => (window.AutoSend?.updateHolds ? window.AutoSend.updateHolds(appUpdate, info.role === 'manager') : updateHolds());
 const updateHoldText = () => (appUpdate.force ? '更新待ち: ターンの合間で再起動します（新しい作業は再起動の後に始めます）' : '更新待ち: 新しい作業は再起動の後に始めます');
 const RESUME_PROMPT = '（アプリから）アプリの更新のために再起動しました。会話はそのまま続いています。中断したところから作業を続けてください。';
 // AT-101: a routed item running when the app stopped without the update mark (crash, quit, restart) whose tab came back
@@ -3269,7 +3536,20 @@ function workMarker(tab, since) {
   return null;
 }
 
-// What of a routed item still runs besides the lead: ['サブエージェント 2 件', …] (background commands started
+// SCH-HO 2: the lead's last turn after `since` is over and its reply ends with the mark -> marker | null. Read from the
+// transcript (turn_end, no newer prompt, MARK_SETTLE_MS without a new one), not from backlogReady: that one also waits
+// for every subagent / team member / the input box on the screen, so a 作業完了 kept the item active (and its range
+// taken) while the members shut down — 5-6 min before the next item of the folder started (SSA-208, SSA-233).
+// A dialog on the screen (the lead asks the user) is not over.
+const MARK_SETTLE_MS = 2000; // before the handoff (3 s ready) could start on a tab that just said 作業完了
+function leadMarked(tab, since, now) {
+  if (!tab || tab.exited || tab.choices || tab.status === 'asking') return null;
+  const end = tab.lastTurnEndAt || 0;
+  if (!(end > since) || end < (tab.lastPromptAt || 0) || now - end < schedMs('markSettle', MARK_SETTLE_MS)) return null;
+  return workMarker(tab, since);
+}
+
+// What of a routed item still runs besides the lead:['サブエージェント 2 件', …] (background commands started
 // before the item are not counted: they belong to earlier work or a previous process).
 function workActivity(tab, since) {
   const s = P.summary(tab);
@@ -3294,7 +3574,11 @@ function schedAlert(item, kind, text, reply = '') {
 function finishByMarker(tab, item, why) {
   const B = window.Backlog;
   const m = workMarker(tab, item.startedAt || 0);
-  if (m && m.kind === 'done') B.finish(item.id, true, why ? `${why}（完了の印あり）` : '');
+  if (m && m.kind === 'done') {
+    B.finish(item.id, true, why ? `${why}（完了の印あり）` : '');
+    // UX12: the hypotheses it went on by -> 事後の確認 on the home (src/main/reviews.js)
+    if (tab.lastReplyLong) safe(() => api.reviewAdd?.({ backlogId: item.id, text: tab.lastReplyLong, tabId: String(tab.id) })?.catch?.(() => {}));
+  }
   else if (m && m.kind === 'abort') B.finish(item.id, false, `作業中断: ${m.reason}`);
   else B.finish(item.id, false, `${why}（完了の印なし）`);
   if (tab.sched && tab.sched.alerted) schedAlert(item, 'resumed', '');
@@ -3326,7 +3610,19 @@ function routedProgress(tab, active, now, turnDone) {
     return;
   }
   const note = (x) => B.note(active.id, x || w.baseNote); // keeps e.g. the overtake note when there is nothing else to say
-  const settled = turnDone && (tab.lastTurnEndAt || 0) >= (tab.lastPromptAt || 0); // no newer prompt (task notice, message)
+  // SCH-HO 2: the lead ended its turn with the mark: the item ends now and its range is free for the next item. Team
+  // members / subagents / background commands still shutting down are the tab's cleanup; the rest after 作業完了
+  // (doneStopTick), the auto-close and kidsHold still wait for them.
+  const early = leadMarked(tab, active.startedAt || 0, now);
+  if (early) {
+    const left = workActivity(tab, active.startedAt);
+    if (left.length || !turnDone) console.log('[backlog] marked, the item ends before the tab cleanup', tab.id, active.id, left.join('、') || 'tab not ready yet');
+    return finishByMarker(tab, active, '');
+  }
+  // UX10: an automatic send of ours (the check text, the go-on after a usage limit) whose prompt is not seen yet is a
+  // newer prompt too (up to a minute; a lost one is quiet again after that)
+  const inFlight = tab.lastSendOrigin === 'auto' && (tab.lastSendAt || 0) > (tab.lastPromptAt || 0) && now - (tab.lastSendAt || 0) < 60_000;
+  const settled = turnDone && !inFlight && (tab.lastTurnEndAt || 0) >= (tab.lastPromptAt || 0); // no newer prompt (task notice, message)
   const mark = settled ? workMarker(tab, active.startedAt) : null;
   if (mark) return finishByMarker(tab, active, '');
   const moving = workActivity(tab, active.startedAt);
@@ -3369,14 +3665,25 @@ function routedProgress(tab, active, now, turnDone) {
     w.alerted = 'deadlock';
     w.alertedAt = now;
     schedAlert(active, 'deadlock', `チーム ${team.name} のリーダーと全員が ${Math.max(1, Math.round(quiet / 60_000))} 分待機中で、未読のメッセージがありません。メンバー: ${names}`);
-    note('待ち合いで止まった可能性があります（PMO に知らせました）');
+    note('待ち合いで止まった可能性があります（ルーターに知らせました）');
+    return;
+  }
+  // UX10 (§1.6 row 5): settled without the mark: the app asks once at once with a fixed text, before the ルーター's nudge
+  // 2 min later. A reply without the mark again is quiet again and goes to the ルーター as before (stall, then fail).
+  const NS = window.Nonstop;
+  if (NS && !w.checkedAt && quiet >= schedMs('check', NS.CHECK_MS) && !convSendBlocked(tab)) {
+    w.checkedAt = now;
+    w.quietSince = 0;
+    console.log('[backlog] settled without the mark: check text sent', tab.id, active.id);
+    sendText(tab, NS.CHECK_PROMPT, 'auto');
+    note('完了の印がないまま止まったので、確かめの文を送りました');
     return;
   }
   if (quiet < schedMs('stall', SCHED_STALL_MS)) return;
   w.alerted = 'stalled';
   w.alertedAt = now;
   schedAlert(active, 'stalled', `最後の返答に「作業完了」も「作業中断」もないまま ${Math.max(1, Math.round(quiet / 60_000))} 分動きがありません。`, tab.lastAssistantText || '');
-  note('完了の印がないまま止まっています（PMO に知らせました）');
+  note('完了の印がないまま止まっています（ルーターに知らせました）');
 }
 
 // ---- resting tabs (PROGRESS 35; 31 「使っていないタブを休ませる」 uses the same parts) -----------------------------
@@ -3419,7 +3726,7 @@ function restTab(tab, kind, o = {}) {
   safe(() => tab.term.write(`\r\n\x1b[2m[${REST_TEXT[kind]}]\x1b[0m\r\n`));
   setStatus(tab, 'exited');
   renderTab(tab);
-  safe(() => C.onScreen(tab, { status: tab.status, exited: true, rest: kind, choices: null, spinner: '', needTerminal: false, mode: tab.mode, peek: tab.peek }));
+  safe(() => screenOut(tab, { status: tab.status, exited: true, rest: kind, choices: null, spinner: '', needTerminal: false, mode: tab.mode, peek: tab.peek }));
   saveSessions();
   renderPanelSoon();
   scheduleRemote();
@@ -3520,7 +3827,7 @@ const lastUseOf = (tab) => Math.max(tab.createdAt || 0, tab.selectedAt || 0, tab
 // Why the tab must not rest now ([] = it may). auto: the idle timer (also: never talked to, being typed into).
 function restHold(tab, now = Date.now(), auto = true) {
   if (!tab || tab.exited || tab.rest) return ['claude が動いていません'];
-  if (info.role === 'manager') return ['PMO の常駐セッションは休ませません'];
+  if (info.role === 'manager') return ['ルーターの常駐セッションは休ませません'];
   const why = restartBusy(tab).slice();
   if (!tab.started || tab.status === 'starting') why.push('起動中です');
   if (tab.wakeSend) why.push('起こして送る途中です');
@@ -3548,7 +3855,7 @@ function idleRestTick(tab, now) {
   const B = window.Backlog;
   if (tab.rest === 'idle') {
     // a backlog item queued for it (auto send on): wake so backlogTick can send it
-    if (B && !tab.wakeSend && !updateHolds() && B.auto?.(tab.id) && B.pendingOf?.(tab.id)?.length && !tab.restWakeTry) {
+    if (B && !tab.wakeSend && !queueHolds() && B.auto?.(tab.id) && B.pendingOf?.(tab.id)?.length && !tab.restWakeTry) {
       tab.restWakeTry = true;
       const why = wakeTab(tab);
       tab.restWakeTry = false;
@@ -3612,7 +3919,7 @@ async function takeOpenRequests() {
 // A routed session whose item ended with 作業完了 (status done) stops its claude after a short grace (setting
 // 終わったセッション, default 2 min, 0 = never), once nothing of it runs (backlogReady: idle, no subagent / member,
 // no typing; workActivity: no background command). Not for a failed item (作業中断 / no mark: kept for the user or the
-// PMO), the manager's resident session or a tab opened by hand (not forBacklog), nor when it was talked to after the
+// ルーター), the manager's resident session or a tab opened by hand (not forBacklog), nor when it was talked to after the
 // item ended. tests may shorten the grace: window.__schedTimes.doneStop (ms)
 function doneStopMs() {
   const v = notifySettings().doneStopMin;
@@ -3623,9 +3930,9 @@ function doneStopMs() {
 // its latest ended item is done (not failed), nothing of it is active or queued, and it was not used after the item
 // ended (usedAt: talked to = lastPromptAt, opened / restarted by the user = wokeAt). null otherwise: still working, a
 // failed item, a tab opened by hand (not forBacklog), the manager's resident session. PROGRESS 35 / 42.
-// AT-101: the same goes for a routed item that is over without being done: dropped (取り下げ: by the PMO, the user or
+// AT-101: the same goes for a routed item that is over without being done: dropped (取り下げ: by the ルーター, the user or
 // the app's auto-drop), or failed and routed again (a newer item for the same inbox request, r-<inboxId>-…, that is not
-// this tab's). A failed item that was not routed again stays for the user / the PMO as before.
+// this tab's). A failed item that was not routed again stays for the user / the ルーター as before.
 const usedAtOf = (tab) => Math.max(tab.wokeAt || 0, tab.lastPromptAt || 0, tab.lastTypedAt || 0, tab.usedAtSaved || 0);
 const routedInboxId = (id) => {
   const m = /^r-(.+)-[0-9a-f]{1,8}$/.exec(String(id || ''));
@@ -3664,7 +3971,7 @@ function finishedItemOf(tab, usedAt = usedAtOf(tab)) {
   let last = null;
   for (const it of items) if (it.tabId === tab.id && ['done', 'failed', 'dropped'].includes(it.status) && (!last || (it.doneAt || 0) >= (last.doneAt || 0))) last = it;
   if (!last) return null;
-  // failed: over only once routed again; the PMO's nudges between the failure and that do not count as use
+  // failed: over only once routed again; the ルーター's nudges between the failure and that do not count as use
   const again = last.status === 'failed' ? rerouted(last, items) : 0;
   if (last.status === 'failed' && !again) return null;
   if (usedAt > Math.max(last.doneAt || 0, again) || (tab.lastTypedAt || 0) > (last.doneAt || 0)) return null; // typed by hand: kept
@@ -3715,8 +4022,8 @@ function doneStopTick(tab, now) {
 //       10 min (QA 2) — also when the user opened / typed into it after the item ended (QA 1: left alone = may close),
 //   (b) it has no backlog item at all (a tab opened by hand, a routed tab whose item is gone) and nothing happened in it
 //       for 1 hour (QA 2), a draft in its input box included (QA 1).
-// Never: the manager window (the PMO), a tab with an item active / queued, a failed item not routed again (kept for the
-// user / the PMO), a tab waiting for the user's answer (a dialog, choices, 作業中断), a tab still working (answering,
+// Never: the manager window (the ルーター), a tab with an item active / queued, a failed item not routed again (kept for the
+// user / the ルーター), a tab waiting for the user's answer (a dialog, choices, 作業中断), a tab still working (answering,
 // live subagents / members, background commands: tabWorks, stale agents left out by liveAgents), a tab whose claude
 // still has a child process at work (kidsHold, AT-200; at most KIDS_WAIT_MAX_MS), the tab on the user's screen. While an update holds (src/main/autorestart.js) the clock is 10 min for both, so the restart does not wait for
 // them. Activity = quietAtOf. tests: window.__schedTimes.autoCloseDone / autoCloseIdle / autoCloseHold (ms)
@@ -3749,7 +4056,7 @@ function autoCloseDue(tab, quietAt, now) {
   let kind = 'idle';
   let since = quietAt;
   if (last) {
-    if (last.status === 'failed' && !rerouted(last, items)) return null; // 作業中断: kept for the user / the PMO
+    if (last.status === 'failed' && !rerouted(last, items)) return null; // 作業中断: kept for the user / the ルーター
     if (!['done', 'dropped', 'failed'].includes(last.status)) return null;
     kind = 'done';
     since = Math.max(quietAt, last.doneAt || 0);
@@ -3806,10 +4113,23 @@ function backlogTick(tab, now) {
   if (active) {
     if (active.resume) return backlogResumeTick(tab, active, now, stable); // restarted at a turn gap (update)
     if (tab.exited) return finishByMarker(tab, active, 'claude が終了しました');
-    if ((tab.apiErrorAt || 0) > active.startedAt) return backlogApiError(tab, active, now);
-    const prompted = (tab.lastPromptAt || 0) >= active.startedAt;
-    if (!prompted && now - active.startedAt > BACKLOG_SEND_TIMEOUT_MS) {
-      B.finish(active.id, false, '送信を確認できませんでした');
+    if (tab.limitWait && tab.limitWait.itemId === active.id) return limitWaitTick(tab, active, now, stable); // UX10 13
+    if ((tab.apiErrorAt || 0) > Math.max(active.startedAt, tab.apiErrSeen || 0)) return backlogApiError(tab, active, now);
+    // SCH-HO 1: an item that came over in a context handoff (handoff.js complete: active.handoff) is the old session's
+    // work going on here; any sign of this session working counts as its start (the long memo's prompt event can come
+    // well after 60 s: claude reads no input for 20-25 s after its start, sendText waits for the paste to show)
+    const handed = !!(active.handoff && tab.forBacklog);
+    const prompted = (tab.lastPromptAt || 0) >= active.startedAt ||
+      (handed && ((tab.lastAssistantAt || 0) >= active.startedAt || (tab.lastTurnEndAt || 0) >= active.startedAt || tab.status === 'running'));
+    const st = tab.sendTry && tab.sendTry.itemId === active.id ? tab.sendTry : null; // UX10 12: the last resend
+    const sentAt = st ? st.at : active.startedAt;
+    // SCH-FR: the time this window's timers did not run is not the session's (it was not seen, not too slow)
+    if (!prompted && now - sentAt - pausedAfter(sentAt) > schedMs('sendTimeout', BACKLOG_SEND_TIMEOUT_MS)) {
+      if (handed) return handoffSendWait(tab, active, now);
+      if (backlogResend(tab, active, now)) return;
+      B.finish(active.id, false, st && st.sent ? `送信を確認できませんでした（${st.sent} 回送り直しました）` : '送信を確認できませんでした');
+      // a routed session that starts working on it later and ends with 作業完了 still makes it done (below)
+      if (tab.forBacklog) tab.sched = { itemId: null, failedItem: active.id, failedAt: active.startedAt };
       return;
     }
     const turnDone = prompted && (tab.lastTurnEndAt || 0) > active.startedAt && stable;
@@ -3823,32 +4143,149 @@ function backlogTick(tab, now) {
     }
     return;
   }
-  // an item failed as stalled whose session later ended a reply with 作業完了 (e.g. after the PMO nudged it)
+  // an item failed as stalled whose session later ended a reply with 作業完了 (e.g. after the ルーター nudged it)
   const w = tab.sched;
   if (w && w.failedItem && !tab.exited) {
     const it = B.items().find((i) => i.id === w.failedItem);
-    const m = stable ? workMarker(tab, w.failedAt) : null;
+    const m = stable ? workMarker(tab, w.failedAt) : leadMarked(tab, w.failedAt, now);
     if (!it || it.status !== 'failed') w.failedItem = null;
     else if (m && m.kind === 'done') {
       B.finish(it.id, true, '止まった後に再開し、完了の印を確認しました');
       w.failedItem = null;
     }
   }
+  // SCH-FR: a routed item never goes into a conversation that is already there: back to the queue, a new tab takes it
+  const nx = B.next(tab.id);
+  const used = nx ? usedSessionWhy(tab, nx) : '';
+  if (used) {
+    console.warn('[sched] not sent into a used session: back to the queue for a new one', nx.id, tab.id, used);
+    B.unassign(nx.id, `新しいセッションで始めます（割り当てられたタブは${used}のため、そこには送りませんでした）`);
+    startWatch.delete(nx.id);
+    return;
+  }
   const off = backlogAutoOff(tab, stable);
-  if (!stable || !B.auto(tab.id) || updateHolds()) return; // update reserved: the next item starts after the restart
+  if (!stable || !B.auto(tab.id) || queueHolds()) return; // update reserved: the next item starts after the restart (not the ルーター's prompt)
   if (off && window.AutoSend && !window.AutoSend.canSend(off, now)) return; // an API error: waits for the retry time
   const item = B.next(tab.id);
   if (item) backlogSend(tab, item);
 }
 
-// An API error during a sent item (src/renderer/autosend.js). The PMO's prompt (it only says "check the inbox") goes
+// SCH-FR (docs/sched-assigned.md「SCH-FR」): a routed item (r-…) starts in a claude session of its own: the tab startRouted
+// made for it, before anything ran there. A tab that already holds a conversation — another item ran in it, a prompt of
+// it was seen, it came back with --resume, it is a handoff's continuation — never takes a routed item as its next
+// prompt (that item would go on in the old conversation and its context). The manager window's resident ルーター session and
+// hand-opened tabs keep their queue as before. -> what the tab holds ('' = a fresh session)
+function usedSessionWhy(tab, item) {
+  const B = window.Backlog;
+  if (!tab || !item || info.role === 'manager' || !tab.forBacklog || !String(item.id).startsWith('r-')) return '';
+  const other = B.items(tab.id).find((i) => i.id !== item.id && i.status !== 'pending');
+  if (other) return `前の作業 ${other.no || other.id} の会話が残るタブ`;
+  if (tab.handoffDelivered || tab.handedOff) return '引き継ぎの会話が残るタブ';
+  if (tab.resumed) return '前の会話を再開したタブ';
+  if (tab.lastPromptAt) return '別の会話が始まっているタブ';
+  return '';
+}
+
+// SCH-HO 1 (docs/sched-assigned.md「引き継ぎの続き」): the memo went to the new session but no prompt / reply of it was
+// seen in time. Not failed (the session found is the item's continuation, it ends it with its mark); the item waits with
+// a note. Only when nothing of it moved for SCHED_FAIL_MS it fails, and a later 作業完了 there still makes it done.
+// The session gone (tab closed / claude ended) is backlogSweep's / finishByMarker's, as before.
+function handoffSendWait(tab, active, now) {
+  const B = window.Backlog;
+  const waited = now - (active.startedAt || now);
+  if (waited >= schedMs('fail', SCHED_FAIL_MS)) {
+    B.finish(active.id, false, `引き継ぎの続きのセッションが ${Math.max(1, Math.round(waited / 60_000))} 分動きませんでした（完了の印なし）`);
+    tab.sched = { itemId: null, failedItem: active.id, failedAt: active.startedAt };
+    return;
+  }
+  if (!active.handoff.waitLogged) {
+    active.handoff.waitLogged = true;
+    console.log('[backlog] handoff continuation: no prompt seen yet, waiting for its mark', tab.id, active.id);
+  }
+  B.note(active.id, '引き継ぎの続きのセッションの開始を待っています（送った引き継ぎメモの受け取りを確かめています）');
+}
+
+// An API error during a sent item (src/renderer/autosend.js). The ルーター's prompt (it only says "check the inbox") goes
 // back to the queue and is sent again 1, 2, 5, 10 min later; the 5th error in a row stops the auto send, the prompt stays
-// queued and main puts 「PMO への自動送信が止まっています」 with 再開 on あなたの番. Other tabs stop at once (their item
+// queued and main puts 「ルーターへの自動送信が止まっています」 with 再開 on あなたの番. Other tabs stop at once (their item
 // may have done half of its work) and switch on again when a later turn is answered (backlogAutoOff).
+// UX10 (§1.6 row 12): the item's first prompt was not seen in time. Before the item fails it is sent again up to
+// Nonstop.SEND_RETRIES times: Enter again when the box still holds our paste, the whole text again when the box is
+// empty; nothing while the session does not take input or the box holds something else (the period still counts, so
+// the item fails after SEND_RETRIES + 1 periods at most). -> true = handled (wait for the next period)
+function backlogResend(tab, active, now) {
+  const NS = window.Nonstop;
+  const B = window.Backlog;
+  if (!NS) return false;
+  let st = tab.sendTry;
+  if (!st || st.itemId !== active.id) st = tab.sendTry = { itemId: active.id, n: 0, sent: 0, at: active.startedAt };
+  const text = tab.itemText && tab.itemText.id === active.id ? tab.itemText.text : '';
+  const box = inputBoxText(physicalScreen(tab));
+  const ready = !convSendBlocked(tab) && backlogReady(tab, now);
+  const step = NS.resendStep(st.n, { holds: boxHoldsSent(box, text || active.text || ''), empty: boxEmpty(box) && !!text }, ready);
+  if (step === 'fail') return false;
+  st.n += 1;
+  st.at = now;
+  if (step === 'enter') api.ptyInput({ id: tab.id, data: '\r' });
+  else if (step === 'paste') sendText(tab, text, 'auto');
+  if (step !== 'wait') st.sent += 1;
+  console.log('[backlog] first prompt not seen:', step, tab.id, active.id, `${st.n}/${NS.SEND_RETRIES}`);
+  B.note(active.id, step === 'wait' ? `最初の指示文の受け取りを確かめられません。応答できる状態を待っています（${st.n}/${NS.SEND_RETRIES}）` : `最初の指示文の受け取りを確かめられないため、送り直しました（${st.n}/${NS.SEND_RETRIES}）`);
+  return true;
+}
+
+// UX10 (§1.6 row 13): an API usage limit. main holds every new start until the reset time (sched:limit, 上限待ち HH:MM);
+// a routed item stays active and is told to go on once the time has passed (limitWaitTick); the ルーター's prompt is sent
+// again at that time. -> true = handled here
+function backlogLimit(tab, active, now, retry) {
+  const NS = window.Nonstop;
+  const B = window.Backlog;
+  const lim = NS ? NS.parseLimit(tab.apiErrorText || '', now, tab.apiErrorCode || '') : null;
+  if (!lim) return false;
+  const text = NS.holdText(lim, now);
+  console.log('[backlog] usage limit', tab.id, active.id, new Date(lim.resetAt).toISOString(), lim.read ? '' : '(time not read)');
+  safe(() => api.schedLimit?.({ resetAt: lim.resetAt, text: tab.apiErrorText || '' }));
+  const until = lim.resetAt + schedMs('limitGrace', NS.LIMIT_GRACE_MS);
+  if (tab.forBacklog) {
+    tab.limitWait = { itemId: active.id, until, text };
+    if (tab.sched && tab.sched.alerted) schedAlert(active, 'resumed', '');
+    tab.sched = null;
+    B.note(active.id, text);
+    return true;
+  }
+  if (!retry) return false; // a hand-opened tab: stopped as before (main holds the new starts)
+  B.requeue(active.id, text);
+  B.setAutoOff(tab.id, { why: 'api', n: 1, at: now, retryAt: until, stopped: false, text });
+  return true;
+}
+// a routed item waiting for the usage limit's reset: once the time has passed and the session takes input, the go-on
+// text; from then on it is watched as before. Not ready for SCHED_FAIL_MS after the time -> failed.
+function limitWaitTick(tab, active, now, stable) {
+  const NS = window.Nonstop;
+  const B = window.Backlog;
+  const lw = tab.limitWait;
+  if (now < lw.until) return;
+  if (!stable || convSendBlocked(tab)) {
+    if (now - lw.until > schedMs('fail', SCHED_FAIL_MS)) {
+      tab.limitWait = null;
+      B.finish(active.id, false, 'API の利用の上限の後に続きを送れませんでした（セッションが応答できる状態になりませんでした）');
+    }
+    return;
+  }
+  tab.limitWait = null;
+  tab.readySince = 0;
+  tab.sched = null;
+  B.note(active.id, '');
+  console.log('[backlog] usage limit over: go-on sent', tab.id, active.id);
+  sendText(tab, NS.LIMIT_RESUME_PROMPT + (tab.forBacklog ? '\n終わったら、最後の返答の末尾に「作業完了」の 1 行を書いてください（途中でやめるなら「作業中断: <理由>」）。' : ''), 'auto');
+}
+
 function backlogApiError(tab, active, now) {
   const B = window.Backlog;
   const AS = window.AutoSend;
   const retry = info.role === 'manager';
+  tab.apiErrSeen = tab.apiErrorAt || now;
+  if (safe(() => backlogLimit(tab, active, now, retry), false)) return;
   const rec = AS ? AS.apiError(B.autoOff?.(tab.id), now, tab.apiErrorText || '', retry) : { why: 'api', n: 1, at: now, stopped: true };
   console.log('[backlog] api error', tab.id, active.id, `n=${rec.n}`, rec.stopped ? 'stopped' : `retry at ${new Date(rec.retryAt).toISOString()}`);
   if (!retry) {
@@ -3861,7 +4298,7 @@ function backlogApiError(tab, active, now) {
   else B.setAutoOff(tab.id, rec);
 }
 // The tab's autoOff record (why its auto send waits / stopped), after two repairs: a tab the old code switched off for
-// an API error (auto false, no record) gets one (the PMO: sent again now), and an API record is cleared once a later turn
+// an API error (auto false, no record) gets one (the ルーター: sent again now), and an API record is cleared once a later turn
 // of the tab was answered without an API error (it is alive: the user's message went through). -> record | null
 function backlogAutoOff(tab, stable) {
   const B = window.Backlog;
@@ -3924,11 +4361,11 @@ function startRouted(item) {
   // The manager window's own (resident) session is never one of these.
   const delegate = notifySettings().routedTeam !== false;
   // AT-6: the item's own model / effort (route / create), else the default
-  const tab = createTab({ label: shortLabel(item.text, 40), background: true, forBacklog: true, team: delegate, delegate, model: item.model || null, effort: item.effort || null });
+  const tab = createTab({ label: shortLabel(item.text, 40), background: true, forBacklog: true, team: delegate, delegate, model: item.model || null, effort: item.effort || null, kind: item.kind || null });
   item.tabId = tab.id;
   B.setAuto(tab.id, true); // also saves the reassignment
 }
-// The user is writing to this session (the PMO's automatic handoff waits, PROGRESS 45): typed in the last few seconds
+// The user is writing to this session (the ルーター's automatic handoff waits, PROGRESS 45): typed in the last few seconds
 // (an IME composition fires input events too), or a draft in its input box touched in the last 10 minutes. An older
 // draft does not hold the handoff forever: it moves to the new session's input box (Handoff hook carryDraft).
 const PMO_DRAFT_HOLD_MS = 10 * 60_000;
@@ -3939,7 +4376,7 @@ function pmoTyping(tab, now = Date.now()) {
   const empty = safe(() => tab.conv?.composer?.isEmpty?.(), true);
   return empty === false && now - lastIn < PMO_DRAFT_HOLD_MS;
 }
-// The manager window's resident session (the PMO): the first one not ended and not handed off.
+// The manager window's resident session (the ルーター): the first one not ended and not handed off.
 const residentTab = () => [...tabs.values()].find((t) => !t.exited && !t.handedOff) || null;
 function backlogAssignNew(now = Date.now()) {
   const B = window.Backlog;
@@ -3961,7 +4398,7 @@ function backlogAssignNew(now = Date.now()) {
     if (!take.length) return;
     for (const it of take) it.tabId = resident.id;
     // also saves the reassignment. A tab whose auto send waits / stopped (autosend.js) keeps it: 再開 or an answered
-    // turn switches it on (before, a new item switched it on, but the coalesced prompt of the PMO is never new)
+    // turn switches it on (before, a new item switched it on, but the coalesced prompt of the ルーター is never new)
     const off = B.autoOff?.(resident.id);
     if (off) B.setAutoOff(resident.id, off);
     else B.setAuto(resident.id, true);
@@ -4019,6 +4456,91 @@ function staleRoutedPending(tabId) {
   if (!B || B.loaded?.() === false || B.activeOf(tabId)) return [];
   return B.pendingOf(tabId).filter((i) => String(i.id).startsWith('r-')).map((i) => i.id);
 }
+// SCH-AS (docs/sched-assigned.md, src/renderer/startwatch.js): a routed item given a new tab (startRouted) that does not
+// start there within 60 s (tests: window.__schedTimes.assignStart) goes back to the queue without the tab, and the tab
+// closes when nothing else was done in it; the 3rd time the item fails and the ルーター is told (sched:alert nostart).
+// The clock stands still while an update holds the queue, while the tab has an item active, or while its auto send is off.
+const startWatch = new Map(); // backlogId -> { tabId, since }
+// What keeps a tab from taking its item (backlogReady's conditions), for the item's note and the log. -> string
+function notReadyWhy(tab, now = Date.now()) {
+  if (!tab) return 'タブがありません';
+  if (tab.exited) return 'claude が終了しています';
+  if (!tab.started) return 'claude の起動を確かめられません';
+  if (tab.choices || tab.status === 'asking') return '選択肢・確認の画面が出ています';
+  if (tab.peek === 'auto') return 'ターミナルの操作中です';
+  if (tab.status !== 'idle' || tab.titleBusy) return `claude が応答中です（${tab.status}）`;
+  if (now - (tab.lastUserInputAt || 0) < BACKLOG_QUIET_MS || now - (tab.conv?.lastInputAt || 0) < BACKLOG_QUIET_MS) return 'ユーザーが入力しています';
+  if (!safe(() => hasInputPrompt(physicalScreen(tab)), false)) return '入力欄が画面に出ていません';
+  if (safe(() => window.Handoff?.holds?.(tab), false)) return '引き継ぎの途中です';
+  const la = safe(() => liveAgents(tab, P.summary(tab), now), { subs: [], members: [] });
+  if (la.subs.length || la.members.length) return 'サブエージェントかチームのメンバーが動いています';
+  return '';
+}
+// SCH-HO 3: another routed session of this window still works although no item of it is in progress: its item ended
+// with 作業完了 and it shuts its members / commands down, or it is a handoff's continuation whose item ended earlier.
+// A tab assigned meanwhile may be slow to get ready (SSA-209 failed after 3 tries while SSA-234's continuation ran in the
+// folder), so its start clock stands still: no retry and no 3rd-miss failure while such a session works (at most
+// PREV_HOLD_MAX_MS per item over its retries, then the clock runs again, so a session that never ends does not keep it
+// for good). The item still starts as soon as its tab is ready (only the watch waits); main stops counting it after 90 s
+// as before. -> that tab | null. tests: window.__schedTimes.prevHold (ms)
+const PREV_HOLD_MAX_MS = 15 * 60_000;
+const prevHeld = new Map(); // backlogId -> ms the clock first stood still for a previous session
+function prevSessionBusy(tabId, now = Date.now()) {
+  const B = window.Backlog;
+  for (const t of tabs.values()) {
+    if (t.id === tabId || t.exited || t.rest || !t.forBacklog) continue;
+    if (B.activeOf(t.id) || B.pendingOf(t.id).length) continue; // an item of its own: the scheduler counts it
+    if (safe(() => tabWorks(t, now), false)) return t;
+  }
+  return null;
+}
+function prevHold(it, now) {
+  const t = prevSessionBusy(it.tabId, now);
+  if (!t) {
+    prevHeld.delete(it.id);
+    return false;
+  }
+  if (!prevHeld.has(it.id)) {
+    prevHeld.set(it.id, now);
+    console.log('[sched] start clock waits for the previous session', it.id, it.tabId, 'busy:', t.id);
+  }
+  return now - prevHeld.get(it.id) < schedMs('prevHold', PREV_HOLD_MAX_MS);
+}
+function backlogStartWatch(now = Date.now()) {
+  const B = window.Backlog;
+  const SW = window.StartWatch;
+  if (!B || !SW || info.role === 'manager' || B.loaded?.() === false) return;
+  const startMs = schedMs('assignStart', SW.START_MS);
+  const acts = SW.check({
+    items: B.items(),
+    watch: startWatch,
+    now,
+    startMs,
+    live: (it) => tabs.has(it.tabId),
+    hold: (it) => updateHolds() || !!B.activeOf(it.tabId) || !B.auto(it.tabId) || prevHold(it, now),
+  });
+  // kept over the retries of an item (its new tabs), dropped once it is no longer waiting
+  for (const id of [...prevHeld.keys()]) if (B.items().find((i) => i.id === id)?.status !== 'pending') prevHeld.delete(id);
+  for (const a of acts) {
+    const tab = tabs.get(a.tabId);
+    const why = safe(() => notReadyWhy(tab, now), '');
+    const note = SW.noteOf(a, why, startMs);
+    console.warn('[sched] start not confirmed', a.id, a.tabId, a.action, `tries=${a.tries}`, why);
+    const item = B.items().find((i) => i.id === a.id);
+    if (a.action === 'fail') {
+      B.finish(a.id, false, note); // the tab stays (the user / the ルーター can see why it did not start)
+      if (item) schedAlert(item, 'nostart', note);
+      continue;
+    }
+    B.unassign(a.id, note, a.tries); // back to the queue: the next sched:plan gives it a new tab
+    // the tab was made for this item: closed unless something else happened in it (another item, a prompt, the user)
+    // (terminal input right after the start is xterm answering the console's queries, not the user: as quietAtOf)
+    const typed = tab && tab.lastUserInputAt && !(tab.firstDataAt && tab.lastUserInputAt - tab.firstDataAt < OUT_SETTLE_MS);
+    const unused = tab && !tab.lastPromptAt && !B.items(tab.id).length && !shownToUser(tab) && !typed && !tab.conv?.lastInputAt && !tab.userSelectedAt;
+    if (unused) closeTab(tab.id);
+  }
+}
+
 // Routed items whose session is gone (a closed tab not restored after a restart): pending ones go back to the
 // queue (a new session takes them), an active one ends by its marker. Runs once the restore has settled.
 function backlogSweep() {
@@ -4055,7 +4577,10 @@ function backlogSend(tab, item) {
     // U7: a session with the delegation prompt may propose the next work (docs/prompts/routed-session.md); its from field
     // names this item
     const own = tab.delegate ? `\n\n（アプリから）この作業の id: ${item.id}` : '';
-    sendText(tab, item.text + (safe(() => qaBlock(entry), '') || '') + mark + own, 'auto');
+    const full = item.text + (safe(() => qaBlock(entry), '') || '') + mark + own;
+    tab.itemText = { id: item.id, text: full }; // UX10 12: sent again as is when it is not seen (backlogResend)
+    tab.sendTry = null;
+    sendText(tab, full, 'auto');
   });
   return '';
 }
@@ -4077,7 +4602,19 @@ function qaBlock(entry) {
   return lines.join('\n');
 }
 
+// SCH-FR: when this tick did not run for a while (the window's timers throttled, the PC asleep) the start watch and the
+// send check do not count that time (src/renderer/startwatch.js createPauses)
+const tickPauses = window.StartWatch?.createPauses ? window.StartWatch.createPauses() : { tick: () => 0, after: () => 0 };
+const pausedAfter = (t) => safe(() => tickPauses.after(t), 0) || 0;
+function notePause(now) {
+  const ms = safe(() => tickPauses.tick(now), 0);
+  if (!(ms > 0)) return;
+  console.log('[sched] the window\'s timers did not run for', Math.round(ms / 1000), 's: not counted by the start watch / send check');
+  safe(() => window.StartWatch.shift(startWatch, ms));
+  for (const [id, at] of prevHeld) prevHeld.set(id, at + ms);
+}
 setInterval(() => {
+  safe(() => notePause(Date.now()));
   updatePowerBusy();
   safe(() => window.Handoff?.tick?.(Date.now())); // context handoff: trigger check / memo delivery
   if (!window.Backlog) return;
@@ -4085,6 +4622,7 @@ setInterval(() => {
   const now = Date.now();
   safe(schedTellSettings);
   safe(() => backlogAssignNew(now));
+  safe(() => backlogStartWatch(now)); // SCH-AS
   safe(backlogSweep);
   for (const t of tabs.values()) safe(() => backlogTick(t, now));
   for (const t of tabs.values()) safe(() => doneStopTick(t, now));
@@ -4105,6 +4643,12 @@ function tabWorks(t, now = Date.now()) {
   if (t.status === 'running' || t.titleBusy || t.autoYesAns) return true;
   if (safe(() => window.Backlog?.activeOf?.(t.id), null)) return true;
   if (safe(() => window.Handoff?.holds?.(t), false)) return true;
+  return beyondTurn(t, now);
+}
+// 完了 must not show while the turn is over but its work is not (依頼-524): a subagent / team member / background
+// command still runs. Same rule as tabWorks (stale ones left out).
+function beyondTurn(t, now = Date.now()) {
+  if (!t || t.exited) return false;
   const s = safe(() => P.summary(t), null);
   if (!s) return false;
   const la = safe(() => liveAgents(t, s, now), { subs: [], members: [] });
@@ -4162,6 +4706,7 @@ function onTerminalNotification(tab, body) {
     raise(tab, 'input', tab.choices?.question || text);
     return;
   }
+  if (safe(() => beyondTurn(tab), false)) return; // 依頼-524
   raise(tab, 'done', text);
 }
 
@@ -4219,6 +4764,7 @@ function agentsOf(tab, s) {
       agentId: a.agentId,
       agentType: a.agentType || '',
       description: a.description || '',
+      teamName: a.teamName || '',
       status: a.status || 'running',
       lastTool: tool(a.lastTool),
       tokens: a.tokens || 0,
@@ -4265,14 +4811,18 @@ function tabState(tab) {
     todos: s.todos || [],
     subagents: s.subagents || [],
     team: s.team || null,
+    cmds: s.cmds || [], // 関係図 (agents-view.js): running + lately ended background commands
     bg: s.bg || [], // background commands still running [{ id, command, outFile, startedAt }] (main's waits.js)
+    working: safe(() => beyondTurn(tab), false), // 依頼-524: turn over, background command / subagent / member still runs
     doneAt: safe(() => doneMarkAt(tab), 0) || 0, // ms it ended with 作業完了 (waits.js staleAgent), 0 = not
+    // UX11: the last transcript event, to 10 s (the state is not rebuilt for every line; waits.runningOf counts minutes)
+    eventAt: tab.eventAt ? Math.floor(tab.eventAt / 10000) * 10000 : 0,
     // the stale rule's clock (stale-agents.js): main's waits.js leaves out the same agents as liveAgents
     agentClock: safe(() => { const c = agentClockOf(tab); return { base: c.base, staleMs: c.staleMs, quiet: c.quiet }; }, null),
     agents: safe(() => agentsOf(tab, s), null), // the dashboard's エージェント tab (roadmap 13)
     screen: safe(() => remoteScreenOf(tab), []),
     choices: tab.choices,
-    prompt: tab.prompt || null, // the dialog for the PMO (sessions.json / answer action, roadmap 27)
+    prompt: tab.prompt || null, // the dialog for the ルーター (sessions.json / answer action, roadmap 27)
     backlogId: safe(() => backlogIdOf(tab.id), null) || null, // waits.json / sessions.json (AT-101: not only while active)
     memMb: tab.rest ? 0 : tab.exited ? null : tab.memMb ?? null, // session memory (pty:mem), for the dashboard; resting = 0 (31)
     memHeavy: memHeavy(tab), // over the user's mark (setting lives in this renderer's localStorage)
@@ -4303,6 +4853,66 @@ const KEY_MAP = {
   'shift-tab': '\x1b[Z',
   'ctrl-c': '\x03',
 };
+
+// UX13: input from the main window's session view (main relays it: src/main/oneview.js). The same paths as this
+// window's own conversation view (convSend / the conversation hooks), so the checks (a dialog on screen, a resting
+// tab woken first) are the same. The reply ('' = sent, else the reason) goes back to the viewer.
+function viewInput(tab, a) {
+  let why = '';
+  if (!tab) why = 'このセッションはもう開いていません';
+  else if (a.kind === 'text') why = convSend(tab, String(a.value ?? '')) || '';
+  else if (a.kind === 'choice') {
+    if (tab.exited) why = 'プロセスは終了しています';
+    else if (!/^\d{1,2}$/.test(String(a.value))) why = 'bad';
+    else {
+      safe(() => window.Usage?.track?.('click', 'session.answer'));
+      api.ptyInput({ id: tab.id, data: String(a.value) });
+      scheduleScan(tab);
+    }
+  } else if (a.kind === 'key') {
+    if (tab.exited) why = 'プロセスは終了しています';
+    else if (!KEY_MAP[a.value]) why = 'bad';
+    else {
+      api.ptyInput({ id: tab.id, data: KEY_MAP[a.value] });
+      scheduleScan(tab);
+    }
+  } else if (a.kind === 'work') {
+    // UX15: 「この作業」 in the main window. The user is not looking at this window: no dialog (refused while busy)
+    if (a.value === 'restart') why = restartTab(tab, { noConfirm: true }) || '';
+    else if (a.value === 'handoff') why = safe(() => window.Handoff?.start?.(tab, 'manual'), '') || '';
+    else if (a.value === 'auto-on' || a.value === 'auto-off') setAutoSend(tab, a.value === 'auto-on');
+    else why = 'bad';
+    if (tab.viewed && tab.lastScreenState) setTimeout(() => tabs.has(tab.id) && relayScreen(tab, tab.lastScreenState), 50);
+  } else why = 'bad';
+  safe(() => api.viewInputDone?.({ reqId: a.reqId, why }));
+}
+
+// UX13: the conversation view's screen state, and the same to the main window while it views this tab (tab.viewed).
+// Only a changed state goes out (the spinner text changes every scan; that is enough for the view's running line).
+function screenOut(tab, s) {
+  C.onScreen(tab, s);
+  tab.lastScreenState = s;
+  if (tab.viewed) relayScreen(tab, s);
+}
+function relayScreen(tab, s) {
+  // UX15: work = 「この作業」 (panel.js workData), drawn by the view with Panel.renderWork
+  const out = { status: s.status, exited: !!s.exited, rest: s.rest || null, choices: s.choices || null, spinner: s.spinner || '', needTerminal: !!s.needTerminal, mode: null, peek: false, work: safe(() => window.Panel?.workData?.(tab), null) || null };
+  let key = '';
+  try {
+    key = JSON.stringify(out);
+  } catch {
+    return;
+  }
+  if (key === tab.viewedKey) return;
+  tab.viewedKey = key;
+  safe(() => api.viewScreen?.({ tabId: tab.id, s: out }));
+}
+
+// UX15: 「この作業」 changes without a screen change (a file edited, the queue, memory): the viewed tabs are relayed again
+// every few seconds (only a changed state goes out; nothing runs when no tab is viewed)
+setInterval(() => {
+  for (const t of tabs.values()) if (t.viewed && t.lastScreenState) relayScreen(t, t.lastScreenState);
+}, 3000);
 
 // The user's answer from the dashboard's 確認待ち list (dashboard:answer; main checked it against the last state we
 // sent). Pressed only if the very same dialog (promptKey) is on the screen right now; the result goes back to main.
@@ -4354,13 +4964,30 @@ function userAnswer(tab, a) {
 
 function handleRemoteAction(action) {
   if (action && action.type === 'userAnswer') return userAnswer(tabs.get(action.tabId), action);
+  if (action && action.type === 'view-input') return viewInput(tabs.get(action.tabId), action);
   const tab = action && tabs.get(action.tabId);
   if (!tab) return;
+  if (action.type === 'view-watch') {
+    // UX13: the main window shows this conversation (src/main/oneview.js): relay the screen state while it does
+    tab.viewed = !!action.on;
+    tab.viewedKey = '';
+    if (tab.viewed && tab.lastScreenState) relayScreen(tab, tab.lastScreenState);
+    return;
+  }
   if (action.type === 'restart') {
     // from the dashboard (dashboard:restart): never while busy, no dialog in a window the user is not looking at
     const why = restartTab(tab, { noConfirm: true });
     // the dashboard checks the status first; this only happens when it changed in between
     if (why) safe(() => raise(tab, 'error', `再起動しませんでした — ${why}`));
+    return;
+  }
+  if (action.type === 'pmo-wake') {
+    safe(() => pmoHeartbeatWake(tab, action.mode)); // UX11: main's heartbeat
+    return;
+  }
+  if (action.type === 'interrupt') {
+    const why = safe(() => interruptTab(tab, String(action.text ?? '').trim() || '状況を報告してください。'), 'error');
+    if (why) console.warn('interrupt not done:', why, tab.id);
     return;
   }
   if (action.type === 'rest') {
@@ -4383,15 +5010,15 @@ function handleRemoteAction(action) {
     const d = String(value);
     if (/^\d{1,2}$/.test(d)) api.ptyInput({ id: tab.id, data: d });
   } else if (type === 'answer') {
-    // the PMO's answer action (main checked it against the last state we sent): press only if the very same
+    // the ルーター's answer action (main checked it against the last state we sent): press only if the very same
     // dialog is still on the screen right now
     const cur = tab.prompt;
     const d = String(value);
     if (!cur || cur.key !== action.promptKey || !tab.choices || !/^[1-9]$/.test(d)) {
-      safe(() => P.addLocal(tab, { name: 'PMO', arg: `押しませんでした（確認が変わっていました）: ${String(action.reason || '').slice(0, 160)}` }));
+      safe(() => P.addLocal(tab, { name: 'ルーター', arg: `押しませんでした（確認が変わっていました）: ${String(action.reason || '').slice(0, 160)}` }));
     } else {
       api.ptyInput({ id: tab.id, data: d });
-      safe(() => P.addLocal(tab, { name: 'PMO', arg: `「${(cur.question || '').slice(0, 60)}」に ${d} で答えました: ${String(action.reason || '').slice(0, 140)}` }));
+      safe(() => P.addLocal(tab, { name: 'ルーター', arg: `「${(cur.question || '').slice(0, 60)}」に ${d} で答えました: ${String(action.reason || '').slice(0, 140)}` }));
       if (tab.id === activeId) renderPanelSoon();
     }
   } else if (type === 'key') {
@@ -4407,7 +5034,7 @@ function handleRemoteAction(action) {
       return;
     }
     sendText(tab, text, 'auto');
-    safe(() => P.addLocal(tab, { name: 'PMO', arg: `声をかけました: ${text.slice(0, 160)}` }));
+    safe(() => P.addLocal(tab, { name: 'ルーター', arg: `声をかけました: ${text.slice(0, 160)}` }));
     if (tab.id === activeId) renderPanelSoon();
     return; // sendText scans itself
   }
@@ -4417,11 +5044,11 @@ function handleRemoteAction(action) {
 // ---- new session menu / history -------------------------------------------
 let menuEl = null;
 
-let menuAnchor = null; // the button that opened menuEl (⋯ / ▾ N; the session menu hangs from ⋯ or ＋)
+let menuAnchor = null; // the button that opened menuEl (▾ N; the session menu hangs from ＋)
 
 function onMenuOutside(e) {
   if (!menuEl) return;
-  const anchor = menuAnchor || document.getElementById('more-btn');
+  const anchor = menuAnchor || document.getElementById('newtab');
   if (menuEl.contains(e.target) || anchor?.contains(e.target)) return;
   closeMenu();
 }
@@ -4458,8 +5085,8 @@ function openMenu() {
     closeMenu();
     return;
   }
-  // the session menu opens under ⋯ (or ＋ when ⋯ is not shown)
-  const anchor = [document.getElementById('more-btn'), document.getElementById('newtab')].find((b) => b && b.offsetParent) || document.getElementById('newtab');
+  // the session menu opens under ＋ (UX16: ⋯ is gone; from the palette too)
+  const anchor = [document.getElementById('newtab'), document.getElementById('palette-btn')].find((b) => b && b.offsetParent) || document.getElementById('newtab');
   const m = h('div', 'popover newtab-pop');
   const r = anchor.getBoundingClientRect();
   m.style.top = `${Math.round(r.bottom + 6)}px`;
@@ -4789,14 +5416,11 @@ function renderProblemBand() {
     stop.title = 'Esc を送って、いまの処理（確認）を止めます';
     row.append(stop);
   }
-  row.append(btn(tab.exited ? W.resume || '再開' : '再起動', 'session.band.restart', () => {
-    const why = restartTab(tab);
-    if (why && why !== '取り消しました') bandNote(why);
-  }));
-  if (!tab.exited && !tab.handedOff && window.Handoff) {
-    row.append(btn('引き継ぐ', 'session.band.handoff', () => {
-      const why = window.Handoff.start(tab, 'manual');
-      bandNote(why || '新しいセッションへの引き継ぎを始めました');
+  // UX15: 再起動 / 引き継ぐ are at the bottom of 「この作業」 (one door); an ended claude's 再開 stays on the band
+  if (tab.exited) {
+    row.append(btn(W.resume || '再開', 'session.band.restart', () => {
+      const why = restartTab(tab);
+      if (why && why !== '取り消しました') bandNote(why);
     }));
   }
   const note = h('span', 'pb-note', band.note);
@@ -4855,8 +5479,10 @@ function setSlim(on) {
 }
 window.SessionSlim = { get: slimOn, set: setSlim };
 // a session of this window opened from a notice / the dashboard / the widget (main: notify:click)
-function openFromNotice({ tabId, member, from } = {}) {
+function openFromNotice({ tabId, member, from, mode } = {}) {
   if (!tabs.has(tabId)) return;
+  // UX14: the home's 「ターミナル」 / 「並べる」 (session-view.js) show the session that way in this window (the workbench)
+  if ((mode === 'term' || mode === 'split') && tabs.get(tabId).conv) safe(() => setViewMode(tabs.get(tabId), mode));
   const openState = usageStateOf(tabs.get(tabId)); // UA1: before activate() clears the unread mark
   activate(tabId);
   usageOpen(tabId, from || 'project', openState);
@@ -4878,23 +5504,54 @@ safe(() => window.Usage?.setView?.(() => {
   return t ? USAGE_MODE_VIEW[t.mode] || null : null;
 }));
 
-// ---- shortcuts --------------------------------------------------------------
-// UX4: one table (Labels.SHORTCUTS: 'mod+shift+T' = ⇧⌘T on Mac, Ctrl+Shift+T on Windows); here only what each id does
-const SHORTCUT_ACTIONS = {
+// ---- operations: shortcuts and the command palette (UX16) ------------------------------------------------------
+// One table (Labels.COMMANDS: name, keys, where, words) makes the shortcuts, the palette (palette.js) and the cheat
+// sheet's key list; here only what each id does. 'mod+shift+T' = ⇧⌘T on Mac, Ctrl+Shift+T on Windows (UX4).
+const PLACE = () => (info.role === 'manager' ? 'home' : 'work');
+const COMMAND_RUN = {
+  palette: () => safe(() => window.Palette?.toggle?.()),
   newTab: () => createTab(),
   closeTab: () => closeTab(activeId),
-  folder: () => api.openPicker(),
-  autoYes: () => setAutoYes(!autoYes),
+  cycleTab: (e) => cycleTab(e && e.shiftKey ? -1 : 1),
   layout: () => cycleLayout(),
-  history: () => openMenu(),
-  cheatsheet: () => safe(() => window.CheatSheet?.toggle?.()),
-  viewMode: () => tabs.has(activeId) && toggleViewMode(tabs.get(activeId)),
-  pmoLog: () => openPmoLog(), // the dashboard's「PMO の記録」(UIUX U4)
-  backlog: () => toggleBacklogPanel(),
-  tempSession: () => safe(() => api.tempOpen?.()), // new temporary-session window (roadmap 9)
+  terminal: () => terminalCommand(),
+  detail: () => setAssistShown(!assistShownNow()),
   viewer: () => pickViewer(), // open a file in a viewer panel (roadmap 5b)
-  cycleTab: (e) => cycleTab(e.shiftKey ? -1 : 1),
+  present: () => openPresent(), // 18: a pptx as pictures in a pane
+  sim: () => openSim(), // IOS-SIM: the iOS Simulator's screen in a pane
+  browser: () => openBrowser(''), // 内蔵ブラウザ: a pane with an address box
+  editFile: () => safe(() => api.editPick?.()), // 19: a working copy in its own edit window
+  backlog: () => showQueueAtHome(), // UX15: the home on this folder (was the バックログ panel)
+  history: () => openMenu(),
+  newSession: () => safe(() => window.Dashboard?.newSession?.()),
+  tempSession: () => safe(() => api.tempOpen?.()), // new temporary-session window (roadmap 9)
+  folder: () => api.openPicker(),
+  home: () => safe(() => api.dashboardOpen?.()),
+  pmoLog: () => openPmoLog(), // the dashboard's「ルーターの記録」(UIUX U4)
+  remote: () => openRemoteFromMore(),
+  settings: () => safe(() => window.Settings?.open?.()),
+  cheatsheet: () => safe(() => window.CheatSheet?.toggle?.()),
 };
+// the palette shows an operation only where it can run now
+const COMMAND_OK = {
+  terminal: () => (PLACE() === 'home' ? !!safe(() => window.SessionView?.current?.()?.owned, false) : !!tabs.get(activeId)?.conv),
+  closeTab: () => !!tabs.get(activeId),
+  cycleTab: () => tabs.size > 1,
+  detail: () => !!tabs.get(activeId),
+  viewer: () => !!window.Viewer,
+  browser: () => !!dock && !!window.ExternalView?.has('browser'),
+  present: () => !!dock && !!window.ExternalView?.has('present'),
+  sim: () => simAvail && !!dock && !!window.ExternalView?.has('sim'),
+  remote: () => !!document.getElementById('remote-btn'),
+  newSession: () => !!window.Dashboard?.newSession,
+};
+// ターミナル: the session open in the home shows as a terminal in its workbench (as the view's ターミナル button);
+// in the workbench, the active tab goes 会話 ⇄ ターミナル
+function terminalCommand() {
+  if (PLACE() === 'home') return safe(() => window.SessionView?.openWorkbench?.('term'));
+  const cur = tabs.get(activeId);
+  if (cur?.conv) setViewMode(cur, cur.mode === 'term' ? 'rich' : 'term');
+}
 // the key as shown on this OS (⇧⌘B / Ctrl+Shift+B); function declarations: titles set while the file loads use them
 function keyOf(spec) {
   return Labels.key(spec);
@@ -4907,9 +5564,69 @@ for (const el of document.querySelectorAll('[data-sc]')) el.title = `${el.title}
 function shortcutAction(e) {
   if (e.type !== 'keydown') return null;
   const id = Labels.shortcutOf(e);
-  const f = id && SHORTCUT_ACTIONS[id];
+  const f = id && COMMAND_RUN[id];
   return f ? () => f(e) : null;
 }
+
+// What the palette finds besides the operations: tasks (number or title), requests, live sessions, folders, files.
+// The home asks the dashboard (every folder's cards); a folder window has its own queue and tabs, and the recent folders.
+let palFolders = { at: 0, list: [] };
+async function recentFolders() {
+  if (Date.now() - palFolders.at < 10_000) return palFolders.list;
+  palFolders.at = Date.now();
+  const r = await Promise.resolve(safe(() => api.pickerList?.(), null)).catch(() => null);
+  palFolders = { at: Date.now(), list: (r && Array.isArray(r.recent) ? r.recent : []).slice(0, 30) };
+  return palFolders.list;
+}
+const baseOf = (p) => String(p || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || String(p || '');
+function paletteItems() {
+  if (PLACE() === 'home') return safe(() => window.Dashboard?.paletteItems?.(), []) || [];
+  const out = [];
+  const W = Labels.WORDS;
+  for (const it of safe(() => window.Backlog?.items?.(), []) || []) {
+    const no = Labels.taskNo(it);
+    const st = safe(() => Labels.status('backlog', it.status).short, '') || it.status || '';
+    const tab = it.tabId && tabs.get(it.tabId);
+    out.push({
+      kind: 'task', label: Labels.taskName(it, { max: 40 }) || it.id, hint: st, usage: 'palette.task',
+      words: [no, it.reqNo, it.id, it.text && String(it.text).slice(0, 200)].filter(Boolean).join(' '),
+      run: () => (tab ? (activate(tab.id), focusTab(tab)) : showQueueAtHome()),
+    });
+  }
+  for (const t of tabs.values()) {
+    out.push({ kind: 'session', label: t.label, hint: t.rest === 'done' ? W.done : STATUS_JA[t.status] || '', words: t.id, usage: 'palette.session', run: () => (activate(t.id), focusTab(t)) });
+  }
+  for (const d of palFolders.list) {
+    if (normPath(d) === normPath(info.workDir)) continue;
+    out.push({ kind: 'folder', label: baseOf(d), hint: d, words: d, usage: 'palette.folder', run: () => api.pickerOpen?.(d) });
+  }
+  return out;
+}
+// files of this folder (the home: the folder of the session open in it, else the one folder chosen in the nav)
+async function paletteFiles(q) {
+  const cwd = PLACE() === 'home' ? safe(() => window.SessionView?.current?.()?.folder || window.Dashboard?.paletteFolder?.(), '') : info.workDir;
+  if (!cwd || !api.filesSearch) return [];
+  const r = await Promise.resolve(api.filesSearch({ cwd, query: q, limit: 8 })).catch(() => null);
+  const dir = String((r && r.cwd) || cwd).replace(/[\\/]+$/, '');
+  const sep = dir.includes('\\') ? '\\' : '/';
+  return ((r && r.files) || []).map((rel) => {
+    const abs = dir + sep + rel;
+    const see = !!(window.Viewer && dock && window.Viewer.canOpen(abs));
+    return { label: rel, hint: see ? Labels.WORDS.dropSee : '開く', usage: 'palette.file', run: () => (see ? openViewer(abs, { source: 'event' }) : api.openFile?.(abs)) };
+  });
+}
+safe(() => window.Palette?.init?.({
+  commands: () => Labels.paletteCommands(PLACE()).filter((c) => COMMAND_RUN[c.id] && (!COMMAND_OK[c.id] || safe(() => COMMAND_OK[c.id](), false))),
+  run: (id) => {
+    const f = COMMAND_RUN[id];
+    if (f) f(null);
+  },
+  items: () => {
+    if (PLACE() === 'work') recentFolders().catch(() => {});
+    return paletteItems();
+  },
+  files: paletteFiles,
+}));
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && menuEl) {
@@ -4924,8 +5641,28 @@ window.addEventListener('keydown', (e) => {
     e.stopPropagation();
     safe(() => window.Usage?.key?.(Labels.shortcutOf(e))); // UA1: key.<action id> (never the key itself)
     action();
+    return;
+  }
+  const z = zoomKey(e);
+  if (z !== null) {
+    e.preventDefault();
+    e.stopPropagation();
+    safe(() => api.zoomStep?.(z));
   }
 }, true);
+// UX18 (docs/ux-journey.md §5.7): Windows has no 表示 menu, so Ctrl++ / Ctrl+- / Ctrl+0 change the app's one zoom here
+// (macOS: ⌘+ / ⌘- / ⌘0 are the menu's, src/main/appmenu.js). In the terminal Ctrl+- (Claude Code's undo, ^_) and Ctrl+0
+// stay the terminal's; Ctrl++ (Ctrl+= / Ctrl+; on a JIS keyboard / the numpad +) zooms everywhere.
+// -> +1 / -1 / 0, or null when the key is not a zoom key
+function zoomKey(e) {
+  if (Labels.isMac() || e.type !== 'keydown' || !e.ctrlKey || e.altKey || e.metaKey) return null;
+  const inTerm = !!(e.target && e.target.closest && e.target.closest('.xterm'));
+  if (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd' || (e.key === ';' && !e.shiftKey)) return 1;
+  if (inTerm) return null;
+  if ((e.key === '-' && !e.shiftKey) || e.code === 'NumpadSubtract') return -1;
+  if (e.key === '0' && !e.shiftKey) return 0;
+  return null;
+}
 
 // ---- IPC wiring -------------------------------------------------------------
 api.onAssistEvent(handleAssistEvent);
@@ -4957,10 +5694,16 @@ api.onPtyExit(({ id, code }) => {
   if (!tab) return;
   tab.exited = true;
   tab.exitCode = code ?? null;
+  const wake = safe(() => pmoWakeMaybe(tab), ''); // UX10 16: the ルーター's claude is woken again
+  if (wake === 'soon') {
+    // the ルーター's prompt only says "check the inbox": it goes back to the queue for the woken session
+    const act = safe(() => window.Backlog?.activeOf?.(tab.id), null);
+    if (act) safe(() => window.Backlog.requeue(act.id, 'ルーターの claude が終了したため、再開の後に送り直します'));
+  }
   safe(() => settleOnExit(tab, 'claude が終了しました')); // its backlog item must not stay 対応中
   tab.choices = null;
   tab.prompt = null;
-  // stopped from outside after its routed item ended with 作業完了 (e.g. the PMO freed memory with Stop-Process, exit
+  // stopped from outside after its routed item ended with 作業完了 (e.g. the ルーター freed memory with Stop-Process, exit
   // code 1): the work did not fail. 完了 like restTab, saved resting (a restart does not start it), no error (PROGRESS 42)
   if (!tab.rest && safe(() => finishedItemOf(tab), null) && restTab(tab, 'done', { exited: true })) {
     if (tab.unread?.kind === 'error') clearUnread(tab);
@@ -4968,9 +5711,17 @@ api.onPtyExit(({ id, code }) => {
   }
   // claude runs without a shell around it (CONTRACT.md "How a tab's claude is started"), so the tab ends with it.
   // Enter here (or the 再開 button in the conversation view / the tab menu) starts `claude --resume <id>` again.
+  if (wake === 'soon') {
+    const sec = Math.round(schedMs('pmoWake', window.Nonstop.WAKE_DELAY_MS) / 1000);
+    tab.term.write(`\r\n\x1b[2m[claude は終了しました。${sec} 秒後に自動で再開します（会話はそのまま）]\x1b[0m\r\n`);
+    setStatus(tab, 'exited');
+    safe(() => tickProblemBand());
+    return;
+  }
   tab.term.write('\r\n\x1b[2m[claude は終了しました。Enter で再開（会話はそのまま）]\x1b[0m\r\n');
   setStatus(tab, 'exited');
-  if (code !== undefined && code !== null && code !== 0) raise(tab, 'error', `プロセスが終了しました（コード ${code}）`);
+  if (wake === 'over') raise(tab, 'error', `ルーターの claude が 1 時間に ${window.Nonstop.WAKE_MAX} 回終了したため、自動の再開を止めました。Enter で再開します`);
+  else if (code !== undefined && code !== null && code !== 0) raise(tab, 'error', `プロセスが終了しました（コード ${code}）`);
   safe(() => tickProblemBand()); // UA3
 });
 
@@ -4997,18 +5748,29 @@ api.onBacklogChanged?.((e) => {
   // e.order: the manager agent reordered the queue (roadmap 27); new items first, then the order.
   // e.statuses: an item's status was changed from outside (取り消す on the dashboard, the manager's backlog-update, auto clean-up)
   Promise.resolve(safe(() => window.Backlog?.merge?.())).then(() => {
-    // e.userOrderAt (queue order): the user moved a task on the dashboard card (ms) / handed the order to the PMO (null)
+    // e.userOrderAt (queue order): the user moved a task on the dashboard card (ms) / handed the order to the ルーター (null)
     if (e.order) safe(() => window.Backlog?.reorder?.(e.order, e.userOrderAt));
     if (Array.isArray(e.statuses)) safe(() => window.Backlog?.applyStatuses?.(e.statuses));
   });
+});
+// UX15: 戻す / 完了にする from the home's card row menu (main backlog:set): this window holds the queue, so it is done here
+// and saved (a running item only here: finish it as the panel's 完了 did)
+api.onBacklogOp?.((o) => {
+  const B = window.Backlog;
+  if (!B || !o || typeof o.id !== 'string') return;
+  const it = B.items().find((i) => i.id === o.id);
+  if (!it) return;
+  if (o.op === 'reopen') safe(() => B.reopen(o.id));
+  else if (o.op === 'title') safe(() => B.setTitle(o.id, typeof o.title === 'string' ? o.title : ''));
+  else if (o.op === 'done' && it.status === 'active') safe(() => B.finish(o.id, true, '手動で完了'));
 });
 window.addEventListener('resize', fitSoon);
 if (typeof ResizeObserver === 'function') new ResizeObserver(fitSoon).observe(termsEl);
 
 // ---- top bar (UIUX U6, 依頼-56) ------------------------------------------------------
-// On the bar: ＋ 新しいセッション, ダッシュボード, ⋯ その他, ⚙ 設定, the side panel (and Remote while it is on).
-// ⋯ holds the viewer, 待ちの一覧, the cheat sheet, remote, the new session options / history and the Auto-yes
-// switch; their shortcuts stay. Tabs shrink (min width, the name cut with …); what still does not fit is in
+// On the bar: ＋ 新しいセッション, ダッシュボード, the command palette (UX16, was ⋯ その他), ⚙ 設定, the side panel
+// (and Remote while it is on). The palette holds what ⋯ held (the viewer, 待ちの一覧, the cheat sheet, remote, the new
+// session options / history); Auto-yes is in ⚙ 設定 only (UX16). Tabs shrink (min width, the name cut with …); what still does not fit is in
 // "▾ N" at the right end of the tabs; the wheel scrolls the tabs sideways; the current tab is scrolled into view
 // (activate). 完了 tabs sit at the right, faded (style.css). Order: opened order, drag a tab to move it.
 const tabsMoreBtn = document.getElementById('tabs-more');
@@ -5077,50 +5839,7 @@ function openTabsMore() {
   document.addEventListener('mousedown', onMenuOutside, true);
 }
 
-function openMoreMenu() {
-  const anchor = document.getElementById('more-btn');
-  if (menuEl && menuAnchor === anchor) {
-    closeMenu();
-    return;
-  }
-  closeMenu(false);
-  const W = Labels.WORDS;
-  const m = h('div', 'popover more-pop');
-  const r = anchor.getBoundingClientRect();
-  m.style.top = `${Math.round(r.bottom + 6)}px`;
-  m.style.left = `${Math.round(Math.max(8, Math.min(r.right - 300, window.innerWidth - 308)))}px`;
-  const item = (key, text, hint, run) => {
-    const b = menuItem(text, hint, () => {
-      closeMenu(false);
-      safe(run);
-    });
-    b.dataset.more = key;
-    b.dataset.usage = 'topbar.more.' + key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()); // UA1
-    return b;
-  };
-  // UA3 (docs/usage-analytics.md §5): what the slim session screen leaves out is here — この作業の詳しく (the assist
-  // panel), ターミナル, the viewer, 待ちの一覧 (the backlog) — first, then the rest
-  const cur = tabs.get(activeId);
-  m.append(item('detail', `${assistShownNow() ? '✓ ' : ''}${W.workDetail}`, '', () => setAssistShown(!assistShownNow())));
-  if (cur?.conv) m.append(item('terminal', `${cur.mode === 'term' ? '✓ ' : ''}${W.showTerminal}`, scKey('viewMode'), () => setViewMode(cur, cur.mode === 'term' ? 'rich' : 'term')));
-  m.append(item('viewer', W.viewer, scKey('viewer'), () => pickViewer()));
-  const n = safe(() => window.Backlog.items().filter((i) => i.status === 'pending' || i.status === 'active').length, 0);
-  m.append(item('queue', `${W.queueList}${n ? `（${n} 件）` : ''}`, scKey('backlog'), () => toggleBacklogPanel()));
-  m.append(h('div', 'menu-sep'));
-  m.append(item('session', W.sessionOptions, scKey('history'), () => openMenu()));
-  m.append(item('cheatsheet', W.cheatsheet, scKey('cheatsheet'), () => window.CheatSheet?.toggle?.()));
-  const rb = document.getElementById('remote-btn');
-  const rOn = !!rb?.classList.contains('rmt-on');
-  m.append(item('remote', W.remote, rOn ? 'ON' : 'OFF', () => openRemoteFromMore()));
-  m.append(h('div', 'menu-sep'));
-  m.append(item('autoYes', `${autoYes ? '✓ ' : ''}${W.autoYes}`, scKey('autoYes'), () => setAutoYes(!autoYes)));
-  overlayRoot.append(m);
-  menuEl = m;
-  menuAnchor = anchor;
-  document.addEventListener('mousedown', onMenuOutside, true);
-}
-
-// The remote pill is on the bar only while remote is on (style.css). Opened from ⋯ while off, it shows until its
+// The remote pill is on the bar only while remote is on (style.css). Opened from the palette while off, it shows until its
 // popover (.rmt-pop, remote-ui.js) closes, so the popover has a place to hang from.
 function openRemoteFromMore() {
   const rb = document.getElementById('remote-btn');
@@ -5190,8 +5909,9 @@ tabsEl.addEventListener('scroll', scheduleTabsMore);
 if (typeof ResizeObserver === 'function') new ResizeObserver(scheduleTabsMore).observe(tabsEl);
 new MutationObserver(scheduleTabsMore).observe(tabsEl, { childList: true });
 tabsMoreBtn?.addEventListener('click', () => openTabsMore());
-document.getElementById('more-btn')?.addEventListener('click', () => openMoreMenu());
-window.AgentTopbar = { hiddenTabs: () => hiddenTabs().map((t) => t.id), moveTab, openMore: openMoreMenu, openTabsMore }; // tests (tmp/sess-conv)
+// UX16: the ⋯ その他 menu is gone; its button opens the command palette (what the menu held is there)
+document.getElementById('palette-btn')?.addEventListener('click', () => safe(() => window.Palette?.toggle?.()));
+window.AgentTopbar = { hiddenTabs: () => hiddenTabs().map((t) => t.id), moveTab, openPalette: () => window.Palette?.open?.(), openTabsMore }; // tests (tmp/sess-conv, tmp/palette)
 
 document.getElementById('newtab')?.addEventListener('click', () => createTab());
 document.getElementById('folder')?.addEventListener('click', () => api.openPicker());
@@ -5363,8 +6083,10 @@ async function init() {
     const dashEl = h('section', '');
     dashEl.id = 'dashboard';
     termsEl.parentNode.insertBefore(dashEl, termsEl);
+    safe(() => buildMainFrame(dashEl)); // UX14: the left nav, the breadcrumb, 「ルーターに相談」 when narrow
     safe(() => buildPmoColumn());
     safe(() => setupDashSplit(dashEl));
+    safe(() => window.SessionView?.init?.({ host: dashEl })); // UX13: 「会話を開く」 in this window (session-view.js)
   }
   await loadComposerStore(); // drafts + send history (restored into the tabs created below)
   buildDock();
@@ -5411,7 +6133,7 @@ async function init() {
       saveSessions();
     },
     isManager: info.role === 'manager',
-    // the PMO's automatic handoff (PROGRESS 45): its claude's memory, the user typing in its input box, 「PMO から」
+    // the ルーター's automatic handoff (PROGRESS 45): its claude's memory, the user typing in its input box, 「ルーターから」
     mem: (t) => (t.exited ? null : t.memMb ?? null),
     typing: (t) => pmoTyping(t),
     // the manager's old session closes: an unsent draft in its input box goes to the new one
@@ -5437,16 +6159,7 @@ async function init() {
       clearTimeout(backlogSaveT);
       backlogSaveT = setTimeout(() => safe(() => api.backlogSave?.(s)), 300);
     },
-    tabs: () => [...tabs.values()].map((t) => ({ id: t.id, label: t.label })),
-    activeId: () => activeId,
-    sendNow: (tabId, item) => {
-      const tab = tabs.get(tabId || activeId);
-      if (!tab) return 'セッションが開いていません';
-      if (window.Backlog.activeOf(tab.id)) return 'このセッションでは別の項目を対応中です';
-      if (!item.tabId) item.tabId = tab.id;
-      return backlogSend(tab, item);
-    },
-    openSession: (tabId) => openClosedSession(tabId), // a finished item whose 完了 tab was closed (PROGRESS 49)
+    onRender: () => renderPanelSoon(), // UX15: 「この作業」 shows the item, the next ones and the auto send switch
     onChange: () => {
       for (const t of tabs.values()) updateLabel(t); // a routed item's number / heading names its tab (taskLabel)
     },
@@ -5540,18 +6253,22 @@ async function init() {
         safe(() => rememberViewMode(s.id, null, false));
         continue;
       }
-      createTab({ id: s.id, mode: 'resume', cwd: s.cwd, worktree: s.worktree || null, team: !!s.team, delegate: !!s.delegate, model: s.model || null, effort: s.effort || null, forBacklog: !!s.forBacklog, label: s.label, manualLabel: !!s.manualLabel, rest, usedAt: s.usedAt || 0, quietAt: s.quietAt || 0, asking: !!s.asking });
+      createTab({ id: s.id, mode: 'resume', cwd: s.cwd, worktree: s.worktree || null, team: !!s.team, delegate: !!s.delegate, model: s.model || null, effort: s.effort || null, kind: s.kind || null, forBacklog: !!s.forBacklog, label: s.label, manualLabel: !!s.manualLabel, rest, usedAt: s.usedAt || 0, quietAt: s.quietAt || 0, asking: !!s.asking });
     }
     activate((saved.find((s) => tabs.has(s.id)) || saved[0]).id);
   } else if (info.role === 'manager' || info.temp) {
-    // the manager window's resident session (the PMO); a temp / edit window (made to run claude there)
+    // the manager window's resident session (the ルーター); a temp / edit window (made to run claude there)
     createTab();
   }
   // AT-139: a project window with nothing to restore starts no claude: the empty screen, and when the app was started
   // with it (not a folder opened later from the picker, not a hidden window opened for routed work) the dashboard comes
   // up, where the user asks for work. A window opened hidden for a routed item gets its session from that item.
+  // UX14: a window opened from the home's ＋ (hidden: the workbench) starts the session the user asked for
+  if (!tabs.size && info.role !== 'manager' && info.wantTab && !info.temp) safe(() => createTab());
+  api.onSessionNewTab?.(() => info.role !== 'manager' && !info.temp && safe(() => createTab()));
   const startEmpty = !tabs.size && info.role !== 'manager';
   restoreDone = true;
+  safe(() => renderPmoHead());
   if (startEmpty && info.launch && !info.hidden) safe(() => api.dashboardOpen?.());
   if (saved.length) saveSessions(); // a routed tab restored 完了 above stays resting in sessions.json (42)
   // the dashboard's 「会話を開く」 for a closed 完了 session of this folder (PROGRESS 49): asked before / after this point
@@ -5566,6 +6283,8 @@ async function init() {
       api,
       exclude: info.workDir,
       root: document.getElementById('dashboard'),
+      nav: document.getElementById('side-nav'), // UX14
+      crumb: document.getElementById('crumb'),
       own: () => {
         const t = resident();
         return t ? { memMb: t.memMb ?? null, heavy: memHeavy(t), status: restartBusy(t).length ? 'running' : t.status } : null;
@@ -5576,7 +6295,7 @@ async function init() {
       },
     }));
     ensureDashboardPanels();
-    if (pmoFocusWanted) setTimeout(() => focusPmo(), 300); // 「PMO に相談」 arrived while the window was starting
+    if (pmoFocusWanted) setTimeout(() => focusPmo(), 300); // 「ルーターに相談」 arrived while the window was starting
   }
   // Drafts of sessions that did not come back (closed elsewhere, transcript gone) are dropped.
   let pruned = false;
@@ -5608,7 +6327,7 @@ function showUpdate(st) {
   safe(() => window.Backlog?.setHold?.(updateHolds() ? updateHoldText() : null));
   safe(() => window.Dashboard?.setUpdate?.(appUpdate));
   if (!el) return;
-  // UIUX U4: hidden by default (the update is in「PMO の記録」); ⚙ 設定 →「更新の帯を出す」shows it. The restart itself always shows.
+  // UIUX U4: hidden by default (the update is in「ルーターの記録」); ⚙ 設定 →「更新の帯を出す」shows it. The restart itself always shows.
   const bar = safe(() => window.Notify?.settings?.().showUpdateBar === true, false);
   el.hidden = s === 'none' || !s || (s !== 'restarting' && !bar);
   const until = appUpdate.deadline ? new Date(appUpdate.deadline).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '';

@@ -465,6 +465,13 @@
         draftT = 0;
         hooks.saveDraft?.(tab, draft());
       },
+      // 15: text handed from a pane (the pin comments) goes at the end of what is typed
+      insertText(text) {
+        if (!text) return;
+        input.value = input.value ? `${input.value}${/\n$/.test(input.value) ? '' : '\n'}${text}` : text;
+        input.dispatchEvent(new Event('input'));
+        input.focus();
+      },
       addFiles(paths) {
         for (const p of paths || []) addAttachment({ path: p });
       },

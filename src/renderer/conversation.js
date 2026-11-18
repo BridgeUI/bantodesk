@@ -20,6 +20,9 @@
   const STATUS_JA = { pending: '未着手', in_progress: '進行中', completed: '完了', deleted: '削除' };
 
   let hooks = {};
+  // UX13: a view may carry its own hooks (the main window's session view sends through main to the owner window);
+  // the others use the window's hooks from init()
+  const hk = (conv) => (conv && conv.hooks) || hooks;
 
   // ---- folding (UIUX U6, 依頼-42) ------------------------------------------------------
   // Diffs (Edit / Write), tool output (Bash ...) and an agent's prompt and result are closed by default: one line
@@ -607,7 +610,7 @@
         return lines.join('\n');
       };
       send.addEventListener('click', () => {
-        const why = hooks.send ? hooks.send(tab, compose()) : 'not ready';
+        const why = hk(conv).send ? hk(conv).send(tab, compose()) : 'not ready';
         if (why) {
           note.textContent = why;
           return;
@@ -671,7 +674,11 @@
 
   // ---- state ------------------------------------------------------------------
   // opts.readOnly: no input box / mode buttons (subagent and team member views).
+  // opts.hooks (UX13): this view's own hooks (send / choose / key / queue ...; missing ones fall back to init's).
+  // opts.noComposer: no composer.js (attachments, palette, drafts) – the main window's session view (session-view.js).
   function create(tab, opts = {}) {
+    const own = opts.hooks && typeof opts.hooks === 'object' ? opts.hooks : null;
+    const H = () => (own ? { ...hooks, ...own } : hooks);
     const el = h('div', `conv${opts.readOnly ? ' readonly' : ''}`);
     const list = h('div', 'cv-list');
     const empty = h('div', 'cv-empty', opts.readOnly ? '読み込み中…' : '会話はまだありません。下の入力欄から送信できます。');
@@ -704,6 +711,7 @@
 
     const conv = {
       el, list, empty, scroll, jump, banner, status, choices, input, readOnly: !!opts.readOnly,
+      hooks: own ? { ...hooks, ...own } : null, // UX13 (hk)
       dock, // the composer area (status, choices, input, mode buttons); core moves it under the terminal in 'term' mode
       items: [], // { el, kind }
       tools: new Map(), // toolUseId -> tool
@@ -752,7 +760,7 @@
       if (!a || a.classList.contains('cv-file')) return;
       e.preventDefault();
       const href = a.getAttribute('href') || '';
-      if (/^https?:\/\//i.test(href)) hooks.openUrl?.(href);
+      if (/^https?:\/\//i.test(href)) H().openUrl?.(href);
     });
 
     const autoGrow = () => {
@@ -775,7 +783,7 @@
       const comp = conv.composer;
       if (comp ? comp.isEmpty() : !input.value.trim()) return;
       const text = comp ? comp.compose() : input.value;
-      const why = hooks.send ? hooks.send(tab, text) : 'not ready';
+      const why = H().send ? H().send(tab, text) : 'not ready';
       if (why) {
         showNotice(why); // the text (and attachments) stay in the box
         return;
@@ -785,7 +793,7 @@
       const typed = input.value.replace(/\s+$/, '');
       if (typed && conv.history[conv.history.length - 1] !== typed) conv.history.push(typed);
       if (conv.history.length > 200) conv.history.shift();
-      if (typed) hooks.sent?.(tab, typed); // folder-wide send history (Ctrl+R)
+      if (typed) H().sent?.(tab, typed); // folder-wide send history (Ctrl+R)
       conv.histIdx = -1;
       input.value = '';
       comp?.clear();
@@ -802,7 +810,7 @@
     const compositionDone = () => {
       if (!conv.composing) return;
       conv.composing = false;
-      hooks.composed?.(tab);
+      H().composed?.(tab);
     };
     input.addEventListener('compositionstart', () => { conv.composing = true; });
     input.addEventListener('compositionend', compositionDone);
@@ -819,7 +827,7 @@
         const comp = conv.composer;
         if (comp ? comp.isEmpty() : !input.value.trim()) return;
         const text = comp ? comp.compose() : input.value;
-        const why = hooks.queue ? hooks.queue(tab, text) : '待ちの一覧がありません';
+        const why = H().queue ? H().queue(tab, text) : '待ちの一覧がありません';
         if (why) {
           showNotice(why);
           return;
@@ -837,7 +845,7 @@
         // throw away a long multi-line draft.
         e.preventDefault();
         const sc = conv.screen || {};
-        if (sc.status === 'running' || sc.status === 'asking') hooks.key?.(tab, 'esc');
+        if (sc.status === 'running' || sc.status === 'asking') H().key?.(tab, 'esc');
       } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && conv.history.length) {
         const atTop = input.selectionStart === 0 && input.selectionEnd === 0;
         const atEnd = input.selectionStart === input.value.length;
@@ -865,10 +873,10 @@
 
     // Attachments (dropped files, pasted images, @ search), "/" palette, Ctrl+R history, drafts:
     // composer.js. Without it, dropped files are not handled here (the pane inserts paths).
-    if (!opts.readOnly && window.Composer) {
-      conv.history = (hooks.history?.() || []).slice(-200);
+    if (!opts.readOnly && !opts.noComposer && window.Composer) {
+      conv.history = (H().history?.() || []).slice(-200);
       try {
-        conv.composer = window.Composer.attach(conv, tab, hooks);
+        conv.composer = window.Composer.attach(conv, tab, H());
       } catch (err) {
         console.error(err);
       }
@@ -1340,11 +1348,11 @@
       // rest: claude stopped by the app (PROGRESS 35 'done' / 31 'idle'), the conversation stays
       const text = s.rest === 'done' ? '完了（休止中） — claude は止めています。「再開」か送信で起こします' : s.rest === 'idle' ? '休止中 — claude を休ませています' : 'claude は終了しました';
       conv.status.append(h('span', 'cv-st-text', text));
-      if (hooks.restart) {
+      if (hk(conv).restart) {
         const b = h('button', 'cv-restart', window.Labels?.WORDS?.resume || '再開');
         b.type = 'button';
         b.title = '同じ会話のまま claude を起動し直す';
-        b.addEventListener('click', () => hooks.restart(tab));
+        b.addEventListener('click', () => hk(conv).restart(tab));
         conv.status.append(b);
       }
     }
@@ -1377,7 +1385,7 @@
         const b = h('button', `cv-opt cv-check${o.checked ? ' on' : ''}`);
         b.type = 'button';
         b.append(h('span', 'cv-box', o.checked ? '☑' : '☐'), h('span', null, o.label));
-        b.addEventListener('click', () => hooks.choose?.(tab, o.n));
+        b.addEventListener('click', () => hk(conv).choose?.(tab, o.n));
         row.append(b);
       }
       conv.choices.append(row);
@@ -1387,7 +1395,7 @@
       next.addEventListener('click', () => {
         // From the last question Tab reaches the review screen; it stops there, so extra Tabs are harmless.
         const k = ch.submitLabel === 'Next' ? 1 : Math.max(1, (ch.tabs || []).length);
-        for (let i = 0; i < k; i++) setTimeout(() => hooks.key?.(tab, 'tab'), i * 120);
+        for (let i = 0; i < k; i++) setTimeout(() => hk(conv).key?.(tab, 'tab'), i * 120);
       });
       const other = ch.options.find((o) => o.other);
       const bar = h('div', 'cv-qa-bar');
@@ -1404,7 +1412,7 @@
         // On the multi-question review screen "2. Cancel" throws all answers away: say so.
         const label = o.label === 'Cancel' && /submit your answers/i.test(ch.question || '') ? 'キャンセル（回答を破棄）' : o.label;
         b.append(h('span', 'cv-opt-n', String(o.n)), h('span', null, label));
-        b.addEventListener('click', () => hooks.choose?.(tab, o.n));
+        b.addEventListener('click', () => hk(conv).choose?.(tab, o.n));
         row.append(b);
       }
       conv.choices.append(row);

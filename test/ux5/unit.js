@@ -93,7 +93,8 @@ ok('B1 no 「再開（--resume）」 on the screen', where('再開（--resume）
   }
   ok('B3 no old word of the word table in the screen text (agents-view / dashboard / settings / conversation)', hits.length === 0, hits);
 }
-ok('B4 the viewer drop band names xlsx', /ここにドロップしてビューアで開く（[^）]*xlsx[^）]*）/.test(code(REN + 'renderer.js')));
+// UX16 made the two drop bands one (edit-drop.js: 見る / 直す); the 見る target still names xlsx
+ok('B4 the viewer drop band names xlsx', /ビューアで開く（[^）]*xlsx[^）]*）/.test(code(REN + 'edit-drop.js')));
 ok('B5 the 再開 button uses the word table', /cv-restart/.test(conv) && !/'再開（--resume）'/.test(conv));
 
 // ---- C. moved ----

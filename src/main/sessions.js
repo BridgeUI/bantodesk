@@ -40,6 +40,7 @@ function sanitizeTabs(tabs) {
       // AT-6: a routed item's own model / effort, resumed with the same (only valid values; none = the default)
       ...(models.isModel(t.model) ? { model: t.model } : {}),
       ...(models.isEffort(t.effort) ? { effort: t.effort } : {}),
+      ...(models.KINDS.includes(t.kind) ? { kind: t.kind } : {}), // MODEL-KIND: the item's kind (its default model)
       forBacklog: t.forBacklog === true, // made for a routed item: after a restart its item is still judged by the done mark
       // resting tab (PROGRESS 35 'done' / 31 'idle'): restored without starting its claude (it starts when opened)
       rest: t.rest === 'done' || t.rest === 'idle' ? t.rest : null,

@@ -1,4 +1,4 @@
-// UIUX U3 「あなたの番」 (src/main/attention.js): what the PMO may press (U3 QA 1 widening), the list per kind (taken in /
+// UIUX U3 「あなたの番」 (src/main/attention.js): what the ルーター may press (U3 QA 1 widening), the list per kind (taken in /
 // gone), the fixed order, the promptKey check of the answer path, the nudge counter, notices.forAttention.
 //   node tmp/attention/unit.js            (AT_APP_ROOT=<app> to test another copy, e.g. the stable one)
 const path = require('path');
@@ -31,7 +31,7 @@ const perm = (cmd, key = 'k' + Math.random().toString(36).slice(2, 8), extra = {
 });
 const V = (cmd) => attention.pmoVerdict(perm(cmd), folder);
 
-// ---- 1. what the PMO may press -------------------------------------------------------------------------------------
+// ---- 1. what the ルーター may press -------------------------------------------------------------------------------------
 ok('plain command inside: safe (base rule)', V('npm test').safe === true);
 ok('outside the folder: safe now (relaxed)', V('cat C:\\Windows\\win.ini').safe === true && /作業フォルダの外/.test(V('cat C:\\Windows\\win.ini').relaxed), V('cat C:\\Windows\\win.ini'));
 ok('network (curl): safe now', V('curl https://example.com/x.json').safe === true && V('curl https://example.com/x.json').relaxed === 'ネットワークへの送信');
@@ -128,14 +128,14 @@ ok('dialog id carries the since of the dialog (s:<tab>:<key>:<since>)', items.so
   ok('same dialog asked again -> new id; same dialog still there -> same id', again.length === 1 && again[0].id !== pd.id && same.length === 1 && same[0].id === pd.id, { pd: pd.id, again: again.map((i) => i.id), same: same.map((i) => i.id) });
 }
 ok('confirm: delete dialog in', byId('s:tdel:pdel') && byId('s:tdel:pdel').kind === 'confirm');
-ok('confirm: why short 確認（削除）, full has the reason', byId('s:tdel:pdel') && byId('s:tdel:pdel').why.short === '確認（削除）' && /PMO は押せません: 削除/.test(byId('s:tdel:pdel').why.full), byId('s:tdel:pdel') && byId('s:tdel:pdel').why);
+ok('confirm: why short 確認（削除）, full has the reason', byId('s:tdel:pdel') && byId('s:tdel:pdel').why.short === '確認（削除）' && /ルーターは押せません: 削除/.test(byId('s:tdel:pdel').why.full), byId('s:tdel:pdel') && byId('s:tdel:pdel').why);
 ok('confirm: task AT-7 of its backlog item', byId('s:tdel:pdel') && byId('s:tdel:pdel').task && byId('s:tdel:pdel').task.no === 'AT-7');
 ok('confirm: carries wcId / tabId / promptKey / entry', byId('s:tdel:pdel') && byId('s:tdel:pdel').promptKey === 'pdel' && byId('s:tdel:pdel').entry.prompt.key === 'pdel' && byId('s:tdel:pdel').danger === '削除');
-ok('safe dialog: out (the PMO / Auto-yes takes it)', !byId('s:tsafe:psafe'));
-ok('network dialog: out (the PMO may press it now)', !byId('s:tnet:pnet'));
+ok('safe dialog: out (the ルーター / Auto-yes takes it)', !byId('s:tsafe:psafe'));
+ok('network dialog: out (the ルーター may press it now)', !byId('s:tnet:pnet'));
 ok('new dialog inside the grace: out', !byId('s:tnew:pnew'));
 ok('question: in (no grace)', byId('s:tq:pq') && byId('s:tq:pq').kind === 'question' && byId('s:tq:pq').why.short === '質問');
-ok("PMO's own dialog: in, own, ダッシュボード", byId('s:town:pown') && byId('s:town:pown').own === true && byId('s:town:pown').folderName === 'ダッシュボード');
+ok("ルーター's own dialog: in, own, ダッシュボード", byId('s:town:pown') && byId('s:town:pown').own === true && byId('s:town:pown').folderName === 'ダッシュボード');
 ok('unreadable dialog: confirm 画面の確認', byId('s:tscr:screen') && byId('s:tscr:screen').why.short === '画面の確認');
 ok('error session: out', !items.some((i) => i.tabId === 'terr'));
 ok('qa: open inbox table in, task 依頼-1', byId('qa:inbox|i1') && byId('qa:inbox|i1').task.reqNo === '依頼-1' && byId('qa:inbox|i1').why.short === 'QA 1問');

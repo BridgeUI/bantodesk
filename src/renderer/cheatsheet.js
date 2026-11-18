@@ -28,12 +28,13 @@
   ];
 
   // Only bindings we are confident about (Claude Code 2.x). Keys are shown as <kbd> chips. Claude Code's own keys are
-  // Ctrl on macOS too (left as written); the BantoDesk rows come from the one shortcut table (Labels.SHORTCUTS,
-  // ⇧⌘ on Mac, UX4). Built when the sheet opens: labels.js may load after this file.
+  // Ctrl on macOS too (left as written); the BantoDesk rows come from the one command table (Labels.sheetRows from
+  // Labels.COMMANDS, ⇧⌘ on Mac, UX4 / UX16: a key removed from the table leaves the list too). Built when the sheet
+  // opens: labels.js may load after this file.
   function keyGroups() {
     const win = /Windows/i.test(navigator.userAgent || '');
     const L = window.Labels;
-    const app = L ? L.SHORTCUTS.filter((s) => s.sheet).map((s) => [[L.key(s.keys)], s.label]) : [];
+    const app = L ? L.sheetRows() : [];
     return [
       { group: 'Claude Code', rows: [
         [['Esc'], '実行中の処理を中断'],
@@ -53,7 +54,7 @@
         [['/'], 'スラッシュコマンド一覧'],
       ] },
       { group: 'BantoDesk', rows: app.concat([
-        [['ドラッグ&ドロップ'], 'ファイルをターミナルへ落としてパスを挿入'],
+        [['ドラッグ&ドロップ'], 'ファイルを窓に落とす: 帯の「見る」でビューア、「直す」で編集モード。ターミナルや入力欄に落とすとパスを挿入'],
       ]) },
     ];
   }

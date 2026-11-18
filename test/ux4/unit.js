@@ -42,12 +42,15 @@ ok('A shortcutKey(backlog)', Labels.shortcutKey('backlog', 'darwin') === '⇧⌘
 // ---- B. the table ----
 const S = Labels.SHORTCUTS;
 // UX5 removed 未読へ移動 (U) and すべて既読 (K): 13 since then; an app from before UX5 still has 15
-const nShort = S.some((s) => s.id === 'nextUnread') ? 15 : 13;
+// UX14 removed 会話 → ターミナル → 並べる (M): 12 since then
+const nShort = S.some((s) => s.id === 'nextUnread') ? 15 : S.some((s) => s.id === 'viewMode') ? 13 : 12;
 ok(`B table has the ${nShort} shortcuts`, S.length === nShort, S.length);
 ok('B ids unique', new Set(S.map((s) => s.id)).size === S.length);
 ok('B keys unique', new Set(S.map((s) => s.keys.toLowerCase())).size === S.length);
-ok('B keys are mod+shift+<letter> or ctrl+Tab', S.every((s) => /^mod\+shift\+[A-Z]$/.test(s.keys) || s.keys === 'ctrl+Tab'), S.map((s) => s.keys));
-ok('B no ⇧⌘W-like clash with Claude Code keys (no plain mod+<letter>)', S.every((s) => s.keys.split('+').length >= 2 && !/^mod\+[A-Z]$/.test(s.keys)));
+// UX16: the palette is ⌘K on Mac (mod = ⌘, not a Claude Code key there); on Windows Ctrl+K is Claude Code's
+// 「行末まで消す」, so it has its own Windows keys (win: mod+shift+K)
+ok('B keys are mod+shift+<letter> or ctrl+Tab (palette: mod+K with a Windows mod+shift+K)', S.every((s) => /^mod\+shift\+[A-Z]$/.test(s.keys) || s.keys === 'ctrl+Tab' || (s.id === 'palette' && s.keys === 'mod+K' && s.win === 'mod+shift+K')), S.map((s) => s.keys));
+ok('B no ⇧⌘W-like clash with Claude Code keys (no plain mod+<letter> on Windows)', S.every((s) => !/^mod\+[A-Z]$/.test(Labels.keysOf(s, 'win32'))) && Labels.shortcutKey('palette', 'darwin') === '⌘K' && Labels.shortcutKey('palette', 'win32') === 'Ctrl+Shift+K');
 const ev = (code, m = {}) => ({ type: 'keydown', code, ctrlKey: !!m.ctrl, metaKey: !!m.meta, shiftKey: !!m.shift, altKey: !!m.alt });
 const cases = [
   ['darwin', ev('KeyB', { meta: true, shift: true }), 'backlog'],
@@ -72,12 +75,13 @@ for (const [os, e, want] of cases) {
 }
 ok('B modOf: meta on Mac, ctrl on Windows', Labels.modOf({ metaKey: true }, 'darwin') && !Labels.modOf({ ctrlKey: true }, 'darwin') && Labels.modOf({ ctrlKey: true }, 'win32') && !Labels.modOf({ metaKey: true }, 'win32'));
 const R = src('src/renderer/renderer.js');
-const actBlock = (R.match(/const SHORTCUT_ACTIONS = \{([\s\S]*?)\n\};/) || [])[1] || '';
+// UX16: the actions are those of the whole command table (COMMAND_RUN), the shortcuts among them
+const actBlock = (R.match(/const COMMAND_RUN = \{([\s\S]*?)\n\};/) || [])[1] || '';
 const actIds = [...actBlock.matchAll(/^\s+([a-zA-Z]+):/gm)].map((m) => m[1]);
-ok('B renderer has an action for every id (and no other)', S.every((s) => actIds.includes(s.id)) && actIds.length === S.length, { actIds });
+ok('B renderer has an action for every id (and no other)', Labels.COMMANDS.every((s) => actIds.includes(s.id)) && actIds.length === Labels.COMMANDS.length && S.every((s) => actIds.includes(s.id)), { actIds });
 ok('B shortcutAction goes through Labels.shortcutOf', /function shortcutAction\(e\) \{[\s\S]{0,120}Labels\.shortcutOf\(e\)/.test(R));
 const CS = src('src/renderer/cheatsheet.js');
-ok('B cheat sheet builds its BantoDesk rows from the table', /L\.SHORTCUTS\.filter\(\(s\) => s\.sheet\)/.test(CS));
+ok('B cheat sheet builds its BantoDesk rows from the table', /L\.sheetRows\(\)/.test(CS));
 
 // ---- C. no "Ctrl" in screen text ----
 // comments out (line comments outside strings, block comments, HTML comments), then any "Ctrl" left is screen text

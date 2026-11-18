@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="590" viewBox="0 0 1200 590" lang="ja" role="img" aria-labelledby="t d">
-  <title id="t">指示を出したら、あとは PMO が全部のプロジェクトを進める。</title>
-  <desc id="d">あなた → 受け箱 → PMO エージェント → 待ち行列 → Claude Code → ダッシュボード</desc>
+  <title id="t">指示を出したら、あとは ルーターが全部のプロジェクトを進める。</title>
+  <desc id="d">あなた → 受け箱 → ルーターエージェント → 待ち行列 → Claude Code → ダッシュボード</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b1220"/><stop offset="1" stop-color="#111a33"/></linearGradient>
     <linearGradient id="pmo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a1f52"/><stop offset="1" stop-color="#1a1638"/></linearGradient>
@@ -19,7 +19,7 @@
     </style>
   </defs>
   <rect width="1200" height="590" rx="24" fill="url(#bg)"/>
-  <text x="48" y="58" class="title">指示を出したら、あとは PMO が全部のプロジェクトを進める。</text>
+  <text x="48" y="58" class="title">指示を出したら、あとは ルーターが全部のプロジェクトを進める。</text>
   <text x="48" y="86" class="sub">BantoDesk は、たくさんの Claude Code のセッションを、任せておける 1 つのチームにします。</text>
   <rect x="48" y="118" width="226" height="300" rx="16" fill="#131c2e" stroke="#38bdf8" stroke-opacity="0.55" stroke-width="1.5"/>
   <circle cx="74" cy="148" r="13" fill="#38bdf8"/>
@@ -38,7 +38,7 @@
   <rect x="546" y="118" width="236" height="300" rx="16" fill="none" stroke="#a78bfa" stroke-opacity="0.55" stroke-width="1.5"/>
   <circle cx="572" cy="148" r="13" fill="#a78bfa"/>
   <text x="572" y="153" text-anchor="middle" class="n">3</text>
-  <text x="594" y="154" class="h">PMO エージェント</text><text x="566" y="184" class="s">ほかのセッションを差配する</text><text x="566" y="202" class="s">Claude Code のセッション</text><circle cx="574" cy="235" r="4" fill="#a78bfa"/><text x="588" y="240" class="t">合うフォルダを選ぶ</text><circle cx="574" cy="275" r="4" fill="#a78bfa"/><text x="588" y="280" class="t">要るときだけ質問する</text><circle cx="574" cy="315" r="4" fill="#a78bfa"/><text x="588" y="320" class="t">待ち行列の順番を決める</text><circle cx="574" cy="355" r="4" fill="#a78bfa"/><text x="588" y="360" class="t">止まったセッションを後押し</text><path d="M274 268 C 296 268, 296 268, 310 268" fill="none" stroke="#64748b" stroke-width="2.5" marker-end="url(#ah)"/><path d="M502 268 C 524 268, 524 268, 538 268" fill="none" stroke="#64748b" stroke-width="2.5" marker-end="url(#ah)"/><circle cx="839" cy="130" r="13" fill="#f472b6"/><text x="839" y="135" text-anchor="middle" class="n">4</text><text x="860" y="136" class="h">待ち行列 → Claude Code</text><path d="M782 268 C 804 268, 804 194, 818 194" fill="none" stroke="#64748b" stroke-width="2.5" marker-end="url(#ah)"/>
+  <text x="594" y="154" class="h">ルーターエージェント</text><text x="566" y="184" class="s">ほかのセッションを差配する</text><text x="566" y="202" class="s">Claude Code のセッション</text><circle cx="574" cy="235" r="4" fill="#a78bfa"/><text x="588" y="240" class="t">合うフォルダを選ぶ</text><circle cx="574" cy="275" r="4" fill="#a78bfa"/><text x="588" y="280" class="t">要るときだけ質問する</text><circle cx="574" cy="315" r="4" fill="#a78bfa"/><text x="588" y="320" class="t">待ち行列の順番を決める</text><circle cx="574" cy="355" r="4" fill="#a78bfa"/><text x="588" y="360" class="t">止まったセッションを後押し</text><path d="M274 268 C 296 268, 296 268, 310 268" fill="none" stroke="#64748b" stroke-width="2.5" marker-end="url(#ah)"/><path d="M502 268 C 524 268, 524 268, 538 268" fill="none" stroke="#64748b" stroke-width="2.5" marker-end="url(#ah)"/><circle cx="839" cy="130" r="13" fill="#f472b6"/><text x="839" y="135" text-anchor="middle" class="n">4</text><text x="860" y="136" class="h">待ち行列 → Claude Code</text><path d="M782 268 C 804 268, 804 194, 818 194" fill="none" stroke="#64748b" stroke-width="2.5" marker-end="url(#ah)"/>
   <rect x="826" y="162" width="136" height="64" rx="12" fill="#131c2e" stroke="#f472b6" stroke-opacity="0.45"/>
   <text x="840" y="187" class="mono">web-shop/</text><rect x="840" y="199" width="16" height="14" rx="3" fill="#f472b6" fill-opacity="0.75" stroke="#f472b6" stroke-opacity="0.6"/><rect x="862" y="199" width="16" height="14" rx="3" fill="#f472b6" fill-opacity="0.75" stroke="#f472b6" stroke-opacity="0.6"/><rect x="884" y="199" width="16" height="14" rx="3" fill="#f472b6" fill-opacity="0.75" stroke="#f472b6" stroke-opacity="0.6"/><path d="M962 194 C 982 194, 982 194, 994 194" fill="none" stroke="#64748b" stroke-width="2.5" marker-end="url(#ah)"/>
   <rect x="1002" y="162" width="150" height="64" rx="12" fill="#1e293b" stroke="#34d399" stroke-opacity="0.7"/>

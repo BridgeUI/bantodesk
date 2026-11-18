@@ -6,7 +6,7 @@
 //      managed settings have allowManagedHooksOnly, Claude Code ignores hooks from --settings / user settings.
 //   2. denyRules(): permissions.deny globs for the same settings file. These DO apply under that policy. Coarser than
 //      the hook (a glob cannot say "A and B in any order"): when in doubt they block (SEC5 QA 2).
-//   3. check() from stuck.js: the PMO never presses Yes on a permission dialog whose command this denies (a Bash
+//   3. check() from stuck.js: the ルーター never presses Yes on a permission dialog whose command this denies (a Bash
 //      heredoc is not matched by deny rules, it asks for approval instead).
 //
 // Command names and process-start names are built from pieces (J) so that this file, and any command line that

@@ -143,7 +143,7 @@ const NEW_HEAD = '依頼（inbox.json）と projects.json を確認して、新�
     const cc = fs.readFileSync(path.join(SRC, 'claude-cmd.js'), 'utf8');
     ok('5b routed-session preface says 依頼やバックログから', cc.includes('依頼やバックログから振り分けられた作業'));
     const st = fs.readFileSync(path.join(SRC, 'stuck.js'), 'utf8');
-    ok('5c PMO stuck notice says 振り分けや後押し (U4 wording)', st.includes('答えるまで PMO は振り分けや後押しを進められません'));
+    ok('5c ルーター stuck notice says 振り分けや後押し (U4 wording)', st.includes('答えるまで ルーターは振り分けや後押しを進められません'));
   }
 
   console.log(`total: ${pass} pass, ${fail} fail`);

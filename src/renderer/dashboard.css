@@ -3,163 +3,301 @@
 
 /* window layout: the page on the left, the manager agent's session as a column on the right */
 body.dash-mode #content { gap: 0; }
-body.dash-mode #dashboard { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--base); border-radius: 10px; overflow: hidden; }
+body.dash-mode #dashboard { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--raised); border-radius: var(--r2); overflow: hidden; }
 body.dash-mode #terminals { flex: 1; min-width: 0; min-height: 0; width: auto; }
-/* the right column: 「PMO に相談」 heading + the PMO's session (renderer.js buildPmoColumn; setupDashSplit sets the width) */
+/* UX13: a session's conversation in place of the page (session-view.js); the same parts as the member view's head */
+body.dash-mode #dashboard[hidden], #session-view[hidden] { display: none; }
+body.dash-mode #session-view { flex: 1; min-width: 0; min-height: 0; width: auto; height: auto; border-radius: var(--r2); }
+#session-view > .conv { top: 31px; right: 300px; }
+/* UX15 「この作業」 on the right of the conversation; narrower than 1180px it is folded behind the head's button */
+#session-view > .sv-work { position: absolute; top: 31px; right: 0; bottom: 0; width: 300px; height: auto; border-left: 1px solid var(--line); }
+#session-view .sv-work-title { font-size: var(--fs-xs); letter-spacing: .1em; color: var(--faint); font-weight: 700; margin-bottom: var(--s1); }
+#session-view .sv-worktoggle { display: none; flex: none; }
+#session-view .sv-worktoggle.on { font-weight: 600; }
+@media (max-width: 1179px) {
+  #session-view > .conv { right: 0; }
+  #session-view > .sv-work { display: none; z-index: 4; box-shadow: -6px 0 16px color-mix(in srgb, var(--shade) 35%, transparent); }
+  #session-view.sv-work-open > .sv-work { display: block; }
+  #session-view .sv-worktoggle { display: inline; }
+}
+#session-view .sv-head { gap: var(--s2); }
+#session-view .sv-back { font-weight: 600; }
+#session-view .sv-crumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#session-view .sv-folder, #session-view .sv-sep { color: var(--faint); }
+#session-view .sv-title { color: var(--text); }
+#session-view .sv-note { flex: none; color: var(--you); }
+#session-view .sv-workbench { flex: none; }
+#session-view .sv-head .cv-spacer { flex: 1; }
+/* the right column: 「ルーターに相談」 heading + the ルーター's session (renderer.js buildPmoColumn; setupDashSplit sets the width) */
 #dash-chat { flex: none; width: 420px; min-height: 0; display: flex; flex-direction: column; }
-.dash-pmo-head { flex: none; padding: 6px 10px 7px; cursor: text; user-select: none; }
-.dash-pmo-title { font-size: 13px; font-weight: 600; letter-spacing: .02em; color: var(--text); }
+.dash-pmo-head { flex: none; display: flex; align-items: baseline; gap: var(--s2); min-width: 0; padding: var(--s1) var(--s2) var(--s2); cursor: text; user-select: none; border-bottom: 1px solid var(--line); }
+.dash-pmo-title { flex: none; font-size: var(--fs-m); font-weight: 600; letter-spacing: .02em; color: var(--text); }
+/* HOME-ROLES (docs/ux-journey.md §8): the ルーター is one pane — its state in words, 閉じる; no tab strip (one session) */
+.dash-pmo-state { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-s); color: var(--muted); }
+.dash-pmo-state[data-status="running"], .dash-pmo-state[data-status="starting"] { color: var(--run); }
+.dash-pmo-state[data-status="asking"] { color: var(--you); }
+.dash-pmo-hide { flex: none; font: inherit; font-size: var(--fs-s); color: var(--muted); background: none; border: 0; border-radius: var(--r1); padding: 0 var(--s1); cursor: pointer; }
+.dash-pmo-hide:hover { color: var(--text); background: var(--hover); }
+body.dash-mode #dash-chat .dv-tabs-and-actions-container { display: none; }
+@media (min-width: 1000px) { body.dash-mode.pmo-closed #dash-chat, body.dash-mode.pmo-closed .dash-split { display: none; } }
 /* the draggable border between the page and the column (renderer.js setupDashSplit): 8px hit area, 2px line on hover */
 .dash-split { flex: none; width: 8px; cursor: col-resize; position: relative; touch-action: none; }
 .dash-split::after { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; border-radius: 1px; background: transparent; transition: background .12s; }
-.dash-split:hover::after, body.dash-resizing .dash-split::after { background: var(--blue); }
+.dash-split:hover::after, body.dash-resizing .dash-split::after { background: var(--run); }
 body.dash-resizing { cursor: col-resize; user-select: none; }
 body.dash-resizing iframe, body.dash-resizing #terminals, body.dash-resizing #dashboard { pointer-events: none; }
 body.dash-mode #tabs, body.dash-mode #newtab, body.dash-mode #dashboard-btn,
 body.dash-mode #toggle-panel, body.dash-mode #folder .caret { display: none; }
-.dashboard-host { width: 100%; height: 100%; background: var(--mantle); }
+/* UX14 (docs/ux-journey.md §5.1・§5.7, docs/ux14-check.md): the main window's frame — the breadcrumb in the top bar (the
+   folder name and ⚙ go: ⚙ is in the left nav), the left nav, 「ルーターに相談」 only when the column is hidden (< 1000px) */
+body.dash-mode #folder, body.dash-mode #settings-btn, body.dash-mode #tabs-more { display: none !important; }
+#crumb { display: flex; align-items: center; gap: var(--s1); min-width: 0; flex: 0 1 auto; overflow: hidden; white-space: nowrap; font-size: var(--fs-m); color: var(--muted); }
+#crumb .crumb-link { flex: none; font: inherit; color: var(--muted); background: none; border: 0; border-radius: var(--r1); padding: var(--s1) var(--s1); cursor: pointer; }
+#crumb .crumb-link:hover { color: var(--text); background: var(--hover); }
+#crumb .crumb-here { font-weight: 600; color: var(--text); padding: var(--s1) var(--s1); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#crumb .crumb-sep { flex: none; color: var(--faint); }
+/* §5.7: at least 80px of empty (draggable) bar right of the breadcrumb */
+body.dash-mode #spacer { min-width: 80px; }
+/* HOME-ROLES: 「ルーター」 in the bar at every width (opens / closes the one ルーター pane); the dot is the ルーター's state */
+#pmo-pill { display: none; align-items: center; gap: var(--s1); }
+body.dash-mode #pmo-pill { display: inline-flex; }
+#pmo-pill.on { background: var(--hover); color: var(--text); border-color: var(--strong); }
+#pmo-pill.on svg { filter: none; }
+#pmo-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+#pmo-pill .dot[data-status="running"], #pmo-pill .dot[data-status="starting"] { background: var(--run); }
+#pmo-pill .dot[data-status="asking"] { background: var(--you); }
+/* the left nav (dashboard.js navNode) */
+#side-nav { flex: none; width: 200px; min-height: 0; display: flex; flex-direction: column; gap: 0; padding: var(--s1) var(--s2) var(--s1) 0; box-sizing: border-box; overflow: hidden; font-size: var(--fs-m); }
+#side-nav > div { display: contents; }
+#side-nav .snav-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 0; margin: var(--s1) 0; }
+#side-nav .snav-item { display: flex; align-items: center; gap: var(--s2); min-width: 0; width: 100%; box-sizing: border-box; height: 30px; padding: 0 var(--s2); font: inherit; color: var(--muted); background: none; border: 0; border-radius: var(--r1); cursor: pointer; text-align: left; flex: none; }
+#side-nav .snav-item:hover { background: var(--hover); color: var(--text); }
+#side-nav .snav-item.on { background: var(--hover); color: var(--text); font-weight: 600; }
+#side-nav .snav-ic { flex: none; width: 16px; text-align: center; color: var(--faint); }
+#side-nav .snav-item.on .snav-ic, #side-nav .snav-item:hover .snav-ic { color: inherit; }
+#side-nav .snav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#side-nav .snav-n { flex: none; font-size: var(--fs-xs); color: var(--faint); white-space: nowrap; }
+#side-nav .snav-n.hot { color: var(--on-color); background: var(--you); border-radius: 999px; padding: 0 var(--s1); font-weight: 700; }
+#side-nav .snav-key { flex: none; margin-left: auto; font-size: var(--fs-xs); color: var(--faint); white-space: nowrap; } /* UX16 the palette key */
+#side-nav .snav-h { flex: none; padding: var(--s2) var(--s2) var(--s1); font-size: var(--fs-xs); font-weight: 600; letter-spacing: .04em; color: var(--faint); }
+#side-nav .snav-sess { height: 26px; padding-left: var(--s5); font-size: var(--fs-s); }
+#side-nav .snav-dot { margin-right: 0; transform: none; }
+#side-nav .k-input > .snav-dot { background: var(--you); }
+#side-nav .k-error > .snav-dot { background: var(--risk); }
+#side-nav .k-busy > .snav-dot { background: var(--run); }
+#side-nav .k-done > .snav-dot { background: var(--done); }
+#side-nav .k-idle > .snav-dot { background: var(--faint); }
+#side-nav .snav-more, #side-nav .snav-empty { flex: none; padding: var(--s1) var(--s2) var(--s1) var(--s5); font-size: var(--fs-s); color: var(--faint); }
+#side-nav .snav-empty { padding-left: var(--s2); }
+/* §5.7: under 1180px the nav is icons only (56px): the folders keep their dot, the sessions and words go */
+@media (max-width: 1179px) {
+  #side-nav { width: 56px; padding-right: var(--s2); }
+  #side-nav .snav-label, #side-nav .snav-n:not(.hot), #side-nav .snav-key, #side-nav .snav-h, #side-nav .snav-sess, #side-nav .snav-more, #side-nav .snav-empty { display: none; }
+  #side-nav .snav-item { justify-content: center; padding: 0; gap: 0; position: relative; }
+  #side-nav .snav-n.hot { position: absolute; top: 1px; right: 0; font-size: var(--fs-xs); padding: 0 var(--s1); }
+}
+/* §5.7: under 1000px the ルーター column hides; the bar's 「ルーターに相談」 pulls it out over the page */
+@media (max-width: 999px) {
+  body.dash-mode .dash-split { display: none; }
+  body.dash-mode:not(.pmo-open) #dash-chat { display: none; }
+  body.dash-mode.pmo-open #dash-chat { position: fixed; z-index: 30; top: var(--topbar-h); right: 8px; bottom: 8px; width: min(420px, calc(100vw - 80px)) !important; background: var(--surface); border: 1px solid var(--strong); border-radius: var(--r2); box-shadow: 0 8px 28px color-mix(in srgb, var(--shade) 45%, transparent); }
+}
+/* the band's parts at the end of the 安心の 1 行 (残ったプロセス, the ルーター's memory, スマホ ON) */
+.dbx-rs-extra { display: inline-flex; gap: var(--s1); align-items: center; margin-left: auto; flex-wrap: wrap; min-width: 0; }
+.dashboard-host { width: 100%; height: 100%; background: var(--surface); }
 
-#dashboard { font-size: 13px; color: var(--text); }
-.dbx-head { flex: none; padding: 12px 24px 0; border-bottom: 1px solid var(--surface0); }
-.dbx-top { display: flex; align-items: center; gap: 16px; min-width: 0; }
-.dbx-title { font-size: 15px; font-weight: 600; letter-spacing: .02em; flex: none; }
-/* the band (U2): 動いている N / 上限 M · PMO · スマホ · ⚙ — small quiet chips, coloured only when something is off */
-.dbx-band { display: flex; gap: 6px; align-items: center; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
-.dbx-chip { display: inline-flex; align-items: baseline; gap: 6px; font: inherit; font-size: 11.5px; line-height: 1.6; color: var(--subtext); background: none; border: 1px solid var(--surface1); border-radius: 999px; padding: 0 9px; white-space: nowrap; }
+#dashboard { font-size: var(--fs-m); color: var(--text); }
+.dbx-head { flex: none; padding: var(--s3) var(--s5) 0; border-bottom: 1px solid var(--line); }
+.dbx-chip { display: inline-flex; align-items: baseline; gap: var(--s1); font: inherit; font-size: var(--fs-s); line-height: var(--lh); color: var(--muted); background: none; border: 1px solid var(--strong); border-radius: 999px; padding: 0 var(--s2); white-space: nowrap; }
 button.dbx-chip { cursor: pointer; }
-button.dbx-chip:hover, .dbx-chip.on { border-color: var(--blue); color: var(--text); }
-.dbx-chip.over { color: var(--peach); border-color: var(--peach); }
-.dbx-chip.busy .dbx-wrlabel { color: var(--blue); }
-.dbx-chip.dbx-remote.on { color: var(--green); border-color: var(--green); }
+button.dbx-chip:hover, .dbx-chip.on { border-color: var(--run); color: var(--text); }
+.dbx-chip.over { color: var(--you); border-color: var(--you); }
+.dbx-chip.busy .dbx-wrlabel { color: var(--run); }
+.dbx-chip.dbx-remote.on { color: var(--done); border-color: var(--done); }
 .dbx-own .dbx-wrlabel { margin-right: 0; }
-.dbx-newrow { display: flex; gap: 8px; align-items: stretch; margin-top: 10px; }
+.dbx-newrow { display: flex; gap: var(--s2); align-items: stretch; margin-top: var(--s2); }
 .dbx-new {
   display: block; flex: 1; min-width: 0; box-sizing: border-box; resize: none; field-sizing: content; min-height: 38px; max-height: 160px;
-  font: inherit; font-size: 13px; line-height: 1.5; color: var(--text);
-  background: var(--mantle); border: 1px solid var(--surface0); border-radius: 8px; padding: 8px 12px; outline: none;
+  font: inherit; font-size: var(--fs-m); line-height: var(--lh); color: var(--text);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r1); padding: var(--s2) var(--s3); outline: none;
 }
-.dbx-new:focus { border-color: var(--blue); }
-.dbx-new::placeholder { color: var(--overlay); }
-.dbx-send { flex: none; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--text); background: var(--surface0); border: 1px solid var(--surface1); border-radius: 8px; padding: 0 14px; cursor: pointer; }
-.dbx-send:hover { border-color: var(--blue); }
+.dbx-new:focus { border-color: var(--run); }
+.dbx-new::placeholder { color: var(--faint); }
+.dbx-send { flex: none; font: inherit; font-size: var(--fs-s); font-weight: 600; color: var(--text); background: var(--hover); border: 1px solid var(--strong); border-radius: var(--r1); padding: 0 var(--s3); cursor: pointer; }
+.dbx-send:hover { border-color: var(--run); }
 /* ⚙ settings (置き場所・止まりの見張り) */
-.dbx-settings { margin-top: 8px; padding: 8px 12px; border: 1px solid var(--surface0); border-radius: 8px; background: var(--mantle); display: flex; flex-direction: column; gap: 6px; }
+.dbx-settings { margin-top: var(--s2); padding: var(--s2) var(--s3); border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface); display: flex; flex-direction: column; gap: var(--s1); }
 .dbx-settings > .dbx-link { align-self: flex-start; }
 /* tabs */
 /* MP4 7: the tab names stay on one line; when the page is narrow the row scrolls sideways (thin bar on hover) */
-.dbx-tabs { display: flex; gap: 2px; margin-top: 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.dbx-tabs { display: flex; gap: var(--s1); margin-top: var(--s2); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .dbx-tabs::-webkit-scrollbar { display: none; }
-.dbx-tab { flex: none; white-space: nowrap; font: inherit; font-size: 13px; color: var(--subtext); background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 12px 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.dbx-tab { flex: none; white-space: nowrap; font: inherit; font-size: var(--fs-m); color: var(--muted); background: none; border: 0; border-bottom: 2px solid transparent; padding: var(--s1) var(--s3) var(--s2); cursor: pointer; display: inline-flex; align-items: center; gap: var(--s1); }
 .dbx-tab:hover { color: var(--text); }
-.dbx-tab.on { color: var(--text); font-weight: 600; border-bottom-color: var(--mauve); }
-.dbx-badge { font-size: 10.5px; font-weight: 600; min-width: 16px; text-align: center; padding: 0 5px; border-radius: 999px; background: var(--surface0); color: var(--subtext); font-variant-numeric: tabular-nums; }
-.dbx-badge.hot { background: var(--yellow); color: var(--crust, #11111b); }
+.dbx-tab.on { color: var(--text); font-weight: 600; border-bottom-color: var(--focus); }
+.dbx-badge { font-size: var(--fs-xs); font-weight: 600; min-width: 16px; text-align: center; padding: 0 var(--s1); border-radius: 999px; background: var(--hover); color: var(--muted); font-variant-numeric: tabular-nums; }
+.dbx-badge.hot { background: var(--you); color: var(--on-color); }
 /* folder filter (all tabs) + text filter / view switch */
-.dbx-filters { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 8px 0 9px; }
-.dbx-fchip { font: inherit; font-size: 11.5px; color: var(--subtext); background: none; border: 1px solid var(--surface1); border-radius: 999px; padding: 1px 10px; cursor: pointer; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-filters { display: flex; gap: var(--s1); align-items: center; flex-wrap: wrap; padding: var(--s2) 0 var(--s2); }
+.dbx-fchip { font: inherit; font-size: var(--fs-s); color: var(--muted); background: none; border: 1px solid var(--strong); border-radius: 999px; padding: 0 var(--s2); cursor: pointer; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dbx-fchip:hover { color: var(--text); }
 .dbx-fchip.on { color: var(--text); border-color: var(--text); }
-.dbx-filter { margin-left: auto; width: 180px; font: inherit; font-size: 12px; color: var(--text); background: var(--mantle); border: 1px solid var(--surface0); border-radius: 6px; padding: 2px 8px; outline: none; }
-.dbx-filter:focus { border-color: var(--blue); }
-.dbx-views { margin-left: auto; display: inline-flex; border: 1px solid var(--surface1); border-radius: 6px; overflow: hidden; }
-.dbx-views button { font: inherit; font-size: 11.5px; color: var(--subtext); background: none; border: 0; padding: 1px 10px; cursor: pointer; }
-.dbx-views button.on { background: var(--surface0); color: var(--text); }
-.dbx-workroot { display: flex; align-items: baseline; gap: 0; color: var(--overlay); font-size: 11.5px; min-width: 0; }
-.dbx-wrlabel { flex: none; margin-right: 8px; }
-.dbx-leftsel { font: inherit; font-size: 11.5px; color: var(--text); background: var(--surface0); border: 1px solid var(--surface1); border-radius: 4px; }
-.dbx-wrpath { color: var(--subtext); margin-right: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dbx-filter { margin-left: auto; width: 180px; font: inherit; font-size: var(--fs-s); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r1); padding: var(--s1) var(--s2); outline: none; }
+.dbx-filter:focus { border-color: var(--run); }
+.dbx-views { margin-left: auto; display: inline-flex; border: 1px solid var(--strong); border-radius: var(--r1); overflow: hidden; }
+.dbx-views button { font: inherit; font-size: var(--fs-s); color: var(--muted); background: none; border: 0; padding: 0 var(--s2); cursor: pointer; }
+.dbx-views button.on { background: var(--hover); color: var(--text); }
+.dbx-workroot { display: flex; align-items: baseline; gap: 0; color: var(--faint); font-size: var(--fs-s); min-width: 0; }
+.dbx-wrlabel { flex: none; margin-right: var(--s2); }
+.dbx-leftsel { font: inherit; font-size: var(--fs-s); color: var(--text); background: var(--hover); border: 1px solid var(--strong); border-radius: var(--r1); }
+.dbx-wrpath { color: var(--muted); margin-right: var(--s2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .dbx-workroot .dbx-link { flex: none; }
 .dbx-workroot .dbx-link:hover { color: var(--text); }
 /* session memory (roadmap 22): quiet figure, orange over the mark "重いセッションの目安" with 再起動 */
-.dbx-own { display: inline-flex; align-items: baseline; color: var(--subtext); font-size: 11.5px; }
-.dbx-mem { flex: none; white-space: nowrap; color: var(--overlay); font-size: 11px; font-variant-numeric: tabular-nums; }
-.dbx-mem.heavy { color: var(--peach); font-weight: 600; }
-.dbx-restart { margin-left: 6px; font-weight: 400; }
+.dbx-own { display: inline-flex; align-items: baseline; color: var(--muted); font-size: var(--fs-s); }
+.dbx-mem { flex: none; white-space: nowrap; color: var(--faint); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.dbx-mem.heavy { color: var(--you); font-weight: 600; }
+.dbx-restart { margin-left: var(--s1); font-weight: 400; }
 .dbx-restart:hover { color: var(--text); }
-.dbx-restart:disabled { color: var(--overlay); cursor: default; }
+.dbx-restart:disabled { color: var(--faint); cursor: default; }
 
-.dbx-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 24px 24px; container: dbx-body / inline-size; }
+.dbx-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--s1) var(--s5) var(--s5); container: dbx-body / inline-size; }
 /* MP4 9: the corner where two scrollbars meet: the page's colour, not a white square */
-#dashboard ::-webkit-scrollbar-corner { background: var(--base); }
-.dbx-sec { margin-top: 14px; }
-.dbx-empty { color: var(--overlay); padding: 18px 0; }
-.dbx-none { color: var(--surface1); font-size: 12px; }
-.dbx-time { color: var(--overlay); font-size: 11px; flex: none; white-space: nowrap; }
-.dbx-link { font: inherit; font-size: 11.5px; color: var(--blue); background: none; border: 0; padding: 0; cursor: pointer; }
-.dbx-link.dim { color: var(--overlay); }
-.dbx-link:hover { color: var(--red); }
+#dashboard ::-webkit-scrollbar-corner { background: var(--raised); }
+.dbx-sec { margin-top: var(--s3); }
+.dbx-empty { color: var(--faint); padding: var(--s4) 0; }
+.dbx-none { color: var(--strong); font-size: var(--fs-s); }
+.dbx-time { color: var(--faint); font-size: var(--fs-xs); flex: none; white-space: nowrap; }
+.dbx-link { font: inherit; font-size: var(--fs-s); color: var(--run); background: none; border: 0; padding: 0; cursor: pointer; }
+.dbx-link.dim { color: var(--faint); }
+.dbx-link:hover { color: var(--text); }
 
-/* folder cards (プロジェクト tab, U2): name · band · counts | task rows | PMO の見立て (slot) */
-.dbx-cards { display: flex; flex-direction: column; gap: 10px; }
-.dbx-card { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(260px, 2.6fr) minmax(0, 1.3fr); gap: 0 20px; align-items: start; padding: 12px 14px; border: 1px solid var(--surface0); border-radius: 8px; background: var(--mantle); }
+/* folder cards (プロジェクト tab, U2): name · band · counts | task rows | ルーターの見立て (slot) */
+.dbx-card { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(260px, 2.6fr) minmax(0, 1.3fr); gap: 0 20px; align-items: start; padding: var(--s3) var(--s3); border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface); }
 .dbx-card:has(> .dbx-outlook.empty) { grid-template-columns: minmax(170px, 1fr) minmax(260px, 3.9fr); }
-.dbx-card.drop { border-color: var(--blue); }
+.dbx-card.drop { border-color: var(--run); }
 .dbx-outlook.empty { display: none; }
-.dbx-outlook-t { color: var(--overlay); font-size: 11.5px; font-weight: 600; }
-.dbx-outlook-b { color: var(--subtext); font-size: 12.5px; line-height: 1.5; margin-top: 2px; }
+.dbx-outlook-t { color: var(--faint); font-size: var(--fs-s); font-weight: 600; }
+.dbx-outlook-b { color: var(--muted); font-size: var(--fs-s); line-height: var(--lh); margin-top: var(--s1); }
 @media (max-width: 1300px) {
   .dbx-card { grid-template-columns: minmax(150px, 1fr) minmax(220px, 2.6fr); }
-  .dbx-outlook { grid-column: 1 / -1; margin-top: 8px; }
+  .dbx-outlook { grid-column: 1 / -1; margin-top: var(--s2); }
 }
 /* MP4 9: a narrow page (800px window): name / counts on top, the task rows under them at the card's full width */
 @container dbx-body (max-width: 680px) {
   .dbx-card, .dbx-card:has(> .dbx-outlook.empty) { grid-template-columns: minmax(0, 1fr); }
-  .dbx-card > .dbx-fcell { margin-bottom: 10px; }
+  .dbx-card > .dbx-fcell { margin-bottom: var(--s2); }
   .dbx-card > .dbx-qcell, .dbx-card > .dbx-outlook { grid-column: 1; }
 }
-.dbx-pband { display: flex; height: 4px; margin: 6px 0 0 16px; border-radius: 2px; overflow: hidden; background: var(--surface0); max-width: 220px; }
-.dbx-pband .seg.done { background: var(--green); }
-.dbx-pband .seg.active { background: var(--blue); }
-.dbx-pband .seg.pending { background: var(--surface1); }
-.dbx-pband .seg.failed { background: var(--red); }
+/* HOME-ROLES (docs/ux-journey.md §8): ホームの「いま」 = 要対応 → 動いている作業 → ルーターからの知らせ → プロジェクトの表 */
+.hm-sec { display: flex; flex-direction: column; gap: var(--s2); margin-bottom: var(--s6); }
+.hm-sec-h { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; font-size: var(--fs-s); font-weight: 700; letter-spacing: .06em; color: var(--muted); padding-bottom: var(--s1); border-bottom: 1px solid var(--line); }
+.hm-sec-t { flex: none; }
+.hm-sec-note { font-weight: 400; letter-spacing: 0; color: var(--run); }
+.hm-sec-more { margin-left: auto; font-weight: 400; letter-spacing: 0; }
+.hm-sec > .dbx-empty, .hm-empty { padding: var(--s2) 0; }
+.hm-runs, .hm-log { display: flex; flex-direction: column; gap: 0; }
+.hm-run { display: grid; grid-template-columns: auto minmax(60px, 140px) minmax(0, 1fr) auto auto; align-items: center; gap: var(--s3); width: 100%; box-sizing: border-box; min-height: 32px; padding: var(--s1) var(--s2); font: inherit; font-size: var(--fs-m); color: var(--text); background: none; border: 0; border-radius: var(--r1); text-align: left; cursor: pointer; }
+.hm-run:hover, .hm-prow:hover { background: var(--hover); }
+.hm-run > .dbx-dot { margin-right: 0; }
+.hm-run-folder { color: var(--muted); font-size: var(--fs-s); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-run-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-run-st { font-size: var(--fs-s); color: var(--muted); white-space: nowrap; }
+.hm-run-st.k-busy { color: var(--run); }
+.hm-run-st.k-input { color: var(--you); font-weight: 600; }
+.hm-run-st.k-error { color: var(--risk); }
+.hm-ptable { display: flex; flex-direction: column; }
+.hm-phead, .hm-prow { display: grid; grid-template-columns: minmax(120px, 2fr) minmax(70px, 1.2fr) repeat(3, minmax(44px, .6fr)) minmax(56px, .8fr) minmax(64px, 1fr); align-items: center; gap: var(--s2); padding: var(--s1) var(--s2); }
+.hm-phead { font-size: var(--fs-xs); color: var(--faint); }
+.hm-prow { width: 100%; box-sizing: border-box; min-height: 32px; font: inherit; font-size: var(--fs-m); color: var(--text); background: none; border: 0; border-radius: var(--r1); text-align: left; cursor: pointer; }
+.hm-prow.closed { color: var(--muted); }
+.hm-prow.drop { box-shadow: inset 0 2px 0 var(--run); }
+.hm-pname { display: flex; align-items: center; min-width: 0; font-weight: 600; }
+.hm-pname-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-pstate { font-size: var(--fs-s); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-pn { font-variant-numeric: tabular-nums; color: var(--muted); }
+.hm-phead > span, .hm-plast { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-prow.k-input .dbx-dot { background: var(--you); }
+.hm-prow.k-error .dbx-dot { background: var(--risk); }
+.hm-prow.k-busy .dbx-dot { background: var(--run); }
+.hm-prow.k-done .dbx-dot { background: var(--done); }
+.hm-prow.k-idle .dbx-dot { background: var(--faint); }
+@container dbx-body (max-width: 680px) {
+  .hm-phead, .hm-prow { grid-template-columns: minmax(0, 2fr) minmax(0, 1.2fr) repeat(2, minmax(36px, .6fr)); }
+  .hm-phead > :nth-child(n+5), .hm-prow > :nth-child(n+5) { display: none; }
+  .hm-run { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .hm-run-folder, .hm-run-at { display: none; }
+}
+/* HOME-ROLES: one project's own page (projBody): the head, then its sections at the page's full width */
+.pj-page { display: flex; flex-direction: column; gap: var(--s5); }
+.pj-head { display: flex; flex-direction: column; gap: var(--s2); padding-bottom: var(--s3); border-bottom: 1px solid var(--line); }
+.pj-top { display: flex; align-items: center; gap: var(--s3); min-width: 0; }
+.pj-top > .dbx-dot { margin-right: 0; width: 10px; height: 10px; }
+.pj-title { flex: none; margin: 0; font-size: var(--fs-xl); font-weight: 700; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-path { flex: 1; min-width: 0; font-size: var(--fs-s); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-open { flex: none; }
+.pj-facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1) var(--s4); min-width: 0; }
+.pj-facts > .dbx-pband { margin: 0; width: 220px; flex: none; }
+.pj-page.k-input .pj-top > .dbx-dot { background: var(--you); }
+.pj-page.k-error .pj-top > .dbx-dot { background: var(--risk); }
+.pj-page.k-busy .pj-top > .dbx-dot { background: var(--run); }
+.pj-page.k-done .pj-top > .dbx-dot { background: var(--done); }
+.pj-page.k-idle .pj-top > .dbx-dot { background: var(--faint); }
+.pj-sec { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.pj-sec > .dbx-outlook { padding: var(--s3); border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface); }
+.dbx-pband { display: flex; height: 4px; margin: var(--s1) 0 0 var(--s4); border-radius: 2px; overflow: hidden; background: var(--hover); max-width: 220px; }
+.dbx-pband .seg.done { background: var(--done); }
+.dbx-pband .seg.active { background: var(--run); }
+.dbx-pband .seg.pending { background: var(--strong); }
+.dbx-pband .seg.failed { background: var(--risk); }
 .dbx-folder.closed { opacity: .62; }
 .dbx-folder.closed:hover { opacity: 1; }
-.dbx-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--surface1); margin-right: 8px; flex: none; transform: translateY(-1px); }
-.k-input > .dbx-fcell .dbx-dot, .dbx-sess.k-input .dbx-dot { background: var(--yellow); }
-.k-error > .dbx-fcell .dbx-dot, .dbx-sess.k-error .dbx-dot { background: var(--red); }
-.k-busy > .dbx-fcell .dbx-dot, .dbx-sess.k-busy .dbx-dot { background: var(--blue); } /* UX6 §5.5.6: no breathing dot, the colour says 動作中 */
-.k-done > .dbx-fcell .dbx-dot, .dbx-sess.k-done .dbx-dot { background: var(--green); }
-.k-idle > .dbx-fcell .dbx-dot, .dbx-sess.k-idle .dbx-dot { background: var(--overlay); }
+.dbx-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--strong); margin-right: var(--s2); flex: none; transform: translateY(-1px); }
+.k-input > .dbx-fcell .dbx-dot, .dbx-sess.k-input .dbx-dot { background: var(--you); }
+.k-error > .dbx-fcell .dbx-dot, .dbx-sess.k-error .dbx-dot { background: var(--risk); }
+.k-busy > .dbx-fcell .dbx-dot, .dbx-sess.k-busy .dbx-dot { background: var(--run); } /* UX6 §5.5.6: no breathing dot, the colour says 動作中 */
+.k-done > .dbx-fcell .dbx-dot, .dbx-sess.k-done .dbx-dot { background: var(--done); }
+.k-idle > .dbx-fcell .dbx-dot, .dbx-sess.k-idle .dbx-dot { background: var(--faint); }
 .dbx-fcell { min-width: 0; }
-.dbx-fname { font: inherit; font-size: 14px; font-weight: 600; color: var(--text); background: none; border: 0; padding: 0; cursor: pointer; display: flex; align-items: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dbx-fname:hover { color: var(--blue); }
-.dbx-fmeta { color: var(--overlay); font-size: 11.5px; margin: 2px 0 0 16px; }
+.dbx-fname { font: inherit; font-size: var(--fs-l); font-weight: 600; color: var(--text); background: none; border: 0; padding: 0; cursor: pointer; display: flex; align-items: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-fname:hover { color: var(--run); }
+.dbx-fmeta { color: var(--faint); font-size: var(--fs-s); margin: var(--s1) 0 0 var(--s4); }
 /* UIUX U8: 「すべて完了」 / 「見直し中」 on a folder card */
-.dbx-alldone { display: inline-block; margin: 4px 0 0 16px; padding: 1px 8px; border-radius: 9px; font-size: 11.5px; color: var(--green, #40a02b); border: 1px solid currentColor; }
-.dbx-alldone.reviewing { color: var(--blue, #1e66f5); }
-.dbx-alldone.stopped { color: var(--peach, #fe640b); }
+.dbx-alldone { display: inline-block; margin: var(--s1) 0 0 var(--s4); padding: 0 var(--s2); border-radius: var(--r2); font-size: var(--fs-s); color: var(--done); border: 1px solid currentColor; }
+.dbx-alldone.reviewing { color: var(--run); }
+.dbx-alldone.stopped { color: var(--you); }
 
-.dbx-qcell { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.dbx-qcell { min-width: 0; display: flex; flex-direction: column; gap: var(--s1); }
 .dbx-slabel { font: inherit; color: var(--text); background: none; border: 0; padding: 0; cursor: pointer; display: flex; align-items: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dbx-slabel:hover { color: var(--blue); }
-.dbx-sstate { font-size: 11.5px; color: var(--subtext); flex: none; }
-.dbx-sess.k-input .dbx-sstate { color: var(--yellow); }
-.dbx-sess.k-error .dbx-sstate { color: var(--red); }
-.dbx-sess.k-busy .dbx-sstate { color: var(--blue); }
-.dbx-sess.k-done .dbx-sstate { color: var(--green); }
+.dbx-slabel:hover { color: var(--run); }
+.dbx-sstate { font-size: var(--fs-s); color: var(--muted); flex: none; }
+.dbx-sess.k-input .dbx-sstate { color: var(--you); }
+.dbx-sess.k-error .dbx-sstate { color: var(--risk); }
+.dbx-sess.k-busy .dbx-sstate { color: var(--run); }
+.dbx-sess.k-done .dbx-sstate { color: var(--done); }
 /* 完了 (PROGRESS 35): the app stopped its claude after 作業完了; 休止中 (31) */
-.dbx-sess.k-fin .dbx-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--green); }
-.dbx-sess.k-fin .dbx-sstate { color: var(--green); }
+.dbx-sess.k-fin .dbx-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--done); }
+.dbx-sess.k-fin .dbx-sstate { color: var(--done); }
 .dbx-sess.k-fin .dbx-slabel { opacity: .7; }
-.dbx-sess.k-rest .dbx-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--overlay); }
+.dbx-sess.k-rest .dbx-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint); }
 .dbx-sess .dbx-time { margin-left: auto; }
 .dbx-qacts .dbx-mem { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.dbx-stext { color: var(--subtext); font-size: 12px; margin-left: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-stext { color: var(--muted); font-size: var(--fs-s); margin-left: var(--s4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dbx-sess.k-input .dbx-stext { color: var(--text); white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.dbx-optn { color: var(--overlay); margin-right: 4px; }
+.dbx-optn { color: var(--faint); margin-right: var(--s1); }
 
 /* task rows in a card: 「AT-3」 見出し 状態 (marks, 取り消す / 会話を開く on hover). With a session the row is .dbx-sess. */
 .dbx-task { min-width: 0; }
 /* MP4 18: one grid per row with fixed state / model / action columns, so they line up across the rows of a card:
    [place] [AT-3] title [marks] state model [actions] (dashboard.js taskRow puts the marks / actions in one cell each) */
-.dbx-q { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto 88px 104px 108px; column-gap: 8px; align-items: baseline; min-width: 0; font-size: 12.5px; color: var(--subtext); }
+.dbx-q { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto 88px 104px 108px; column-gap: var(--s2); align-items: baseline; min-width: 0; font-size: var(--fs-s); color: var(--muted); }
 .dbx-q > .dbx-qpos { grid-column: 1; }
 .dbx-q > .dbx-qmark { grid-column: 2; }
 .dbx-q > .dbx-qtext { grid-column: 3; justify-self: start; max-width: 100%; }
-.dbx-q > .dbx-qmarks { grid-column: 4; display: flex; gap: 8px; align-items: baseline; min-width: 0; max-width: 16em; overflow: hidden; }
+.dbx-q > .dbx-qmarks { grid-column: 4; display: flex; gap: var(--s2); align-items: baseline; min-width: 0; max-width: 16em; overflow: hidden; }
 .dbx-q > .dbx-qst { grid-column: 5; margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
 .dbx-q > .dbx-qmodel { grid-column: 6; margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
-.dbx-q > .dbx-qacts { grid-column: 7; display: flex; gap: 6px; align-items: baseline; justify-content: flex-end; min-width: 0; white-space: nowrap; }
+.dbx-q > .dbx-qacts { grid-column: 7; display: flex; gap: var(--s1); align-items: baseline; justify-content: flex-end; min-width: 0; white-space: nowrap; }
 .dbx-qmarks > .dbx-qwhy { max-width: none; min-width: 0; flex: 0 1 auto; }
 /* narrow rows: the model under the title (same column for every row), the state and actions stay on the line */
 @container dbx-body (max-width: 680px) {
@@ -168,364 +306,407 @@ button.dbx-chip:hover, .dbx-chip.on { border-color: var(--blue); color: var(--te
   .dbx-q > .dbx-qacts { grid-column: 6; }
   .dbx-q > .dbx-qmarks { max-width: 9em; }
 }
-.dbx-qmark { flex: none; min-width: 14px; color: var(--overlay); font-variant-numeric: tabular-nums; font-size: 11.5px; white-space: nowrap; }
+.dbx-qmark { flex: none; min-width: 14px; color: var(--faint); font-variant-numeric: tabular-nums; font-size: var(--fs-s); white-space: nowrap; }
 .dbx-qtext { font: inherit; color: inherit; background: none; border: 0; padding: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
 button.dbx-qtext { cursor: pointer; }
-button.dbx-qtext:hover { color: var(--blue); }
-/* AT-6: model / effort of a task's session (small); the PMO's own choice stands out */
-.dbx-qmodel { flex: none; font-size: 10px; color: var(--overlay); opacity: 0.75; white-space: nowrap; margin-left: 6px; }
-.dbx-qmodel.own { color: var(--yellow, var(--overlay)); opacity: 1; }
-.dbx-modelin { width: 16em; font: inherit; font-size: 12px; color: var(--text); background: transparent; border: 1px solid var(--surface1, #444); border-radius: 4px; padding: 1px 6px; }
-.dbx-effortsel { font: inherit; font-size: 12px; margin-left: 6px; }
-.dbx-modelerr { color: var(--red); font-size: 11px; }
-.dbx-qst { flex: none; margin-left: auto; font-size: 11px; color: var(--overlay); white-space: nowrap; }
-.dbx-qst.warn { color: var(--peach); }
+button.dbx-qtext:hover { color: var(--run); }
+/* AT-6: model / effort of a task's session (small); the ルーター's own choice stands out */
+.dbx-qmodel { flex: none; font-size: var(--fs-xs); color: var(--faint); opacity: 0.75; white-space: nowrap; margin-left: var(--s1); }
+.dbx-qmodel.own { color: var(--you); opacity: 1; }
+.dbx-modelin { width: 16em; font: inherit; font-size: var(--fs-s); color: var(--text); background: transparent; border: 1px solid var(--strong); border-radius: var(--r1); padding: 0 var(--s1); }
+.dbx-effortsel { font: inherit; font-size: var(--fs-s); margin-left: var(--s1); }
+.dbx-modelerr { color: var(--risk); font-size: var(--fs-xs); }
+.dbx-qst { flex: none; margin-left: auto; font-size: var(--fs-xs); color: var(--faint); white-space: nowrap; }
+.dbx-qst.warn { color: var(--you); }
 .dbx-q.st-active { color: var(--text); }
-.dbx-q.st-active .dbx-qst { color: var(--blue); }
-.dbx-q.st-done .dbx-qst { color: var(--green); }
-.dbx-q.st-done { color: var(--overlay); }
-.dbx-q.st-failed, .dbx-q.st-failed .dbx-qmark, .dbx-q.st-failed .dbx-qst { color: var(--red); }
+.dbx-q.st-active .dbx-qst { color: var(--run); }
+.dbx-q.st-done .dbx-qst { color: var(--done); }
+.dbx-q.st-done { color: var(--faint); }
+.dbx-q.st-failed, .dbx-q.st-failed .dbx-qmark, .dbx-q.st-failed .dbx-qst { color: var(--risk); }
 .dbx-sess .dbx-q { color: var(--text); }
-.dbx-sess.k-fin .dbx-q { color: var(--overlay); }
+.dbx-sess.k-fin .dbx-q { color: var(--faint); }
 /* why a routed item does not start yet / what the running one waits for (sched:plan, src/main/sched.js) */
-.dbx-qwhy { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--overlay); }
-.dbx-q .dbx-qdrop, .dbx-q .dbx-qopen { flex: none; font-size: 11px; opacity: 0; }
-.dbx-q:hover .dbx-qdrop, .dbx-q .dbx-qdrop:focus-visible, .dbx-q:hover .dbx-qopen, .dbx-q .dbx-qopen:focus-visible { opacity: 1; }
-.dbx-task.dbx-sess .dbx-stext, .dbx-task.dbx-sess .dbx-turnlink, .dbx-task.dbx-sess .dbx-swait, .dbx-task .dbx-swait-wrap { margin-left: 22px; }
-/* PMO stale mark ("止まって 2日"): quiet text, no badge (dashboard:stale) */
-.dbx-stale { flex: none; font-size: 11px; color: var(--peach); opacity: 0.8; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.dbx-stale-more { color: var(--peach); opacity: 0.7; }
+.dbx-qwhy { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--faint); }
+.dbx-q .dbx-qdrop, .dbx-q .dbx-qopen { flex: none; font-size: var(--fs-xs); }
+.dbx-task.dbx-sess .dbx-stext, .dbx-task.dbx-sess .dbx-turnlink, .dbx-task.dbx-sess .dbx-swait, .dbx-task .dbx-swait-wrap { margin-left: 20px; }
+/* ルーター stale mark ("止まって 2日"): quiet text, no badge (dashboard:stale) */
+.dbx-stale { flex: none; font-size: var(--fs-xs); color: var(--you); opacity: 0.8; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dbx-stale-more { color: var(--you); opacity: 0.7; }
 
 /* pre-answered QA (qa:list): a quiet "QA 3問" mark on the line, the table opens under the row */
-.dbx-qamark { flex: none; font: inherit; font-size: 11px; background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.dbx-qamark.open { color: var(--peach); }
-.dbx-qamark.answered { color: var(--green); opacity: 0.8; }
+.dbx-qamark { flex: none; font: inherit; font-size: var(--fs-xs); background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dbx-qamark.open { color: var(--you); }
+.dbx-qamark.answered { color: var(--done); opacity: 0.8; }
 .dbx-qamark:hover, .dbx-qamark.on { text-decoration: underline; opacity: 1; }
-.dbx-qa { grid-column: 1 / -1; flex: 1 0 100%; box-sizing: border-box; min-width: 0; margin: 10px 0 2px; padding-left: 16px; border-left: 2px solid var(--surface0); }
-.dbx-qa-head { display: flex; gap: 14px; align-items: baseline; min-width: 0; margin-bottom: 4px; }
-.dbx-qa-title { font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.dbx-qa-table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }
-.dbx-qa-table th { text-align: left; font-weight: normal; font-size: 11px; color: var(--overlay); padding: 4px 12px 4px 0; border-bottom: 1px solid var(--surface0); }
+.dbx-qa { grid-column: 1 / -1; flex: 1 0 100%; box-sizing: border-box; min-width: 0; margin: var(--s2) 0 var(--s1); padding-left: var(--s4); border-left: 2px solid var(--line); }
+.dbx-qa-head { display: flex; gap: var(--s3); align-items: baseline; min-width: 0; margin-bottom: var(--s1); }
+.dbx-qa-title { font-size: var(--fs-s); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dbx-qa-table { width: 100%; border-collapse: collapse; font-size: var(--fs-s); table-layout: fixed; }
+.dbx-qa-table th { text-align: left; font-weight: normal; font-size: var(--fs-xs); color: var(--faint); padding: var(--s1) var(--s3) var(--s1) 0; border-bottom: 1px solid var(--line); }
 .dbx-qa-table th:nth-child(1) { width: 16%; }
 .dbx-qa-table th:nth-child(2) { width: 26%; }
 .dbx-qa-table th:nth-child(3) { width: 26%; }
-.dbx-qa-table td { vertical-align: top; padding: 6px 12px 6px 0; border-bottom: 1px solid var(--surface0); line-height: 1.5; word-break: break-word; }
+.dbx-qa-table td { vertical-align: top; padding: var(--s1) var(--s3) var(--s1) 0; border-bottom: 1px solid var(--line); line-height: var(--lh); word-break: break-word; }
 .dbx-qa-topic { color: var(--text); }
-.dbx-qa-hyp, .dbx-qa-q { color: var(--subtext); }
+.dbx-qa-hyp, .dbx-qa-q { color: var(--muted); }
 .dbx-qa-input {
   display: block; width: 100%; box-sizing: border-box; resize: none; field-sizing: content; max-height: 160px;
-  font: inherit; font-size: 12.5px; line-height: 1.5; color: var(--text);
-  background: transparent; border: 0; border-bottom: 1px solid var(--surface1); padding: 0 0 1px; outline: none;
+  font: inherit; font-size: var(--fs-s); line-height: var(--lh); color: var(--text);
+  background: transparent; border: 0; border-bottom: 1px solid var(--strong); padding: 0 0 0; outline: none;
 }
-.dbx-qa-input:focus { border-bottom-color: var(--blue); }
-.dbx-qa-input::placeholder { color: var(--overlay); }
-.dbx-qa-bar { display: flex; gap: 14px; align-items: baseline; margin-top: 6px; font-size: 12px; }
-.dbx-qa-save { font: inherit; font-size: 12px; font-weight: 600; color: var(--blue); background: none; border: 0; padding: 0; cursor: pointer; }
+.dbx-qa-input:focus { border-bottom-color: var(--run); }
+.dbx-qa-input::placeholder { color: var(--faint); }
+.dbx-qa-bar { display: flex; gap: var(--s3); align-items: baseline; margin-top: var(--s1); font-size: var(--fs-s); }
+.dbx-qa-save { font: inherit; font-size: var(--fs-s); font-weight: 600; color: var(--run); background: none; border: 0; padding: 0; cursor: pointer; }
 .dbx-qa-save:hover { text-decoration: underline; }
-.dbx-qa-note { color: var(--red); font-size: 11.5px; }
+.dbx-qa-note { color: var(--risk); font-size: var(--fs-s); }
 
 /* request rows (依頼 tab, あなたの番): state · 依頼-N · date · → folder AT-n / title / flow; ⋯ menu */
-.dbx-inbox { display: flex; flex-wrap: wrap; gap: 0 14px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--surface0); }
-.dbx-ist { flex: none; width: 64px; font-size: 11.5px; color: var(--subtext); }
-.dbx-inbox.st-new .dbx-ist { color: var(--peach); }
-.dbx-inbox.st-asking .dbx-ist { color: var(--yellow); }
-.dbx-inbox.st-routed .dbx-ist { color: var(--blue); }
-.dbx-inbox.st-done .dbx-ist { color: var(--green); }
-.dbx-inbox.st-failed .dbx-ist { color: var(--red); }
+.dbx-inbox { display: flex; flex-wrap: wrap; gap: 0 var(--s3); align-items: baseline; padding: var(--s2) 0; border-bottom: 1px solid var(--line); }
+.dbx-ist { flex: none; width: 64px; font-size: var(--fs-s); color: var(--muted); }
+.dbx-inbox.st-new .dbx-ist { color: var(--you); }
+.dbx-inbox.st-asking .dbx-ist { color: var(--you); }
+.dbx-inbox.st-routed .dbx-ist { color: var(--run); }
+.dbx-inbox.st-done .dbx-ist { color: var(--done); }
+.dbx-inbox.st-failed .dbx-ist { color: var(--risk); }
 .dbx-imid { flex: 1; min-width: 0; }
-.dbx-ino { color: var(--overlay); font-size: 11px; margin-right: 8px; font-variant-numeric: tabular-nums; }
-.dbx-idate { flex: none; color: var(--overlay); font-size: 11px; font-variant-numeric: tabular-nums; }
-.dbx-inote { color: var(--overlay); font-size: 11.5px; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dbx-ititle { line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dbx-iflow { font-size: 11.5px; color: var(--overlay); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dbx-iflow-t.st-active { color: var(--blue); font-weight: 600; }
-.dbx-iflow-t.st-done { color: var(--green); }
-.dbx-iflow-t.st-failed { color: var(--red); }
-.dbx-pmo { flex: none; font-size: 10.5px; letter-spacing: 0.04em; color: var(--mauve); border: 1px solid var(--surface1); border-radius: 4px; padding: 0 4px; cursor: default; }
-.dbx-pmo.dbx-app { color: var(--subtext0); }
-.dbx-pmo.dbx-ses { color: var(--teal, var(--subtext0)); background: none; font: inherit; font-size: 10.5px; cursor: pointer; } /* U7: a session's proposal, click = that session */
-.dbx-pmo.dbx-ses:hover { border-color: var(--teal, var(--subtext0)); }
+.dbx-ino { color: var(--faint); font-size: var(--fs-xs); margin-right: var(--s2); font-variant-numeric: tabular-nums; }
+.dbx-idate { flex: none; color: var(--faint); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.dbx-inote { color: var(--faint); font-size: var(--fs-s); margin-top: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-ititle { line-height: var(--lh); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-iflow { font-size: var(--fs-s); color: var(--faint); margin-top: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-iflow-t.st-active { color: var(--run); font-weight: 600; }
+.dbx-iflow-t.st-done { color: var(--done); }
+.dbx-iflow-t.st-failed { color: var(--risk); }
+.dbx-pmo { flex: none; font-size: var(--fs-xs); letter-spacing: 0.04em; color: var(--focus); border: 1px solid var(--strong); border-radius: var(--r1); padding: 0 var(--s1); cursor: default; }
+.dbx-pmo.dbx-app { color: var(--muted); }
+.dbx-pmo.dbx-ses { color: var(--muted); background: none; font: inherit; font-size: var(--fs-xs); cursor: pointer; } /* U7: a session's proposal, click = that session */
+.dbx-pmo.dbx-ses:hover { border-color: var(--muted); }
 .dbx-inbox.st-hold { opacity: 0.6; }
-.dbx-inbox.st-hold .dbx-ist { color: var(--overlay); }
-.dbx-inbox.st-done, .dbx-inbox.st-dropped { color: var(--subtext); }
+.dbx-inbox.st-hold .dbx-ist { color: var(--faint); }
+.dbx-inbox.st-done, .dbx-inbox.st-dropped { color: var(--muted); }
 /* MP4 21: fixed cells (folder | date | marks | ⋯), empty ones kept (dashboard.js inboxRow), so the dates line up */
-.dbx-iside { flex: none; display: grid; grid-template-columns: 150px 66px 112px 20px; column-gap: 10px; align-items: baseline; }
+.dbx-iside { flex: none; display: grid; grid-template-columns: 150px 66px 112px 20px; column-gap: var(--s2); align-items: baseline; }
 .dbx-iside > .dbx-idate { white-space: nowrap; }
-.dbx-imarks { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; min-width: 0; }
-.dbx-ifolder { color: var(--blue); font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-imarks { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s2); align-items: baseline; min-width: 0; }
+.dbx-ifolder { color: var(--run); font-size: var(--fs-xs); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dbx-iside > .dbx-imenu { justify-self: end; }
 @container dbx-body (max-width: 680px) {
-  .dbx-inbox { gap: 0 10px; }
+  .dbx-inbox { gap: 0 var(--s2); }
   .dbx-ist { width: 52px; }
-  .dbx-iside { grid-template-columns: 76px 64px 84px 18px; column-gap: 6px; }
+  .dbx-iside { grid-template-columns: 76px 64px 84px 18px; column-gap: var(--s1); }
 }
-.dbx-imenu { font-size: 14px; line-height: 1; padding: 0 4px; }
+.dbx-imenu { font-size: var(--fs-l); line-height: 1; padding: 0 var(--s1); }
 .dbx-imenu.on { color: var(--text); }
-.dbx-imenu-list { flex: 1 0 100%; display: flex; gap: 16px; justify-content: flex-end; padding: 4px 0 2px; }
+.dbx-imenu-list { flex: 1 0 100%; display: flex; gap: var(--s4); justify-content: flex-end; padding: var(--s1) 0 var(--s1); }
 /* 依頼 tab: 対応中 / 対応履歴, folded status groups */
-.dbx-reqsw { display: flex; gap: 6px; margin-top: 10px; }
-.dbx-group { margin-top: 10px; }
-.dbx-group-head { font: inherit; font-size: 12px; color: var(--subtext); background: none; border: 0; padding: 2px 0; cursor: pointer; display: inline-flex; align-items: baseline; gap: 6px; }
+.dbx-reqsw { display: flex; gap: var(--s1); margin-top: var(--s2); }
+.dbx-group { margin-top: var(--s2); }
+.dbx-group-head { font: inherit; font-size: var(--fs-s); color: var(--muted); background: none; border: 0; padding: var(--s1) 0; cursor: pointer; display: inline-flex; align-items: baseline; gap: var(--s1); }
 .dbx-group-head:hover { color: var(--text); }
-.dbx-caret { width: 10px; color: var(--overlay); }
-.dbx-group-n { color: var(--overlay); font-variant-numeric: tabular-nums; }
-.dbx-group.k-hot > .dbx-group-head { color: var(--yellow); }
-.dbx-group.k-bad > .dbx-group-head { color: var(--red); }
-.dbx-more, .dbx-past-btn { display: inline-block; margin-top: 6px; }
-.dbx-past-btn { margin-top: 12px; }
+.dbx-caret { width: 10px; color: var(--faint); }
+.dbx-group-n { color: var(--faint); font-variant-numeric: tabular-nums; }
+.dbx-group.k-hot > .dbx-group-head { color: var(--you); }
+.dbx-group.k-bad > .dbx-group-head { color: var(--risk); }
+.dbx-more, .dbx-past-btn { display: inline-block; margin-top: var(--s1); }
+.dbx-past-btn { margin-top: var(--s3); }
 /* folder progress (PROGRESS.md, progress-view.js): one quiet line under the folder name, the table under the row */
-.pgv-line { display: flex; gap: 8px; align-items: baseline; max-width: 100%; min-width: 0; margin: 3px 0 0 16px; padding: 0; font: inherit; font-size: 11.5px; color: var(--overlay); background: none; border: 0; cursor: pointer; text-align: left; }
+.pgv-line { display: flex; gap: var(--s2); align-items: baseline; max-width: 100%; min-width: 0; margin: var(--s1) 0 0 var(--s4); padding: 0; font: inherit; font-size: var(--fs-s); color: var(--faint); background: none; border: 0; cursor: pointer; text-align: left; }
 .pgv-line:hover .pgv-count, .pgv-line.on .pgv-count { text-decoration: underline; }
 .pgv-count { flex: none; white-space: nowrap; }
-.pgv-count b { font-weight: 600; color: var(--subtext); font-variant-numeric: tabular-nums; }
-.pgv-doing { color: var(--blue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.pgv-wait { color: var(--yellow); white-space: nowrap; }
-.pgv-alldone { color: var(--green); white-space: nowrap; }
-.pgv-panel { grid-column: 1 / -1; box-sizing: border-box; min-width: 0; margin: 10px 0 2px; padding-left: 16px; border-left: 2px solid var(--surface0); }
-.pgv-table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }
-.pgv-table th { text-align: left; font-weight: normal; font-size: 11px; color: var(--overlay); padding: 4px 12px 4px 0; border-bottom: 1px solid var(--surface0); }
+.pgv-count b { font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pgv-doing { color: var(--run); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pgv-wait { color: var(--you); white-space: nowrap; }
+.pgv-alldone { color: var(--done); white-space: nowrap; }
+.pgv-panel { grid-column: 1 / -1; box-sizing: border-box; min-width: 0; margin: var(--s2) 0 var(--s1); padding-left: var(--s4); border-left: 2px solid var(--line); }
+.pgv-table { width: 100%; border-collapse: collapse; font-size: var(--fs-s); table-layout: fixed; }
+.pgv-table th { text-align: left; font-weight: normal; font-size: var(--fs-xs); color: var(--faint); padding: var(--s1) var(--s3) var(--s1) 0; border-bottom: 1px solid var(--line); }
 .pgv-table th:nth-child(1) { width: 32px; }
 .pgv-table th:nth-child(2) { width: 34%; }
 .pgv-table th:nth-child(3) { width: 72px; }
 .pgv-table th:nth-child(5) { width: 84px; }
-.pgv-table td { vertical-align: top; padding: 5px 12px 5px 0; border-bottom: 1px solid var(--surface0); line-height: 1.5; word-break: break-word; color: var(--subtext); }
+.pgv-table td { vertical-align: top; padding: var(--s1) var(--s3) var(--s1) 0; border-bottom: 1px solid var(--line); line-height: var(--lh); word-break: break-word; color: var(--muted); }
 .pgv-table td.pgv-item { color: var(--text); }
-.pgv-n, .pgv-upd { font-variant-numeric: tabular-nums; color: var(--overlay) !important; }
-.pgv-r-done .pgv-state { color: var(--green); }
-.pgv-table .pgv-r-done td.pgv-item { color: var(--subtext); }
-.pgv-r-doing .pgv-state { color: var(--blue); }
-.pgv-r-wait .pgv-state { color: var(--yellow); }
-.pgv-r-hold .pgv-state, .pgv-r-todo .pgv-state, .pgv-r-other .pgv-state { color: var(--overlay); }
-.pgv-foot { margin-top: 4px; font-size: 11px; color: var(--overlay); }
+.pgv-n, .pgv-upd { font-variant-numeric: tabular-nums; color: var(--faint) !important; }
+.pgv-r-done .pgv-state { color: var(--done); }
+.pgv-table .pgv-r-done td.pgv-item { color: var(--muted); }
+.pgv-r-doing .pgv-state { color: var(--run); }
+.pgv-r-wait .pgv-state { color: var(--you); }
+.pgv-r-hold .pgv-state, .pgv-r-todo .pgv-state, .pgv-r-other .pgv-state { color: var(--faint); }
+.pgv-foot { margin-top: var(--s1); font-size: var(--fs-xs); color: var(--faint); }
 
 /* Proposal parts (dashboard.js proposalBar / noticeMd): on the あなたの番 cards (U3). */
-.dbx-ntc { padding: 7px 0; border-bottom: 1px solid var(--surface0); }
-.dbx-ntc-md { margin: 4px 0 0 66px; color: var(--subtext); font-size: 12.5px; line-height: 1.55; word-break: break-word; max-height: 18em; overflow: auto; }
+.dbx-ntc { padding: var(--s2) 0; border-bottom: 1px solid var(--line); }
+.dbx-ntc-md { margin: var(--s1) 0 0 66px; color: var(--muted); font-size: var(--fs-s); line-height: var(--lh); word-break: break-word; max-height: 18em; overflow: auto; }
 .dbx-ntc-md > :first-child { margin-top: 0; }
 .dbx-ntc-md > :last-child { margin-bottom: 0; }
-.dbx-ntc-md p, .dbx-ntc-md ul, .dbx-ntc-md ol { margin: 0 0 4px; }
-.dbx-ntc-md ul, .dbx-ntc-md ol { padding-left: 18px; }
-.dbx-ntc-md code { font-family: var(--font-mono); font-size: 12px; color: var(--text); }
-.dbx-ntc-md a { color: var(--blue); }
-.dbx-ntc-bar { display: flex; gap: 14px; align-items: baseline; margin: 6px 0 0 66px; }
+.dbx-ntc-md p, .dbx-ntc-md ul, .dbx-ntc-md ol { margin: 0 0 var(--s1); }
+.dbx-ntc-md ul, .dbx-ntc-md ol { padding-left: var(--s4); }
+.dbx-ntc-md code { font-family: var(--font-mono); font-size: var(--fs-s); color: var(--text); }
+.dbx-ntc-md a { color: var(--run); }
+.dbx-ntc-bar { display: flex; gap: var(--s3); align-items: baseline; margin: var(--s1) 0 0 66px; }
 .dbx-ntc-input {
   flex: 1; min-width: 0; max-width: 520px; resize: none; field-sizing: content; max-height: 8em;
-  font: inherit; font-size: 12.5px; line-height: 1.5; color: var(--text);
-  background: transparent; border: 0; border-bottom: 1px solid var(--surface1); padding: 0 0 1px; outline: none;
+  font: inherit; font-size: var(--fs-s); line-height: var(--lh); color: var(--text);
+  background: transparent; border: 0; border-bottom: 1px solid var(--strong); padding: 0 0 0; outline: none;
 }
-.dbx-ntc-input:focus { border-bottom-color: var(--blue); }
-.dbx-ntc-input::placeholder { color: var(--overlay); }
-.dbx-ntc-go-btn { font: inherit; font-size: 12px; font-weight: 600; color: var(--green); background: none; border: 0; padding: 0; cursor: pointer; flex: none; }
+.dbx-ntc-input:focus { border-bottom-color: var(--run); }
+.dbx-ntc-input::placeholder { color: var(--faint); }
+.dbx-ntc-go-btn { font: inherit; font-size: var(--fs-s); font-weight: 600; color: var(--done); background: none; border: 0; padding: 0; cursor: pointer; flex: none; }
 .dbx-ntc-go-btn:hover { text-decoration: underline; }
 
-/* PMO の記録 (U4, dashboard.js logBody / logRow): time | kind | folder + title, one line each; a click unfolds the detail.
+/* ルーターの記録 (U4, dashboard.js logBody / logRow): time | kind | folder + title, one line each; a click unfolds the detail.
    No read / unread. bad (refused / failed) = a quiet red dot. */
-.dbx-log-kinds { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.dbx-log-kinds { display: flex; flex-wrap: wrap; gap: var(--s1); margin: 0 0 var(--s2); }
 .dbx-log { display: flex; flex-direction: column; }
-.dbx-log-row { border-bottom: 1px solid var(--surface0); }
-.dbx-log-head { display: flex; gap: 12px; align-items: baseline; width: 100%; min-width: 0; padding: 6px 0; font: inherit; color: inherit; background: none; border: 0; text-align: left; }
+.dbx-log-row { border-bottom: 1px solid var(--line); }
+.dbx-log-head { display: flex; gap: var(--s3); align-items: baseline; width: 100%; min-width: 0; padding: var(--s1) 0; font: inherit; color: inherit; background: none; border: 0; text-align: left; }
 button.dbx-log-head { cursor: pointer; }
 button.dbx-log-head:hover .dbx-log-title { color: var(--text); }
 .dbx-log-time { flex: none; width: 72px; font-variant-numeric: tabular-nums; }
-.dbx-log-tag { flex: none; min-width: 4.5em; text-align: center; box-sizing: border-box; font-size: 11px; color: var(--subtext); background: var(--surface0); border-radius: 4px; padding: 0 6px; white-space: nowrap; }
-.dbx-log-row.k-warn .dbx-log-tag { color: var(--peach); }
-.dbx-log-row.k-done .dbx-log-tag { color: var(--green); }
-.dbx-log-title { flex: 0 1 auto; min-width: 0; color: var(--subtext); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-log-tag { flex: none; min-width: 4.5em; text-align: center; box-sizing: border-box; font-size: var(--fs-xs); color: var(--muted); background: var(--hover); border-radius: var(--r1); padding: 0 var(--s1); white-space: nowrap; }
+.dbx-log-row.k-warn .dbx-log-tag { color: var(--you); }
+.dbx-log-row.k-done .dbx-log-tag { color: var(--done); }
+.dbx-log-title { flex: 0 1 auto; min-width: 0; color: var(--muted); font-size: var(--fs-s); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dbx-log-row.open .dbx-log-title { color: var(--text); }
 .dbx-log-go { color: var(--text); cursor: pointer; }
-.dbx-log-go:hover { color: var(--blue); text-decoration: underline; }
-.dbx-log-bad { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--red); opacity: 0.8; align-self: center; }
-.dbx-log-row .dbx-ntc-md { margin: 0 0 8px 84px; }
-.dbx-log-more { margin-top: 8px; align-self: flex-start; }
+.dbx-log-go:hover { color: var(--run); text-decoration: underline; }
+.dbx-log-bad { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--risk); opacity: 0.8; align-self: center; }
+.dbx-log-row .dbx-ntc-md { margin: 0 0 var(--s2) 84px; }
+.dbx-log-more { margin-top: var(--s2); align-self: flex-start; }
 .dbx-settings.in-modal { margin-top: 0; padding: 0; border: 0; background: none; }
 .dbx-flash { animation: dbx-flash 1.6s ease-in-out; }
 @media (prefers-reduced-motion: reduce) { .dbx-flash { animation-duration: 0ms; } }
-@keyframes dbx-flash { 0%, 100% { background: transparent; } 25% { background: rgba(203, 166, 247, 0.14); } }
+@keyframes dbx-flash { 0%, 100% { background: transparent; } 25% { background: color-mix(in srgb, var(--focus) 14%, transparent); } }
 
 /* あなたの番 (U3, dashboard.js turnBody / attnCard): one card per attention item, seq order. Red only when dangerous. */
-.dbx-attns { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
-.dbx-attn { padding: 10px 14px 12px; border: 1px solid var(--surface1); border-radius: 8px; background: var(--mantle); min-width: 0; }
-.dbx-attn.danger { border-color: var(--red); box-shadow: inset 3px 0 0 var(--red); }
-.dbx-attn-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
-.dbx-attn-why { flex: none; font-size: 11.5px; color: var(--subtext); border: 1px solid var(--surface1); border-radius: 4px; padding: 0 6px; cursor: default; }
-.dbx-attn.danger .dbx-attn-why { color: var(--red); border-color: var(--red); }
+.dbx-attns { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s3); }
+.dbx-attn { padding: var(--s2) var(--s3) var(--s3); border: 1px solid var(--strong); border-radius: var(--r1); background: var(--surface); min-width: 0; }
+.dbx-attn.danger { border-color: var(--risk); box-shadow: inset 3px 0 0 var(--risk); }
+.dbx-attn-head { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.dbx-attn-why { flex: none; font-size: var(--fs-s); color: var(--muted); border: 1px solid var(--strong); border-radius: var(--r1); padding: 0 var(--s1); cursor: default; }
+.dbx-attn.danger .dbx-attn-why { color: var(--risk); border-color: var(--risk); }
 .dbx-attn-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.dbx-attn-folder { color: var(--subtext); flex: none; }
+.dbx-attn-folder { color: var(--muted); flex: none; }
 .dbx-attn-age { margin-left: auto; flex: none; }
 .dbx-attn-open { flex: none; }
-.dbx-attn-title { margin: 6px 0 0; font-weight: 600; }
-.dbx-attn-text { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; color: var(--subtext); }
-.dbx-attn-bar { display: flex; gap: 8px; margin-top: 8px; }
-.dbx-attn-dismiss { font: inherit; font-size: 12.5px; color: var(--text); background: var(--surface0); border: 1px solid var(--surface1); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
-.dbx-attn-dismiss:hover { border-color: var(--blue); }
+.dbx-attn-title { margin: var(--s1) 0 0; font-weight: 600; }
+.dbx-attn-text { margin: var(--s1) 0 0; white-space: pre-wrap; word-break: break-word; color: var(--muted); }
+.dbx-attn-bar { display: flex; gap: var(--s2); margin-top: var(--s2); }
+.dbx-attn-dismiss { font: inherit; font-size: var(--fs-s); color: var(--text); background: var(--hover); border: 1px solid var(--strong); border-radius: var(--r1); padding: var(--s1) var(--s2); cursor: pointer; }
+.dbx-attn-dismiss:hover { border-color: var(--run); }
 .dbx-attn .dbx-wrow.in-card { padding: 0; border-top: 0; }
 .dbx-attn .dbx-wrow.in-card.danger { box-shadow: none; padding-left: 0; }
 .dbx-attn .dbx-wrow.in-card > *, .dbx-attn .dbx-wrow.in-card .dbx-wait-ans { margin-left: 0; }
 .dbx-attn .dbx-ntc { padding: 0; border-bottom: 0; }
 .dbx-attn .dbx-ntc-md, .dbx-attn .dbx-ntc-bar { margin-left: 0; }
 .dbx-attn .dbx-ntc-input { max-width: none; } /* MP4 19: 進める / 却下 at the card's right edge */
-.dbx-attn .dbx-qa { margin: 6px 0 0; padding-left: 0; border-left: 0; }
-.dbx-attn-done { margin-top: 12px; }
+.dbx-attn .dbx-qa { margin: var(--s1) 0 0; padding-left: 0; border-left: 0; }
+.dbx-attn-done { margin-top: var(--s3); }
 
 /* セッションの確認 rows (dashboard.js waitRow): inside the あなたの番 cards (in-card) */
-.dbx-wait-done { display: flex; gap: 10px; align-items: baseline; font-size: 12px; color: var(--subtext); padding: 3px 0; min-width: 0; }
-.dbx-wait-ok { color: var(--green); flex: none; }
+.dbx-wait-done { display: flex; gap: var(--s2); align-items: baseline; font-size: var(--fs-s); color: var(--muted); padding: var(--s1) 0; min-width: 0; }
+.dbx-wait-ok { color: var(--done); flex: none; }
 .dbx-wait-q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.dbx-wait-now { color: var(--overlay); flex: none; margin-left: auto; }
-.dbx-wrow { padding: 10px 0 8px; border-top: 1px solid var(--surface0); }
-.dbx-wait-where { color: var(--subtext); flex: none; }
-.dbx-wait-hidden { font-size: 11px; color: var(--mauve); border: 1px solid var(--surface1); border-radius: 4px; padding: 0 5px; flex: none; }
-.dbx-wait-qtext { margin: 6px 0 0 17px; white-space: pre-wrap; word-break: break-word; }
-.dbx-wait-qtabs { margin: 4px 0 0 17px; color: var(--overlay); font-size: 11.5px; }
-.dbx-wait-hint { margin: 4px 0 0 17px; color: var(--overlay); font-size: 12px; }
-.dbx-wait-note { margin: 4px 0 0 17px; font-size: 12px; color: var(--subtext); }
-.dbx-wait-note.bad { color: var(--peach); }
-.dbx-wait-danger { margin: 4px 0 0 17px; font-size: 12px; color: var(--red); font-weight: 600; }
-.dbx-wrow.danger { box-shadow: inset 3px 0 0 var(--red); padding-left: 8px; }
-.dbx-wait-ctx { margin: 4px 0 0 17px; font-size: 12px; color: var(--overlay); }
+.dbx-wait-now { color: var(--faint); flex: none; margin-left: auto; }
+.dbx-wrow { padding: var(--s2) 0 var(--s2); border-top: 1px solid var(--line); }
+.dbx-wait-where { color: var(--muted); flex: none; }
+.dbx-wait-hidden { font-size: var(--fs-xs); color: var(--focus); border: 1px solid var(--strong); border-radius: var(--r1); padding: 0 var(--s1); flex: none; }
+.dbx-wait-qtext { margin: var(--s1) 0 0 var(--s4); white-space: pre-wrap; word-break: break-word; }
+.dbx-wait-qtabs { margin: var(--s1) 0 0 var(--s4); color: var(--faint); font-size: var(--fs-s); }
+.dbx-wait-hint { margin: var(--s1) 0 0 var(--s4); color: var(--faint); font-size: var(--fs-s); }
+.dbx-wait-note { margin: var(--s1) 0 0 var(--s4); font-size: var(--fs-s); color: var(--muted); }
+.dbx-wait-note.bad { color: var(--you); }
+.dbx-wait-danger { margin: var(--s1) 0 0 var(--s4); font-size: var(--fs-s); color: var(--risk); font-weight: 600; }
+.dbx-wrow.danger { box-shadow: inset 3px 0 0 var(--risk); padding-left: var(--s2); }
+.dbx-wait-ctx { margin: var(--s1) 0 0 var(--s4); font-size: var(--fs-s); color: var(--faint); }
 .dbx-wait-ctx summary { cursor: pointer; }
 .dbx-wait-ctx pre, .dbx-wait-screen {
-  margin: 4px 0 0; padding: 6px 8px; max-height: 220px; overflow: auto; background: var(--crust, #11111b); border-radius: 6px;
-  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.4; color: var(--subtext); white-space: pre;
+  margin: var(--s1) 0 0; padding: var(--s1) var(--s2); max-height: 220px; overflow: auto; background: var(--bg); border-radius: var(--r1);
+  font-family: var(--font-mono); font-size: var(--fs-s); line-height: 1.4; color: var(--muted); white-space: pre;
 }
-.dbx-wait-screen { margin-left: 17px; }
-.dbx-wait-ans { margin: 8px 0 0 17px; }
-.dbx-wait-opts, .dbx-wait-checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.dbx-wait-screen { margin-left: var(--s4); }
+.dbx-wait-ans { margin: var(--s2) 0 0 var(--s4); }
+.dbx-wait-opts, .dbx-wait-checks { display: flex; flex-wrap: wrap; gap: var(--s1); }
 .dbx-wait-opt, .dbx-wait-send {
-  font: inherit; font-size: 12.5px; color: var(--text); background: var(--surface0); border: 1px solid var(--surface1); border-radius: 6px;
-  padding: 3px 10px; cursor: pointer; text-align: left; max-width: 100%;
+  font: inherit; font-size: var(--fs-s); color: var(--text); background: var(--hover); border: 1px solid var(--strong); border-radius: var(--r1);
+  padding: var(--s1) var(--s2); cursor: pointer; text-align: left; max-width: 100%;
 }
-.dbx-wait-opt:hover, .dbx-wait-send:hover { border-color: var(--blue); }
+.dbx-wait-opt:hover, .dbx-wait-send:hover { border-color: var(--run); }
 .dbx-wait-opt:disabled, .dbx-wait-send:disabled { opacity: .5; cursor: default; }
-.dbx-wait-opt.danger { color: var(--red); }
-.dbx-wait-opt.danger { border-color: var(--red); }
-.dbx-wait-check { display: inline-flex; align-items: center; gap: 2px; padding: 3px 10px 3px 6px; background: var(--surface0); border-radius: 6px; cursor: pointer; font-size: 12.5px; }
-.dbx-wait-free { display: flex; gap: 6px; margin-top: 6px; align-items: flex-start; }
+.dbx-wait-opt.danger { color: var(--risk); }
+.dbx-wait-opt.danger { border-color: var(--risk); }
+.dbx-wait-check { display: inline-flex; align-items: center; gap: var(--s1); padding: var(--s1) var(--s2) var(--s1) var(--s1); background: var(--hover); border-radius: var(--r1); cursor: pointer; font-size: var(--fs-s); }
+.dbx-wait-free { display: flex; gap: var(--s1); margin-top: var(--s1); align-items: flex-start; }
 .dbx-wait-text {
-  flex: 1; min-width: 0; resize: none; field-sizing: content; max-height: 120px; font: inherit; font-size: 12.5px; color: var(--text);
-  background: var(--base); border: 1px solid var(--surface1); border-radius: 6px; padding: 4px 8px; outline: none;
+  flex: 1; min-width: 0; resize: none; field-sizing: content; max-height: 120px; font: inherit; font-size: var(--fs-s); color: var(--text);
+  background: var(--raised); border: 1px solid var(--strong); border-radius: var(--r1); padding: var(--s1) var(--s2); outline: none;
 }
-.dbx-wait-text:focus { border-color: var(--blue); }
-.dbx-wait-bar { margin-top: 6px; }
-.dbx-wait-send { color: var(--blue); }
-/* update reserved after a release (src/main/autorestart.js): 今すぐ更新 / 後で */
-.dbx-update { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 12px; color: var(--peach); }
+.dbx-wait-text:focus { border-color: var(--run); }
+.dbx-wait-bar { margin-top: var(--s1); }
+.dbx-wait-send { color: var(--run); }
+/* update reserved after a release (src/main/autorestart.js): UX12 draws it inside the 安心の 1 行 — 今すぐ更新 / 後で as links */
+.dbx-update { display: inline-flex; align-items: baseline; gap: var(--s2); color: var(--you); }
 .dbx-update .dbx-upd-text { flex: 0 1 auto; }
-.dbx-update button { font: inherit; font-size: 11.5px; padding: 1px 8px; border-radius: 4px; border: 1px solid var(--surface1); background: var(--surface0); color: var(--text); cursor: pointer; }
-.dbx-update button:hover { border-color: var(--peach); }
-.dbx-update.postponed { color: var(--overlay); }
+.dbx-update .dbx-link { font-size: var(--fs-s); }
+.dbx-update.postponed { color: var(--faint); }
+/* UX12 安心の 1 行 (dashboard.js reassureLine, src/renderer/reassure.js): quiet when nothing stops; coloured only when off */
+.dbx-reassure { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s1) var(--s2); margin-top: var(--s1); font-size: var(--fs-s); color: var(--muted); min-width: 0; }
+.dbx-rs-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--done); align-self: center; }
+.dbx-reassure.lv-warn .dbx-rs-dot { background: var(--you); }
+.dbx-reassure.lv-stop .dbx-rs-dot { background: var(--risk); }
+.dbx-rs-text { color: var(--text); }
+.dbx-reassure.lv-warn .dbx-rs-text { color: var(--you); }
+.dbx-reassure.lv-stop .dbx-rs-text { color: var(--risk); font-weight: 600; }
+.dbx-rs-sep { color: var(--faint); }
+.dbx-rs-part { white-space: nowrap; color: var(--faint); }
+.dbx-rs-part.over { color: var(--you); }
+/* UX12 あなたの番: 留守の間 (top), 事後の確認 and the two 「急ぎでない」 cards (below the cards) */
+.dbx-away { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s1) var(--s3); margin-top: var(--s3); padding: var(--s2) var(--s3); border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface); font-size: var(--fs-s); color: var(--muted); }
+.dbx-away-t { color: var(--text); font-weight: 600; }
+.dbx-away-n b { color: var(--text); font-variant-numeric: tabular-nums; }
+.dbx-away-n.warn b { color: var(--you); }
+.dbx-away-log { margin-left: auto; }
+.dbx-later-t { margin: 0 0 var(--s1); color: var(--faint); font-size: var(--fs-s); font-weight: 600; }
+.dbx-reviews .dbx-attn + .dbx-attn { margin-top: var(--s2); }
+.dbx-rv-sub { margin: var(--s2) 0 0; color: var(--faint); font-size: var(--fs-s); }
+.dbx-rv-row { display: flex; align-items: baseline; gap: var(--s2); margin-top: var(--s1); min-width: 0; }
+.dbx-rv-text { flex: 1 1 auto; min-width: 0; color: var(--muted); line-height: var(--lh); word-break: break-word; }
+.dbx-rv-wrong, .dbx-rv-done { flex: none; }
+.dbx-rv-done { color: var(--faint); font-size: var(--fs-s); }
+.dbx-rv-box { flex: 1 0 100%; display: flex; align-items: flex-end; gap: var(--s2); flex-wrap: wrap; }
+.dbx-rv-row:has(.dbx-rv-box) { flex-wrap: wrap; }
+.dbx-rv-note { flex: 1 1 260px; font: inherit; font-size: var(--fs-s); color: var(--text); background: var(--raised); border: 1px solid var(--strong); border-radius: var(--r1); padding: var(--s1) var(--s2); resize: vertical; outline: none; }
+.dbx-rv-note:focus { border-color: var(--run); }
+.dbx-rv-err { color: var(--risk); font-size: var(--fs-s); }
+.dbx-attn-due { flex: none; color: var(--muted); font-size: var(--fs-s); }
+.dbx-attn-due.late { color: var(--you); }
+.dbx-helds { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.dbx-held { flex: 1 1 300px; min-width: 0; padding: var(--s2) var(--s3) var(--s2); border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface); }
+.dbx-held-head { display: flex; align-items: baseline; gap: var(--s2); }
+.dbx-held-t { font-weight: 600; color: var(--muted); }
+.dbx-held-later { margin-left: auto; color: var(--faint); font-size: var(--fs-xs); }
+.dbx-held-row { display: flex; align-items: baseline; gap: var(--s2); margin-top: var(--s1); font-size: var(--fs-s); min-width: 0; }
+.dbx-held-f { flex: none; color: var(--faint); }
+.dbx-held-n { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dbx-held-item { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.dbx-held-more { margin-top: var(--s1); }
+/* UX12 task rows: 最後の動き · この後 */
+.dbx-move .dbx-after, .dbx-qinfo.dbx-after { color: var(--faint); }
 
 /* what a waiting session waits for (session.wait, main's waits.js): a quiet line, peach when flagged; 「出力」 opens
    the tail of its commands' output under the session */
-.dbx-swait { display: flex; align-items: baseline; gap: 8px; margin-left: 16px; font-size: 11.5px; color: var(--overlay); min-width: 0; }
-.dbx-swait.warn { color: var(--peach); font-weight: 600; }
+.dbx-swait { display: flex; align-items: baseline; gap: var(--s2); margin-left: var(--s4); font-size: var(--fs-s); color: var(--faint); min-width: 0; }
+.dbx-swait.warn { color: var(--you); font-weight: 600; }
 .dbx-swait-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dbx-swait .dbx-link { flex: none; font-weight: 400; }
 .dbx-swait .dbx-link:hover { color: var(--text); }
-.dbx-tail { margin: 4px 0 4px 16px; padding: 6px 8px; background: var(--crust); border: 1px solid var(--surface0); border-radius: 8px; }
-.dbx-tail-head { display: flex; align-items: baseline; gap: 8px; font-size: 11px; color: var(--overlay); min-width: 0; }
-.dbx-tail-head + .dbx-tail-text, .dbx-tail-head + .dbx-none, .dbx-tail-head + .dbx-tail-err { margin-top: 4px; }
-.dbx-tail-text + .dbx-tail-head { margin-top: 8px; }
-.dbx-tail-cmd { flex: 1; min-width: 0; font-family: var(--font-mono); color: var(--teal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-tail { margin: var(--s1) 0 var(--s1) var(--s4); padding: var(--s1) var(--s2); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r1); }
+.dbx-tail-head { display: flex; align-items: baseline; gap: var(--s2); font-size: var(--fs-xs); color: var(--faint); min-width: 0; }
+.dbx-tail-head + .dbx-tail-text, .dbx-tail-head + .dbx-none, .dbx-tail-head + .dbx-tail-err { margin-top: var(--s1); }
+.dbx-tail-text + .dbx-tail-head { margin-top: var(--s2); }
+.dbx-tail-cmd { flex: 1; min-width: 0; font-family: var(--font-mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dbx-tail-meta { flex: none; }
-.dbx-tail-meta.warn { color: var(--peach); }
+.dbx-tail-meta.warn { color: var(--you); }
 .dbx-tail-head .dbx-link { flex: none; }
 .dbx-tail-head .dbx-link:hover { color: var(--text); }
-.dbx-tail-text { margin: 0; max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 11px; color: var(--text); }
-.dbx-tail-err { font-size: 11px; color: var(--peach); }
+.dbx-tail-text { margin: 0; max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text); }
+.dbx-tail-err { font-size: var(--fs-xs); color: var(--you); }
 
 /* setting 「待ちの見張り」 (header, under 新しい作業の置き場所) */
-.dbx-wcfg { align-items: center; flex-wrap: wrap; row-gap: 4px; }
-.dbx-wcfg-f { display: inline-flex; align-items: center; margin-right: 14px; white-space: nowrap; }
+.dbx-wcfg { align-items: center; flex-wrap: wrap; row-gap: var(--s1); }
+.dbx-wcfg-f { display: inline-flex; align-items: center; margin-right: var(--s3); white-space: nowrap; }
 .dbx-wcfg-input {
-  width: 56px; height: 22px; box-sizing: border-box; padding: 0 4px; margin: 0 2px; text-align: right;
-  font: inherit; color: var(--text); background: var(--crust); border: 1px solid var(--surface1); border-radius: 5px; outline: none;
+  width: 56px; height: 22px; box-sizing: border-box; padding: 0 var(--s1); margin: 0 var(--s1); text-align: right;
+  font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--strong); border-radius: var(--r1); outline: none;
 }
-.dbx-wcfg-input:focus { border-color: var(--blue); }
-.dbx-wcfg-note { color: var(--green); }
-.dbx-wcfg-note.bad { color: var(--peach); }
+.dbx-wcfg-input:focus { border-color: var(--run); }
+.dbx-wcfg-note { color: var(--done); }
+.dbx-wcfg-note.bad { color: var(--you); }
 /* inside a status group the group head already says the state (docs/ui-copy.md: not twice) */
 .dbx-group .dbx-inbox .dbx-ist { display: none; }
 .dbx-ititle-edit { justify-content: flex-start; align-items: baseline; }
-.dbx-ititle-input { flex: 1; max-width: 420px; font: inherit; font-size: 12.5px; color: var(--text); background: var(--base); border: 1px solid var(--surface1); border-radius: 6px; padding: 2px 8px; outline: none; }
-.dbx-ititle-input:focus { border-color: var(--blue); }
+.dbx-ititle-input { flex: 1; max-width: 420px; font: inherit; font-size: var(--fs-s); color: var(--text); background: var(--raised); border: 1px solid var(--strong); border-radius: var(--r1); padding: var(--s1) var(--s2); outline: none; }
+.dbx-ititle-input:focus { border-color: var(--run); }
 
 /* 新しいセッション (UIUX U5, dashboard.js startPanel): the picker window's parts on top of the tab. .big while no session is open */
 .dbx-newsess { color: var(--text); }
-.dbx-start { margin: 10px 0 14px; padding: 12px 14px; border: 1px solid var(--surface1); border-radius: 10px; background: var(--mantle); }
-.dbx-start.big { padding: 22px 26px; margin-top: 16px; border-color: var(--blue); }
-.dbx-start-head { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
-.dbx-start-title { font-size: 13.5px; font-weight: 600; flex: none; }
-.dbx-start.big .dbx-start-title { font-size: 17px; }
-.dbx-start-lead { color: var(--subtext); font-size: 12.5px; min-width: 0; }
-.dbx-start-close { margin-left: auto; flex: none; font: inherit; font-size: 15px; line-height: 1; color: var(--overlay); background: none; border: none; cursor: pointer; padding: 2px 4px; }
+.dbx-start { margin: var(--s2) 0 var(--s3); padding: var(--s3) var(--s3); border: 1px solid var(--strong); border-radius: var(--r2); background: var(--surface); }
+.dbx-start.big { padding: 20px var(--s5); margin-top: var(--s4); border-color: var(--run); }
+.dbx-start-head { display: flex; align-items: baseline; gap: var(--s3); min-width: 0; }
+.dbx-start-title { font-size: var(--fs-m); font-weight: 600; flex: none; }
+.dbx-start.big .dbx-start-title { font-size: var(--fs-xl); }
+.dbx-start-lead { color: var(--muted); font-size: var(--fs-s); min-width: 0; }
+.dbx-start-close { margin-left: auto; flex: none; font: inherit; font-size: var(--fs-l); line-height: 1; color: var(--faint); background: none; border: none; cursor: pointer; padding: var(--s1) var(--s1); }
 .dbx-start-close:hover { color: var(--text); }
-.dbx-start-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.dbx-start-btn { font: inherit; font-size: 12.5px; color: var(--text); background: var(--surface0); border: 1px solid var(--surface1); border-radius: 8px; padding: 5px 14px; cursor: pointer; }
-.dbx-start-btn:hover { border-color: var(--blue); }
-.dbx-start-btn.is-primary { background: var(--blue); color: var(--crust); border-color: var(--blue); font-weight: 600; }
-.dbx-start.big .dbx-start-btn { padding: 8px 18px; font-size: 13px; }
-.dbx-start-new { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-.dbx-start-label { font-size: 12px; color: var(--subtext); flex: none; }
-.dbx-start-name { font: inherit; font-size: 12.5px; color: var(--text); background: var(--crust); border: 1px solid var(--surface1); border-radius: 6px; padding: 4px 8px; width: 240px; max-width: 100%; outline: none; }
-.dbx-start-name:focus { border-color: var(--blue); }
-.dbx-start-where { font-size: 11.5px; color: var(--overlay); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.dbx-start-note { margin-top: 6px; font-size: 12px; color: var(--subtext); }
-.dbx-start-note.bad { color: var(--red); }
-.dbx-start-sub { margin-top: 14px; font-size: 11px; letter-spacing: .06em; color: var(--overlay); }
-.dbx-start-list { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 2px 12px; }
-.dbx-start-item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; min-width: 0; }
-.dbx-start-item:hover, .dbx-start-item:focus { background: var(--surface0); outline: none; }
+.dbx-start-acts { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s3); }
+.dbx-start-btn { font: inherit; font-size: var(--fs-s); color: var(--text); background: var(--hover); border: 1px solid var(--strong); border-radius: var(--r1); padding: var(--s1) var(--s3); cursor: pointer; }
+.dbx-start-btn:hover { border-color: var(--run); }
+.dbx-start-btn.is-primary { background: var(--run); color: var(--on-color); border-color: var(--run); font-weight: 600; }
+.dbx-start.big .dbx-start-btn { padding: var(--s2) var(--s4); font-size: var(--fs-m); }
+.dbx-start-new { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s3); flex-wrap: wrap; }
+.dbx-start-label { font-size: var(--fs-s); color: var(--muted); flex: none; }
+.dbx-start-name { font: inherit; font-size: var(--fs-s); color: var(--text); background: var(--bg); border: 1px solid var(--strong); border-radius: var(--r1); padding: var(--s1) var(--s2); width: 240px; max-width: 100%; outline: none; }
+.dbx-start-name:focus { border-color: var(--run); }
+.dbx-start-where { font-size: var(--fs-s); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dbx-start-note { margin-top: var(--s1); font-size: var(--fs-s); color: var(--muted); }
+.dbx-start-note.bad { color: var(--risk); }
+.dbx-start-sub { margin-top: var(--s3); font-size: var(--fs-xs); letter-spacing: .06em; color: var(--faint); }
+.dbx-start-list { list-style: none; margin: var(--s1) 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--s1) var(--s3); }
+.dbx-start-item { display: flex; align-items: center; gap: var(--s2); padding: var(--s1) var(--s2); border-radius: var(--r1); cursor: pointer; min-width: 0; }
+.dbx-start-item:hover, .dbx-start-item:focus { background: var(--hover); outline: none; }
 .dbx-start-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-.dbx-start-name1 { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dbx-start-path { font-size: 11px; color: var(--overlay); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dbx-start-open { flex: none; font-size: 10.5px; color: var(--green); border: 1px solid var(--green); border-radius: 999px; padding: 0 6px; }
+.dbx-start-name1 { font-size: var(--fs-s); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-start-path { font-size: var(--fs-xs); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-start-open { flex: none; font-size: var(--fs-xs); color: var(--done); border: 1px solid var(--done); border-radius: 999px; padding: 0 var(--s1); }
 /* MP4 22: 関係図 (agents-view.js) inside the dashboard: no box wider than its column */
 #dashboard .agv-lane, #dashboard .agv-lane-b { min-width: 0; }
 #dashboard .agv-box { min-width: 0; max-width: 100%; box-sizing: border-box; }
 #dashboard .agv-box-h > * { min-width: 0; }
 @container dbx-body (max-width: 680px) { #dashboard .agv-lane-h { width: 96px; } }
-.dbx-start-empty { margin-top: 12px; font-size: 12px; color: var(--overlay); }
+.dbx-start-empty { margin-top: var(--s3); font-size: var(--fs-s); color: var(--faint); }
 
 /* queue order on the cards (docs/queue-order.md): the waiting tasks in the order they are sent, 次に始まる, ↑ ↓,
-   the PMO's last reorder, the user's lock and 「PMO に順番を見直してもらう」 */
-.dbx-qnext { margin: 0 0 10px; font-size: 12px; color: var(--subtext); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dbx-qnext.none { color: var(--overlay); }
-.dbx-queue { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin-top: 2px; padding-top: 6px; border-top: 1px dashed var(--surface0); }
-.dbx-qhead { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; min-width: 0; font-size: 11.5px; color: var(--overlay); }
-.dbx-qtitle { flex: none; color: var(--subtext); }
-.dbx-qlock { flex: none; white-space: nowrap; color: var(--yellow, var(--peach)); }
-.dbx-qask { flex: none; margin-left: auto; font-size: 11.5px; }
-.dbx-qpmo { font-size: 11.5px; color: var(--overlay); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.dbx-qask-box { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.dbx-qask-in { flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px; color: var(--text); background: var(--mantle); border: 1px solid var(--surface1); border-radius: 6px; padding: 2px 8px; outline: none; }
-.dbx-qask-in:focus { border-color: var(--blue); }
-.dbx-qask-go { flex: none; font: inherit; font-size: 11.5px; color: var(--text); background: var(--surface0); border: 1px solid var(--surface1); border-radius: 6px; padding: 1px 10px; cursor: pointer; }
-.dbx-qask-go:hover { border-color: var(--blue); }
-.dbx-qnote { font-size: 11.5px; color: var(--green); }
-.dbx-qnote.bad { color: var(--red); }
-.dbx-qpos { flex: none; min-width: 14px; text-align: right; font-size: 11px; color: var(--overlay); font-variant-numeric: tabular-nums; }
-.dbx-qitem.next .dbx-qpos, .dbx-qst.next { color: var(--blue); }
+   the ルーター's last reorder, the user's lock and 「ルーターに順番を見直してもらう」 */
+.dbx-qnext { margin: 0 0 var(--s2); font-size: var(--fs-s); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx-qnext.none { color: var(--faint); }
+.dbx-queue { display: flex; flex-direction: column; gap: var(--s1); min-width: 0; margin-top: var(--s1); padding-top: var(--s1); border-top: 1px dashed var(--line); }
+.dbx-qhead { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s1) var(--s2); min-width: 0; font-size: var(--fs-s); color: var(--faint); }
+.dbx-qtitle { flex: none; color: var(--muted); }
+.dbx-qlock { flex: none; white-space: nowrap; color: var(--you); }
+.dbx-qask { flex: none; margin-left: auto; font-size: var(--fs-s); }
+.dbx-qpmo { font-size: var(--fs-s); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dbx-qask-box { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.dbx-qask-in { flex: 1 1 auto; min-width: 0; font: inherit; font-size: var(--fs-s); color: var(--text); background: var(--surface); border: 1px solid var(--strong); border-radius: var(--r1); padding: var(--s1) var(--s2); outline: none; }
+.dbx-qask-in:focus { border-color: var(--run); }
+.dbx-qask-go { flex: none; font: inherit; font-size: var(--fs-s); color: var(--text); background: var(--hover); border: 1px solid var(--strong); border-radius: var(--r1); padding: 0 var(--s2); cursor: pointer; }
+.dbx-qask-go:hover { border-color: var(--run); }
+.dbx-qnote { font-size: var(--fs-s); color: var(--done); }
+.dbx-qnote.bad { color: var(--risk); }
+.dbx-qpos { flex: none; min-width: 14px; text-align: right; font-size: var(--fs-xs); color: var(--faint); font-variant-numeric: tabular-nums; }
+.dbx-qitem.next .dbx-qpos, .dbx-qst.next { color: var(--run); }
 .dbx-qitem.next .dbx-q { color: var(--text); }
-.dbx-qinfo { margin-left: 22px; font-size: 11px; color: var(--overlay); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.dbx-q .dbx-qmove { flex: none; font-size: 11px; padding: 0 2px; opacity: 0; }
-.dbx-q:hover .dbx-qmove, .dbx-q .dbx-qmove:focus-visible { opacity: 1; }
-.dbx-q .dbx-qmove:disabled { opacity: 0 !important; cursor: default; }
-/* UX7 (docs/ux-journey.md §6, docs/mac-polish.md J3): 「ほか N 件」 / 「畳む」 under a long list, PROGRESS chips, PMO log runs */
-.dbx-morebar { display: flex; gap: 12px; align-items: baseline; }
-.dbx-morebar .dbx-more { margin-top: 4px; }
-.dbx-fold { margin-top: 4px; }
-.dbx-card-more { margin-left: 16px; }
-.dbx-past-head { font-size: 12px; }
-.dbx-log-run { border-bottom: 1px solid var(--surface0); }
-.dbx-log-runhead .dbx-log-title { color: var(--subtext); }
-.dbx-log-runrows { padding-left: 16px; border-left: 2px solid var(--surface0); margin-bottom: 6px; }
+.dbx-qinfo { margin-left: 20px; font-size: var(--fs-xs); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dbx-q .dbx-qmove { flex: none; font-size: var(--fs-xs); padding: 0 var(--s1); }
+.dbx-q .dbx-qmove:disabled { opacity: .35; cursor: default; }
+/* UX7 (docs/ux-journey.md §6, docs/mac-polish.md J3): 「ほか N 件」 / 「畳む」 under a long list, PROGRESS chips, ルーター log runs */
+.dbx-morebar { display: flex; gap: var(--s3); align-items: baseline; }
+.dbx-morebar .dbx-more { margin-top: var(--s1); }
+.dbx-fold { margin-top: var(--s1); }
+.dbx-card-more { margin-left: var(--s4); }
+.dbx-past-head { font-size: var(--fs-s); }
+.dbx-log-run { border-bottom: 1px solid var(--line); }
+.dbx-log-runhead .dbx-log-title { color: var(--muted); }
+.dbx-log-runrows { padding-left: var(--s4); border-left: 2px solid var(--line); margin-bottom: var(--s1); }
 .dbx-log-runrows .dbx-log-row:last-child { border-bottom: 0; }
-.pgv-chips { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-bottom: 6px; }
-.pgv-chip { font: inherit; font-size: 11px; color: var(--subtext); background: none; border: 1px solid var(--surface1); border-radius: 999px; padding: 0 8px; cursor: pointer; white-space: nowrap; }
+.pgv-chips { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s1); margin-bottom: var(--s1); }
+.pgv-chip { font: inherit; font-size: var(--fs-xs); color: var(--muted); background: none; border: 1px solid var(--strong); border-radius: 999px; padding: 0 var(--s2); cursor: pointer; white-space: nowrap; }
 .pgv-chip:hover { color: var(--text); }
 .pgv-chip.on { color: var(--text); border-color: var(--text); }
-.pgv-none { font-size: 12px; color: var(--overlay); padding: 4px 0; }
-.pgv-morebar { display: flex; gap: 12px; margin-top: 4px; }
-.pgv-more { font: inherit; font-size: 11.5px; color: var(--overlay); background: none; border: 0; padding: 0; cursor: pointer; }
+.pgv-none { font-size: var(--fs-s); color: var(--faint); padding: var(--s1) 0; }
+.pgv-morebar { display: flex; gap: var(--s3); margin-top: var(--s1); }
+.pgv-more { font: inherit; font-size: var(--fs-s); color: var(--faint); background: none; border: 0; padding: 0; cursor: pointer; }
 .pgv-more:hover { color: var(--text); text-decoration: underline; }
+.dbx-leantip { color: var(--faint); font-size: var(--fs-xs); margin: var(--s1) 0 var(--s1) var(--s4); }
+.dbx-leankeep.on { color: var(--run); }
+.dbx-carryover + .dbx-leankeep { margin-left: var(--s3); } /* UX18: the two links on the card were written together (取り込むこのフォルダでは削らない) */

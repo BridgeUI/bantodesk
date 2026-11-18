@@ -89,7 +89,7 @@ ok('formatForManager: none', W.formatForManager([entries[1]]) === '');
 const n = W.notice(entries);
 ok('notice warn app:waits', n && n.kind === 'warn' && n.key === 'app:waits' && n.refs.join() === 't1:b1:silent' && n.folder === 'C:\\w\\a', n);
 ok('notice none', W.notice([entries[1]]) === null);
-ok('nudge ok', W.checkNudge({ tabKey: 't1', text: '確かめて', reason: 'r' }, entries).text === '（PMO から）確かめて');
+ok('nudge ok', W.checkNudge({ tabKey: 't1', text: '確かめて', reason: 'r' }, entries).text === '（ルーターから）確かめて');
 ok('nudge unknown tab', /not waiting/.test(W.checkNudge({ tabKey: 'zz', text: 'x', reason: 'r' }, entries).error || ''));
 ok('nudge needs reason', /reason/.test(W.checkNudge({ tabKey: 't1', text: 'x' }, entries).error || ''));
 ok('nudge refuses user wait', /user/.test(W.checkNudge({ tabKey: 't3', text: 'x', reason: 'r' }, [{ tabKey: 't3', wait: asking }]).error || ''));

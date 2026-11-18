@@ -1,4 +1,4 @@
-// 見回りの検出 (依頼 r-imwhv61mef52568-25b7c136): the ways work stopped that the PMO missed in
+// 見回りの検出 (依頼 r-imwhv61mef52568-25b7c136): the ways work stopped that the ルーター missed in
 // 2026-11-13〜15, found by code each patrol and told as facts (the same footing as 誤報の見込み: no model call, the
 // haiku triage is not asked about them). No Electron imports (testable from plain Node); main.js gathers the inputs
 // (the backlogs, the scheduler's reasons, the tabs' TabState, the outbox failed/ folders, git status counts, notices).
@@ -13,7 +13,7 @@
 //   (7) dirty       N or more uncommitted changes in a folder where nothing runs, for N hours
 //   (8) deadline    a proposal notice past its 期限 with no answer
 //
-// Each finding = { key, kind, folder, name, text }. decide() reports a key once (like pmo.patrolDecision): the PMO is woken
+// Each finding = { key, kind, folder, name, text }. decide() reports a key once (like pmo.patrolDecision): the ルーター is woken
 // only when a key is new; keys that went away are forgotten (a recurrence is new again).
 const path = require('path');
 
@@ -22,7 +22,7 @@ const HOUR = 60 * MIN;
 const DEFAULTS = {
   notStartMin: 3, // (2)
   leftoverMin: 2, // (3) a command still running this long after 作業完了
-  proposeNear: 25, // (4) of propose.PER_FOLDER_DAY (30)
+  proposeNear: 25, // (4) near the default limit 30 (nearOf(30)); a folder's own limit uses nearOf(max)
   dirtyCount: 10, // (7)
   dirtyHours: 2, // (7)
 };
@@ -113,10 +113,16 @@ function findWatches(sessions, { now = Date.now(), timeoutOf = null, leftoverMin
   return out;
 }
 
+// (4) "near the limit" for a folder's 24 h limit max (proposeDayMax): 5/6 of it, at least 1 short of it (max 1 -> 1)
+function nearOf(max) {
+  const m = Number.isInteger(Number(max)) && Number(max) >= 1 ? Number(max) : 30;
+  return Math.max(1, Math.min(Math.floor((m * 5) / 6), m - 1));
+}
+
 // ---- (4) proposals the app refused -------------------------------------------------------------------------------
 // failed = [{ folder, dir (the failed/ folder), name, error, title, at }] (main reads outbox/failed/ of each folder);
 // counts = [{ folder, day (proposals of the folder in 24 h), max }].
-function findProposals(failed, counts, { near = DEFAULTS.proposeNear } = {}) {
+function findProposals(failed, counts, { near } = {}) {
   const out = [];
   for (const f of failed || []) {
     if (!f || !f.name) continue;
@@ -133,20 +139,20 @@ function findProposals(failed, counts, { near = DEFAULTS.proposeNear } = {}) {
     });
   }
   for (const c of counts || []) {
-    if (!c || !c.folder || num(c.day) < near) continue;
+    if (!c || !c.folder || num(c.day) < (near === undefined ? nearOf(c.max || 30) : near)) continue; // near given = tests / a fixed value
     out.push({
       key: `propose-near:${norm(c.folder)}`,
       kind: 'propose',
       folder: c.folder,
       name: folderName(c.folder),
-      text: `このフォルダの propose が 24 時間で ${c.day} 件（上限 ${c.max || 30} 件）。超えた分は依頼に入らず outbox/failed/ に落ちる`,
+      text: `このフォルダの propose が 24 時間で ${c.day} 件（上限 ${c.max || 30} 件）。超えた分は依頼に保留（note「上限を超えた propose」）で入る`,
     });
   }
   return out;
 }
 
 // The refused files told once: seen = { key: mtime } (pmo.json gaps.proposeSeen). A failed/ file already told with the
-// same name and mtime is dropped (the PMO cannot remove it from another folder); a changed mtime tells it again.
+// same name and mtime is dropped (the ルーター cannot remove it from another folder); a changed mtime tells it again.
 // -> { findings (the rest), seen (only the files still there), held (the dropped count, for the daily stocktake) }
 function holdProposals(findings, seen = {}) {
   const prev = seen && typeof seen === 'object' ? seen : {};
@@ -207,7 +213,7 @@ function findDirty(folders, since = {}, { now = Date.now(), dirtyCount = DEFAULT
 }
 
 // ---- (8) proposals past their 期限 --------------------------------------------------------------------------------
-// The PMO writes 「**期限**: YYYY-MM-DD HH:MM」 in a proposal's text (manager.js template). -> ms (local time) | 0
+// The ルーター writes 「**期限**: YYYY-MM-DD HH:MM」 in a proposal's text (manager.js template). -> ms (local time) | 0
 function deadlineOf(text) {
   const m = /期限\**\s*[:：]\s*\**\s*(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T　]+(\d{1,2}):(\d{2}))?/.exec(String(text || ''));
   if (!m) return 0;
@@ -225,7 +231,7 @@ function findDeadlines(notices, { now = Date.now() } = {}) {
       key: `deadline:${n.id}`,
       kind: 'deadline',
       folder: n.folder || '',
-      name: n.folder ? folderName(n.folder) : 'PMO',
+      name: n.folder ? folderName(n.folder) : 'ルーター',
       text: `提案 ${n.id}「${oneLine(n.title, 60)}」${n.key ? `（key ${n.key}）` : ''}の期限 ${new Date(at).toLocaleString('ja-JP', { hour12: false })} を ${ago(now - at)} 過ぎ、答えが無い`,
     });
   }
@@ -336,11 +342,11 @@ const KIND_WORD = {
 };
 const KIND_ORDER = Object.keys(KIND_WORD);
 
-// The block for the PMO (≤ TEXT_MAX chars), '' when nothing to say. The meaning and the moves of each kind are in the
-// PMO's CLAUDE.md (manager.js, 見回りの節).
+// The block for the ルーター (≤ TEXT_MAX chars), '' when nothing to say. The meaning and the moves of each kind are in the
+// ルーター's CLAUDE.md (manager.js, 見回りの節).
 // opts.stocktake + opts.held: the daily stocktake adds one line for the refused files told before (holdProposals).
 function format(findings, fresh = new Set(), { stocktake = false, held = 0 } = {}) {
-  const heldLine = stocktake && held > 0 ? `- ${KIND_WORD.propose} ${held} 件（前に挙げたもの。手当て済みかは PMO が判断）` : '';
+  const heldLine = stocktake && held > 0 ? `- ${KIND_WORD.propose} ${held} 件（前に挙げたもの。手当て済みかは ルーターが判断）` : '';
   if ((!findings || !findings.length) && !heldLine) return '';
   const list = [...(findings || [])].sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind));
   const lines = list.slice(0, LIST_MAX).map((f) => `- ${fresh.has(f.key) ? '[新] ' : ''}${KIND_WORD[f.kind] || f.kind} [${f.name}] ${f.text}`);
@@ -355,6 +361,7 @@ module.exports = {
   endlessReason,
   findWatches,
   findProposals,
+  nearOf,
   holdProposals,
   titleOf,
   findDirty,

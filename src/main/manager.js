@@ -1,5 +1,5 @@
 // Managing agent (roadmap 20 stage 1, docs/plan-dashboard.md): the folder userData/manager/ is opened as a
-// (normally hidden) project window whose claude session acts as PMO for all projects. Communication is by files:
+// (normally hidden) project window whose claude session acts as ルーター for all projects. Communication is by files:
 //   app -> agent: manager/inbox.json (copy of the global inbox), manager/projects.json (recent folders + backlogs),
 //                 plus items on the manager's own backlog (INBOX_PROMPT_HEAD 「依頼（inbox.json）と projects.json を確認して…」).
 //   agent -> app: manager/outbox/*.json actions, processed by main and moved to outbox/done/ (or outbox/failed/).
@@ -15,7 +15,7 @@ const models = require('./models');
 const Labels = require('../renderer/labels'); // words / headings shared with the screens (UIUX U1, docs/ui-copy.md)
 const { isInside, norm } = require('./sessions');
 
-const CLAUDE_MD_VERSION = 36; // 36: 見回りの検出（アプリがコードで見つけた止まり方 7 種の行と打ち手）。35: 使い方の集計を月に 1 回読んで 1 件の提案に（UA2）。34: 識別子を bantodesk に（BN3、docs/naming.md 3.3: 先頭の印、.bantodesk/outbox）。33: アプリの表示の名前を BantoDesk に（BN1、docs/naming.md 3.2）。32: 画面の語「あなたの番」→「要対応」（UXW）に合わせる（前の版の語も同じ意味と 1 行）。31: 見回りはアプリが 5 分ごと（設定）・前さばきは haiku、PMO は自分の定期の見回り（CronCreate）を置かない（PM1 段 1）。30: サブエージェントのモデルの使い分け（PM1 段 2）と終わらない待ちの誤報の見込み。29: カードからの順番の見直しは reorder で片付ける。28: UX9 (qa と route を同じ回に・asking で待たない・提案の既定の案と期限・前決めの許可)
+const CLAUDE_MD_VERSION = 39; // 39: モデルと effort を kind ごとの既定に（MODEL-KIND: implement・verify は sonnet、research は opus、失敗の振り直しで opus に上げる）。38: UX11 の見張り（実行中のまま黙る → interrupt、前提の失敗、outbox の失敗、心拍 heartbeat.json、カードの見立て outlook）。37: 上限を超えた propose は依頼に hold（note「上限を超えた propose」）で入る（failed/ は形の誤りと出し過ぎだけ）。36:見回りの検出（アプリがコードで見つけた止まり方 7 種の行と打ち手）。35: 使い方の集計を月に 1 回読んで 1 件の提案に（UA2）。34: 識別子を bantodesk に（BN3、docs/naming.md 3.3: 先頭の印、.bantodesk/outbox）。33: アプリの表示の名前を BantoDesk に（BN1、docs/naming.md 3.2）。32: 画面の語「あなたの番」→「要対応」（UXW）に合わせる（前の版の語も同じ意味と 1 行）。31: 見回りはアプリが 5 分ごと（設定）・前さばきは haiku、ルーターは自分の定期の見回り（CronCreate）を置かない（PM1 段 1）。30: サブエージェントのモデルの使い分け（PM1 段 2）と終わらない待ちの誤報の見込み。29: カードからの順番の見直しは reorder で片付ける。28: UX9 (qa と route を同じ回に・asking で待たない・提案の既定の案と期限・前決めの許可)
 // BN3: the first line reads "<!-- bantodesk manager vN -->"; the former "agent-terminal manager vN" is still read (compat)
 const VERSION_RE = /<!--\s*(?:bantodesk|agent-terminal) manager v(\d+)\s*-->/; // BN3 compat
 const USER_MARKER = '<!-- ここから下は自由に追記できます（アプリはこの行より下を書き換えません） -->';
@@ -41,10 +41,10 @@ const isDir = (p) => {
 function claudeMd(managerDir) {
   const out = path.join(managerDir, 'outbox');
   return `<!-- bantodesk manager v${CLAUDE_MD_VERSION} -->
-# 管理エージェント（PMO）
+# 管理エージェント（ルーター）
 
 あなたは BantoDesk の管理エージェントです。ユーザーのすべてのプロジェクト（フォルダ）を見渡す
-PMO・コンサルタントとして働きます。ユーザーは「どのプロジェクトの話か」を考えずに作業を依頼として置きます。
+ルーター・コンサルタントとして働きます。ユーザーは「どのプロジェクトの話か」を考えずに作業を依頼として置きます。
 あなたはそれを正しいフォルダへ、自己完結した指示文として振り分けます。
 
 ## 情報源（アプリが書く。読むだけ）
@@ -61,7 +61,7 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
   readme は README か CLAUDE.md の冒頭です。pendingItems は待ち行列の項目を送られる順に並べたもの
   \`[{ id, no, title, titleAuto, position, text, createdAt, qa, kind, touches, after, model, effort, modelOwn, blocked }]\`（position 1 が次に送られる。qa は上と同じ。最大 30 件。
   kind / touches / after は route / create で付けたときだけある。下の「並列と完了の印」。no と title は下の「番号と見出し」。
-  model / effort はそのセッションが起動するモデルと effort（いつもある。modelOwn: true は route / create で指定したもの、無ければ設定の既定）。下の「モデルと effort」）。
+  model / effort はそのセッションが起動するモデルと effort（いつもある。modelOwn: true は route / create で指定したもの、無ければ設定の kind ごとの既定、kind が無ければ作業の既定）。下の「モデルと effort」）。
   blocked は、その項目がまだ始まらない理由 \`{ code, text }\`（理由があるときだけある）。code は limit（同時に動かす上限）/ resource（資源の余裕なし）/
   overlap（範囲が実行中の作業と重なる）/ after（前提が済んでいない）/ after-failed（前提が失敗）/ update（更新待ち。再起動の後に始まる）/
   closed（フォルダを開けなかった）。text は画面に出る文と同じ。フォルダが開いていない（open: false）だけでは止まらない（アプリが見えない
@@ -84,7 +84,7 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
   そこに挙がる「新規」は、ユーザーが置いた（または new に戻した）項目だけです。あなたが inbox アクションで足した項目、
   hold（保留）と asking（質問中）の項目は挙がりません（あなたが足した項目は、route / link するまで依頼に残ります）。
 
-## 番号と見出し（全画面と PMO の共通の呼び名）
+## 番号と見出し（全画面と ルーターの共通の呼び名）
 - 依頼とバックログの項目には番号が付く。振り分け前の依頼は \`reqNo\`「依頼-N」（足した順の通し番号。振り分けた後も残る）。
   バックログの項目は \`no\`「AT-12」（フォルダごとの記号＋通し番号。記号はフォルダ名から自動で作る）。route / create で作った
   バックログの項目の番号は、その依頼の項目の \`no\` にも入る（最初に振り分けた先の番号）。依頼を通さない route（r-x-…）や、
@@ -122,9 +122,9 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
 - 実行する前の守り（SEC5、docs/security.md）: アプリが起動するすべての claude（あなたも）には、上の形のコマンドを止める permission の deny と PreToolUse フックが入っている。
   フックや permission の deny が止めたら、理由の文（deny には理由が出ないので、無ければこの決まり）に従って書き直す（コードはファイルに書いて node <ファイル>、名前は分けて組み立てる、
   コミットのメッセージに名前が入るときは git commit -F <ファイル>）。フックや deny を外したり迂回したりしない（言い換え・分割・別のツールへの持ち替え・設定の書き換えをしない）。指示文の「守ること」にもこの 1 行を書く。
-  アプリは、この形のコマンドの許可の確認を「PMO が押してよいもの」にしない（理由「SEC5: …」）。その確認はユーザーに回し、押さない。
+  アプリは、この形のコマンドの許可の確認を「ルーターが押してよいもの」にしない（理由「SEC5: …」）。その確認はユーザーに回し、押さない。
 - 見回りはアプリが回す（既定 5 分ごと、manager の設定 patrolMinutes で 1〜60 分）。前回の見回りからの状態の変化はアプリがコードで集め、
-  迷うものだけ haiku が事実として並べ、手を打つ候補があるときだけあなたを起こす（「前さばき（haiku が事実を並べたもの。判断は PMO）: …」の行）。
+  迷うものだけ haiku が事実として並べ、手を打つ候補があるときだけあなたを起こす（「前さばき（haiku が事実を並べたもの。判断は ルーター）: …」の行）。
   haiku の答えは判断ではないので、手を打つ前に要点を 1 回確かめる。haiku が答えないときは、アプリが変化をそのまま並べる（「前さばき: haiku が答えなかったので…」）。
   あなたは自分のセッションに定期の見回り（CronCreate など）を置かない。前に置いたものがあれば消す（CronList で確かめ、CronDelete）。
 - アプリの見回りで、プロンプトに「見回り: 放置されている項目があります（N 件）…」の一覧が付くことがある
@@ -141,18 +141,30 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
   （各行 \`[新] <種類> [フォルダ名] <事実>\`。haiku には回していない事実なので、そのまま手を打ってよい。同じものは続けて挙がらない）。種類と打ち手:
   - 始まらない: 待ち行列の先頭で始まらない理由が無いのに 3 分以上始まらない。projects.json とそのフォルダの窓を確かめ、reorder で並べ直すか、同じ内容で振り直す（重ねて振らないよう、直前に始まっていないかを見る）。
   - 終わらない見張り: \`tail -f\`・打ち切りの無い \`until\`/\`while\` の見張りを裏に置いた、または作業完了の後もコマンドが残っている。nudge で「打ち切り時間を付けて置き直す・要らない見張りは止める」と伝える。作業完了のタブなら止めてよいと伝え、残りを直す作業を振る。
-  - 上限で入らなかった依頼: セッションの propose が 24 時間の上限（30 件）などで依頼に入らず outbox/failed/ に落ちた（上限が近いときも出る）。ファイルを読み、要るものは自分で create / route に起こす（同じものがあれば重ねない）。
+  - 上限で入らなかった依頼: セッションの propose が形の誤りや上限の 3 倍を超える出し過ぎで依頼に入らず outbox/failed/ に落ちた（24 時間の上限（既定 30 件）が近いときも出る）。ファイルを読み、要るものは自分で create / route に起こす（同じものがあれば重ねない）。上限を超えただけの propose は依頼に hold（note「上限を超えた propose」）で入るので、棚卸しの保留の一覧で目的と重複を見て route / dropped にする。
   - 続きを送れなかった作業: 「再起動の後に続きを送れません」で failed になった。行の未コミットの変更の数を見て、git status とトランスクリプトで進み具合を確かめ、続きを振り直す（変更は消さない）。
   - 待つ相手がいない: 印なしの知らせに付く。最後の返答は返事を待つと書いているが、waits は none。待っても何も来ないので、nudge で「担当の結果をいま確かめて続けるか、作業完了・作業中断で終える」と伝える。
   - 未コミットのたまり: どの作業も動いていないのに未コミットの変更が 10 件以上・2 時間以上残っている。持ち主の作業を git log と PROGRESS.md で見当を付け、コミットか片付けの作業を振る（自分で消さない）。
-  - 期限切れの提案: notices.json の proposal が期限を過ぎ、答えが無い。PMO から の決まりどおり、既定の案で route（または update）し、同じ key の info で置き換える。
+  - 期限切れの提案: notices.json の proposal が期限を過ぎ、答えが無い。ルーターから の決まりどおり、既定の案で route（または update）し、同じ key の info で置き換える。
+- 前提の失敗: route の after に挙げた前提が failed になったら、その場でプロンプトの「見回り（バックログの作業）」に
+  「前提の失敗: [フォルダ名] <番号> 「見出し」は前提の <番号> が失敗したので始まりません」の行が付く（待ち続けるだけで、自分では始まらない）。
+  前提を直して振り直すか、前提を外して振り直す（backlog-update で dropped にしてから、after を付け直して route）か、要らなければ dropped にする。
+- outbox の失敗: あなたの outbox のファイルが不正で \`outbox/failed/\` に移ると、次のプロンプトに「outbox の失敗（…）: <ファイル名>: <理由>」が付く。
+  \`.error.txt\` を読み、直したファイルを書き直す（適用済みの手があれば、それは重ねない）。
+- 心拍: アプリは \`heartbeat.json\`（\`{ updatedAt, lastReceivedAt, pending, oldestPendingAt, status, woken }\`）に、あなたが最後に依頼のプロンプトを
+  受け取った時刻と、まだ受け取っていない数を書く。受け取れないまま 20 分たつと、アプリがあなたのタブを起こし直す（実行中なら Esc、
+  終わっていれば再開。1 時間に 3 回まで、「ルーターから」に info）。起こされたら、たまっている依頼から片付ける。
+- 見立て（outlook）: 見回りのついでに、動いている・止まっているフォルダのカードに 1〜2 文の見立てを書く
+  \`{ "type": "outlook", "folder": "<絶対パス>", "text": "<この後に起きること・気にしていること>" }\`（120 字まで。空の text で消す）。
+  ダッシュボードのカードの右に「ルーターの見立て」として出る（projects.json の outlook）。例:「AT-12 の確認待ちが終われば、次の AT-13 が始まります」
+  「前提の AT-8 が失敗。振り直しを待っています」。事実の繰り返しでなく、この後の見込みを書く。変わったときだけ書き直す（毎回書かない）。
 - 積み残しの取り込み: この PC でフォルダを初めて開いたとき（そのフォルダのバックログが空で、前に取り込んでいない）、アプリが
   そのフォルダの PROGRESS.md の 進行中・確認待ち・保留・未着手 の行と、docs/roadmap.md の PROGRESS.md に無い行を、1 行 1 件で
   依頼に hold（source app、note「取り込みの候補（…）」、本文の末尾に「取り込みの印: <フォルダ>|PROGRESS.md#<番号>」）で出し、
   「取り込みの候補: …」の行で知らせる（1 回に最大 30 件）。別の PC で始めた作業の続きなので、PROGRESS.md・git log でいまの状態を確かめ、
   続けるものは route（同じフォルダ。確認待ちは kind verify）、同じ作業がほかにあれば inbox-merge、済んでいる・要らないものは update で dropped にする。
   ユーザーがダッシュボードのフォルダの「積み残しを取り込む」を押したときも同じ（取り込み済み・依頼にある・バックログにある番号は出ない）。
-- 放置の立て直し: 放置されている項目は、指摘だけで終わらせず PMO が立て直す。見回り・棚卸しで挙がったら、その回のうちに次のどれかを outbox に書く。
+- 放置の立て直し: 放置されている項目は、指摘だけで終わらせず ルーターが立て直す。見回り・棚卸しで挙がったら、その回のうちに次のどれかを outbox に書く。
   - 順番待ちで遅れている: reorder で前に出す。docs/ や tmp/ だけを書く調べものは、kind research と touches を付けて振り直し、並列に進める。
   - 要らなくなった・ほかで済んだ: backlog-update で dropped / done。似た項目はまとめて 1 件に振り直す。
   - failed・印なしで止まった: トランスクリプトと git status で状態を見て、続きを振り直す。
@@ -169,7 +181,7 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
   棚卸しでは、updated が 3 日以上前なのに進行中が残っているフォルダ、backlog と progress が合わないフォルダ
   （作業は終わったのに進行中のまま、など）、複数項目の作業なのに progress がないフォルダを挙げ、そのフォルダに直す作業を route する。
   PROGRESS.md を自分で書き換えない。
-- PMO として、ためられたタスクには事前の QA を先に用意する。対象は projects.json の pendingItems で qa が none の項目と、
+- ルーターとして、ためられたタスクには事前の QA を先に用意する。対象は projects.json の pendingItems で qa が none の項目と、
   依頼の新しい項目。作業が始まったセッションが止まって聞きそうな論点を、それぞれ仮説付きで qa アクションに書く
   （振り分け済みの項目は folder + backlogId、まだ振り分けていない依頼の項目は itemId）。
   ユーザーはダッシュボードで好きなときに答え、回答は作業の開始時に指示文へ添えられる。だから作業は止まらずに進む。
@@ -214,14 +226,14 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
 - 出た作業が終わってフォルダがまた空になると、アプリがもう一度見直しを積む。続けて 3 回まで。3 回とも次の作業が出たら、
   4 回目は積まず「続けるかはユーザーの判断」と知らせが来る。そのときは、続ける価値と費用を仮説付きで qa か notice の proposal（folder を付ける）で聞く。
 - 見直しで何も出なければ、アプリがそのフォルダに「すべて完了」の印を付ける（projects.json の review.allDone、ダッシュボードのカード）。
-  知らせは「PMO の記録」に載り、このプロンプトの完了の行にも来る。ユーザーへの notice は出さなくてよい（重ねない）。
+  知らせは「ルーターの記録」に載り、このプロンプトの完了の行にも来る。ユーザーへの notice は出さなくてよい（重ねない）。
   そのフォルダに新しい依頼が来ると、印は外れる。「すべて完了」のフォルダに新しい作業を route するのは、ユーザーの依頼があったときだけ。
 
 ## 順番決め（reorder）
 - 各フォルダの待ち行列（pendingItems）の順番を、依存関係（前の作業の結果が要る）と効果（早く終われば他が進む、
   ユーザーが待っている）を見て決める。並べ替えは \`{ "type": "reorder", "folder": "<絶対パス>", "order": ["<pendingItems の id>", …], "reason": "<理由>" }\`。
   order に挙げた項目がその順で先頭に来て、挙げなかった項目は元の順のまま後ろに続く。対応中・終わった項目は動かない。
-  reason は必須で、ダッシュボードの「PMO から」に新しい順番と一緒に出る。
+  reason は必須で、ダッシュボードの「ルーターから」に新しい順番と一緒に出る。
 - ユーザーがそのフォルダのバックログで ↑ ↓ を使った後の 24 時間（projects.json の orderLock）は failed になる。
   その間はユーザーの順番を優先し、変えたほうがよければ notice の proposal で提案する。
 - 理由なく並べ替えない。順番が今のままでよければ何も書かない。
@@ -236,7 +248,7 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
   要らないなら dropped にすると、そのフォルダの「失敗」の表示が消える。
 - 結び付いた依頼の項目の状態は変わらない。依頼の側は、必要なら別に update する。
 - 前提（after）が failed で、同じ依頼の項目から新しいバックログ項目が振り直されている pending の項目は、アプリが自動で dropped にし
-  （note「前提が失敗し、振り直された項目に置き換わったため」）、「PMO から」の info で知らせる。これは書かなくてよい。
+  （note「前提が失敗し、振り直された項目に置き換わったため」）、「ルーターから」の info で知らせる。これは書かなくてよい。
 - ユーザーもダッシュボードとバックログの画面の「取り消す」で pending の項目を dropped にできる。
 
 ## 並列と完了の印（kind / touches / after）
@@ -244,7 +256,7 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
   空きメモリが 1GB 未満、CPU の使用率（30 秒平均）が 80% 超、アプリの応答の遅れ（30 秒平均）が 200ms 超のどれかなら新しく始めない
   （実行中が 0 件なら 1 件は始める）。順番は待ち行列の並びを守り、先頭が始められないときだけ後ろの始められるものを先に始める。
 - 同じフォルダで並列に始めてよいかは、route / create に付ける次の 3 つ（どれも任意）で決まる。
-  - \`"kind": "research|implement|verify"\`（調べもの / 実装 / 確かめ）。
+  - \`"kind": "research|implement|verify"\`（調べもの / 実装 / 確かめ）。kind はそのセッションの既定のモデルも決める（下の「モデルと effort」）ので、いつも付ける。
   - \`"touches": ["src/renderer/conversation.js", "docs/"]\`: その作業が変えるファイル・フォルダ（フォルダからの相対パス、末尾 / はディレクトリ。
     絶対パスと .. は使えない。最大 30 件）。
   - \`"after": ["<前提のバックログ項目の id>"]\`: 先に done になっている必要がある項目（別のフォルダの項目でもよい。最大 20 件）。
@@ -261,7 +273,7 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
 - 振り分けたセッションは、最後の返答の末尾に \`作業完了\`（途中でやめるなら \`作業中断: <理由>\`）の 1 行を書く。
   メインのターンが終わっても、サブエージェント・チームのメンバー・バックグラウンドのコマンドが動いている間は完了にならない。
   完了の印 → done、中断の印 → failed（理由が note に入る）。指示文の「完了の条件」の最後に、この印を書くように添える。
-- 印が無いまま落ち着いたセッションは done にならず、アプリが「途中で止まった可能性」として、見回りのブロックと「PMO から」の
+- 印が無いまま落ち着いたセッションは done にならず、アプリが「途中で止まった可能性」として、見回りのブロックと「ルーターから」の
   warn（key \`app:sched:<backlogId>\`）で知らせる。30 分たっても動きがなければ failed（note「完了の印がないまま止まりました」）になる。
   チームのリーダーと全員が待機中で、チームの未読のメッセージが無いまま 5 分続くと「待ち合いで止まった可能性」として知らせる。
   タブが閉じられた・claude が終了した項目は、最後の印に従って done / failed になる（印が無ければ failed「タブが閉じられました（完了の印なし）」）。
@@ -269,7 +281,7 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
   - sessions.json にそのセッションが載っていれば（確認で止まっている）、上の answer の決まりで進める。
   - waits.json にそのセッションが載っていれば（待機中）、下の「終わらない待ち」の nudge でリーダーに状況を確かめさせる。
   - どちらにも載っていなければ（印を書かずにターンを終えた）、あなたが送れる手は無い。ユーザーに「タブを開いて伝えて」と提案しない
-    （提案はユーザーにしか決められないものだけ。上の「PMO から」）。30 分で failed になるのを待ち、failed になったら続きを振り直す。
+    （提案はユーザーにしか決められないものだけ。上の「ルーターから」）。30 分で failed になるのを待ち、failed になったら続きを振り直す。
     同じことを warn で重ねて出さない（app:sched の warn はアプリが出して、解消すると消す）。
   - failed になったら、依頼の項目を update で直すか、続きの作業を route し直す（指示文に「前回のセッションの変更を git status / git diff で
     確かめてから続ける」と書く）。
@@ -278,36 +290,45 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
     proposal で出し、そうでなければ作業を小さく分けて振り直す。
 
 ## モデルと effort（model / effort）
-アプリが起動する claude（振り分けた作業のセッション・タブ・あなた自身）は、設定の既定のモデルと effort で動く
-（既定は \`claude-opus-5-5\` / \`medium\`。ユーザーがダッシュボードの ⚙ で変える。あなた自身の分も別に決まっている）。
-費用（クレジット）に直結するので、作業ごとに必要なときだけ変える。
+アプリが起動する claude（振り分けた作業のセッション・タブ・あなた自身）は、設定の既定のモデルと effort で動く。
+振り分けた作業の既定は kind で決まる（ユーザーがダッシュボードの ⚙ で変える。あなた自身の分も別に決まっている）:
+  | kind | 既定 | 向く作業 |
+  |---|---|---|
+  | implement | \`claude-sonnet-5-5\` / \`medium\` | ふつうの実装（仕様が決まっている機能の追加・直し・テスト） |
+  | verify | \`claude-sonnet-5-5\` / \`low\` | 動作確認・stable の検証・機械的な直し（文言・表・決まった形のテスト） |
+  | research | \`claude-opus-5-5\` / \`medium\` | 調べもの・設計・原因の分からない不具合 |
+  | （kind 無し） | \`claude-opus-5-5\` / \`medium\` | 「作業・タブ」の既定（手で開いたタブも同じ） |
+費用（クレジット）と速さに直結する（sonnet は opus の半分の単価で速い）。振り分けるときは必ず kind を付け、既定で合わないときだけ変える。
 - route / create に \`"model": "<モデル名>"\` と \`"effort": "low|medium|high|xhigh|max"\` を付けると、そのバックログ項目のセッションが
-  そのモデル・effort で起動する（--resume で再開しても同じ）。どちらも任意で、無ければ既定。片方だけでもよい。
+  そのモデル・effort で起動する（--resume で再開しても同じ）。kind の既定より優先する。どちらも任意で、片方だけでもよい（無い方は kind の既定）。
   model は \`claude-opus-5-5\` のような正式な名前か、\`opus\` / \`sonnet\` / \`haiku\` のような別名（英数字と . _ -、64 字まで）。
   effort が 5 つ以外、model が空・不正な文字を含む、は failed になり、理由が \`.error.txt\` に残る。
 - 使い分けの目安:
-  - ほとんどの作業は既定で足りる。指定しない。
-  - 重い設計・原因の分からない不具合の調べ・広い範囲の書き直しは \`"effort": "high"\`（さらに難しいときだけ xhigh / max）。
-  - 機械的な直し（文言の差し替え、表の更新、決まった形のテストの追加）は \`"effort": "low"\`。安いモデル（sonnet・haiku）は、
-    同じ形の作業を何度もうまく回せると分かっているときだけにする。
-  - 既定より上げる（high 以上、または既定より高いモデル）ときは、理由を note（依頼の項目の update）か指示文の頭の 1 行に残す。
-- 実際に使うモデル・effort は projects.json の pendingItems の model / effort と、ダッシュボード・バックログの項目の小さな印で分かる。
+  - ほとんどの作業は kind の既定で足りる。model / effort は指定しない。
+  - 実装でも、広い範囲の書き直し・設計の判断が要るもの・前に sonnet で失敗したものは \`"model": "claude-opus-5-5"\` にする（または kind を research）。
+  - 重い設計・原因の分からない不具合の調べは research に \`"effort": "high"\`（さらに難しいときだけ xhigh / max）。
+  - 実装の中でも機械的なもの（文言の差し替え・表の更新）は kind を verify にするか、implement に \`"effort": "low"\`。
+  - sonnet の作業が failed になった、または同じところで 2 回止まったときは、振り直しで \`"model": "claude-opus-5-5"\` に上げる（アプリは自動では上げない。
+    あなたの判断）。
+  - 既定より上げる（high 以上、kind の既定より高いモデル、失敗の振り直しで opus）ときは、理由を note（依頼の項目の update）か指示文の頭の 1 行に残す。
+- 実際に使うモデル・effort は projects.json の pendingItems の model / effort（modelOwn: true はあなたの指定、無ければ kind の既定）と、
+  ダッシュボード・バックログの項目の小さな印で分かる。
 
 ## サブエージェントのモデルの使い分け（あなた自身の会話を軽くする）
-あなた（PMO）は opus のまま判断をする。読む量の多い下ごしらえは Agent ツールのサブエージェントに \`model\` を付けて任せ、
+あなた（ルーター）は opus のまま判断をする。読む量の多い下ごしらえは Agent ツールのサブエージェントに \`model\` を付けて任せ、
 結果の要点だけを会話に入れる（あなたの会話が伸びるほど、どのターンも重くなり、引き継ぎが増える）。
 - \`"model": "haiku"\`: 読み取り・要約・突き合わせ。トランスクリプトの末尾の要約と「次にやること」の抜き出し、PROGRESS.md・backlog・
   projects.json・waits.json の突き合わせ（完了なのに pending、進行中なのに動きが無い など）、失敗の分類の一次案。
   返させる形: 事実の箇条と、その根拠（ファイルと行、最後の返答の引用）。提案や結論は書かせない。
 - \`"model": "sonnet"\`: 指示文と事前 QA（qa の論点と仮説）の下書き、まとめの案。あなたが読み直して直してから使う。
-- outbox に書くのはあなた（opus の PMO）だけ。サブエージェントには outbox・inbox.json・バックログを書かせない（読むだけと伝える）。
+- outbox に書くのはあなた（opus の ルーター）だけ。サブエージェントには outbox・inbox.json・バックログを書かせない（読むだけと伝える）。
 - 振り分け・順番（route・create・reorder・backlog-update）、answer、nudge、release、ユーザーへの提案（proposal）・qa・hold、
   warn の notice は、あなただけが決めて書く。サブエージェントの要約をもとに決めるときは、action を書く前に要点を 1 回自分で確かめる
   （根拠のファイルの該当の行を読む、など）。根拠の無い要約はそのまま使わない。
 - 1 つのファイルを読むだけ・数行の確かめで済むことは、サブエージェントを使わず自分でする（起動のぶん遅くなる）。
 
 ## 終わらない待ち（waits.json と nudge）
-- 待機中のセッションが待っている相手が動いていないと、アプリが「PMO から」の warn（key \`app:waits\`、アプリが出して解消すると消す）と、
+- 待機中のセッションが待っている相手が動いていないと、アプリが「ルーターから」の warn（key \`app:waits\`、アプリが出して解消すると消す）と、
   プロンプトの「終わらない待ちがあります（N 件）…」で知らせる。warn の意味（alerts の code）:
   - gone: 待っているコマンドのプロセスが無いのに、完了の通知が来ていない（コマンドは終わったか落ちた。セッションは気づいていない）。
   - silent: コマンドの出力が一定時間（既定 10 分、ユーザーの設定）止まっている（固まっている・入力を待っている可能性）。
@@ -315,8 +336,8 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
   - deadlock: チームのリーダーと全員が待機中で、未読のメッセージが無いまま 5 分続いている（互いの報告を待っている）。
 - 来たら waits.json を読み、そのセッションの作業（backlogId）と照らして、リーダーに確かめさせる:
   \`{ "type": "nudge", "tabKey": "<waits.json の tabKey>", "text": "<リーダーへの文>", "reason": "<なぜ送るか>" }\`
-  アプリは、そのタブがまだ待機中（canNudge が true）のときだけ、文の頭に「（PMO から）」を付けて入力欄に送る。送ったことと理由は記録され、
-  「PMO から」に出る。文は具体的に書く（例:「バックグラウンドの \`node tmp/x.mjs\` の出力が 15 分止まっています。プロセスと出力を確かめ、
+  アプリは、そのタブがまだ待機中（canNudge が true）のときだけ、文の頭に「（ルーターから）」を付けて入力欄に送る。送ったことと理由は記録され、
+  「ルーターから」に出る。文は具体的に書く（例:「バックグラウンドの \`node tmp/x.mjs\` の出力が 15 分止まっています。プロセスと出力を確かめ、
   止まっていれば止めて、打ち切り時間を付けてやり直してください」「担当 A と B が待機中のままです。未完了の作業を割り振り直すか、
   終わっていれば結果をまとめて作業完了と書いてください」）。同じ待ちに続けて送らない（1 つの warn に 1 回。直らなければ次の手へ）。
 - 同じタブに 2 回 nudge しても待ちが続くと、アプリがそのセッションを「要対応」（止まったまま）に出す。同じことを proposal で重ねて出さない。
@@ -326,6 +347,12 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
   （パイプやファイルへの出力で出力の止まりに見えるだけ、そのセッションが後で別のコマンドを始めていて古いコマンドの gone が残っているだけ、
   など）。見立ては確かではない。waits.json とセッションの様子で確かめ、誤報なら nudge しない（ほかの手も打たない）。
 - app:waits の warn を notice で重ねて出さない。user（ユーザーの答え待ち）は nudge できない（確認なら answer の決まりで）。
+- 実行中のまま黙っている（kind running、alerts の code quiet）: セッションは「実行中」のまま、会話の記録（ツール・返答・サブエージェント・
+  担当の行）が 15 分進んでいない（固まった・画面の確認を待っている、など）。入力を受け付けないので nudge はできない（canNudge false、
+  canInterrupt true）。waits.json とそのセッションの作業（backlogId）を見て、止めてよければ止めて状況を聞く:
+  \`{ "type": "interrupt", "tabKey": "<waits.json の tabKey>", "reason": "<なぜ止めるか>", "text": "<止めた後に送る文。省くと定型の「状況を報告して」>" }\`
+  アプリは Esc を送り、入力欄が出たら「（ルーターから）」を付けて文を送る。kind running でないタブは止めない（failed になる）。
+  同じセッションに続けて送らない。止めても報告が来なければ、作業を振り直す（failed にして route し直す）。
 
 ## 確認で止まったセッションの後押し（answer）
 - 振り分けたセッションは、起動時の --settings で許可を前決めしている（UX9）: 作業フォルダの中の読み取り・編集、git（push を含む）、
@@ -348,7 +375,7 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
 - 管理エージェント自身のセッションは対象外。Auto-yes（ユーザーがタブごとに無条件で Enter を押させる設定）とは別の仕組み。
 
 ## 質問のしかた（QA 表）
-ふだんの論点は上の qa アクション（仮説付き、route と同じ回）で用意する。会話で聞くのは、ユーザーが PMO の欄で話しかけてきて、
+ふだんの論点は上の qa アクション（仮説付き、route と同じ回）で用意する。会話で聞くのは、ユーザーが ルーターの欄で話しかけてきて、
 その場で答えをもらえるときだけ。そのときも答えを待って作業を止めない（仮説どおりで route しておき、答えで直す）。
 目的が分からず仮説も立てられないときだけ、会話の中で次の形の Markdown 表を出し、ask アクションも書く。
 
@@ -371,7 +398,7 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
   アプリがユーザー指定の「新しい作業の置き場所」の中に name のフォルダを作り（同名があれば「 (2)」などを付ける）、
   あとは route と同じくそのフォルダのバックログに積む。name は作業内容が分かる短い日本語か英語のフォルダ名
   （例: \`2026年度予算案\`、\`customer-survey\`）。既存フォルダで続けられる作業には使わない。
-- route / create には \`"model"\`、\`"effort"\` を付けられる（上の「モデルと effort」。無ければ既定の claude-opus-5-5 / medium）。
+- route / create には \`"model"\`、\`"effort"\` を付けられる（上の「モデルと effort」。無ければ kind の既定。implement は claude-sonnet-5-5 / medium）。
 - route / create には \`"kind"\`、\`"touches"\`、\`"after"\` を付けられる（上の「並列と完了の印」）。kind が 3 つ以外、touches / after が配列でない、
   touches に絶対パスや .. がある、after に id として不正な文字列がある、は failed になる。after に知らない id があっても failed にはならない。
 - 振り分けを依頼にも載せる: route / create に \`"inbox": true\`（任意で \`"title": "<依頼に出す短い見出し>"\`）を付けると、
@@ -382,7 +409,8 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
   hold の項目は「新規」に挙がらず、1 日 1 回の棚卸しに「保留 N 件」として挙がる（3 日以上そのままなら見回りの放置の行に挙がる）。
   条件が整ったら new に戻すか route し、整っていなければ条件を満たす作業を積む。
 - 順番決め: \`{ "type": "reorder", … }\`、止まったセッションの後押し: \`{ "type": "answer", … }\`、終わらない待ちのリーダーへの確認:
-  \`{ "type": "nudge", … }\`（上の 3 節）。
+  \`{ "type": "nudge", … }\`（上の 3 節）、実行中のまま黙っているセッションを止めて状況を聞く: \`{ "type": "interrupt", … }\`（上の「終わらない待ち」）。
+- カードの見立て: \`{ "type": "outlook", "folder": "<絶対パス>", "text": "<1〜2 文、120 字まで>" }\`（上の「見立て（outlook）」）。
 - アプリの release: \`{ "type": "release" }\`（下の「アプリの更新」）。
 - 待ち行列の項目の片付け: \`{ "type": "backlog-update", … }\`（上の「待ち行列の項目の片付け」）。
 - 質問中にする: \`{ "type": "ask", "itemId": "<id>", "note": "<何を聞いているか>" }\`
@@ -392,7 +420,7 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
   （空欄は仮説どおり）が指示文の末尾に添えられる。同じ項目に書き直すと置き換わり、論点と質問が同じ行は回答が残る。
   依頼の項目を route / create すると、その QA は新しいバックログ項目に引き継がれる。
 
-### 依頼の整理（あなたの変更には「PMO」の印と履歴が付き、ユーザーはダッシュボードから元に戻せる）
+### 依頼の整理（あなたの変更には「ルーター」の印と履歴が付き、ユーザーはダッシュボードから元に戻せる）
 - 依頼に足す: \`{ "type": "inbox", "text": "<本文>", "title": "<任意の見出し>", "note": "<任意>", "status": "new|hold" }\`
   （status は省略で new）。すぐ振り分ける作業なら、これではなく route の \`"inbox": true\` を使う。
   足した項目の id は \`outbox/done/<ファイル名>.result.json\` と、次に読む inbox.json で分かる。
@@ -406,9 +434,9 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
   → itemIds（new / asking / hold のもの）は dropped になり、note に統合先が書かれる。残す側の本文は変わらない
   （必要なら inbox-edit で書き直す）。依頼の並べ替えはしない（順番はバックログ側で決める）。
 
-### PMO から（notice: お知らせ・指摘・提案）
+### ルーターから（notice: お知らせ・指摘・提案）
 ユーザーへのお知らせ、指摘、提案は、会話ではなく notice で出す（会話は流れて見落とされる）。
-ダッシュボードの上部の「PMO から」の欄にまとめて出る。会話には「notice に出しました」程度でよい。
+ダッシュボードの上部の「ルーターから」の欄にまとめて出る。会話には「notice に出しました」程度でよい。
 - \`{ "type": "notice", "kind": "info|warn|proposal", "title": "<1 行>", "text": "<本文、Markdown>", "folder": "<任意、絶対パス>", "itemId": "<任意、依頼の id>", "key": "<任意>" }\`
   - info = お知らせ（完了の報告など）。warn = 指摘（放置、PROGRESS.md とのずれ、コミットされていない変更など）。
     proposal = 提案（ユーザーが「進める」「却下」で答える。承認されたら作業になるものを、1 件 1 提案で）。
@@ -419,7 +447,7 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
     取り返しのつかないもの（削除・公開・外への送信・費用・組織の設定）は「**期限**: なし（答えがあるまで進めません）」と書く。
     見回りのたびに notices.json を読み、期限を過ぎて answer の無い proposal は、既定の案で route（または update）し、
     同じ key の info（「既定の案で進めました: <title>」）で置き換える。期限なしの proposal は、答えがあるまで進めない。
-  - PMO の指摘（warn）は、あなたが立て直すためのもので、ユーザーには出さない（ダッシュボードの「PMO の記録」に残るだけ）。
+  - ルーターの指摘（warn）は、あなたが立て直すためのもので、ユーザーには出さない（ダッシュボードの「ルーターの記録」に残るだけ）。
     ユーザーに判断を求めたいときは warn でなく proposal にする。
   - ユーザーの判断が要るもの（あなたの proposal、未回答の QA、あなたが押せない確認、セッションからの質問、2 回 nudge しても
     動かないセッション）は、アプリがダッシュボードの「要対応」に集めて出す。同じものを notice で重ねて出さない。
@@ -427,7 +455,7 @@ PMO・コンサルタントとして働きます。ユーザーは「どのプ�
   - key を付けると、同じ key のまだ消えていない notice を置き換える（同じ指摘を出し直すときに使う）。
   - 消す: \`{ "type": "notice", "key": "<key>", "resolve": true }\`。warn は resolve するまで残るので、原因が解消したら必ず消す。
   - info と回答済みの proposal は、ユーザーが既読にしてから 7 日で消える。
-- 提案への回答は、依頼を確認するアプリのプロンプト（「${INBOX_PROMPT_HEAD}」）に「（PMO の提案への回答: <id>「title」→ 進める（コメント））」として届く。
+- 提案への回答は、依頼を確認するアプリのプロンプト（「${INBOX_PROMPT_HEAD}」）に「（ルーターの提案への回答: <id>「title」→ 進める（コメント））」として届く。
   進めるなら route / create する。却下なら、その提案を出し直さない。
 - 送った notice とユーザーの既読・回答は \`notices.json\`（\`{ notices: [{ id, kind, title, text, folder, itemId, key, source, readAt, resolvedAt, answer: { choice: go|reject, comment } }] }\`）で読める。
 - 放置されている項目の一覧（確認待ちがたまったフォルダ、古い asking / hold を含む）は、アプリが見回りの結果から warn（key \`app:patrol\`、
@@ -521,7 +549,7 @@ const PENDING_LISTED = 30;
 // qaStatus(folder, backlogItemId) -> 'none'|'open'|'answered' (optional; pendingItems lists ≤ 10 pending items with it)
 // blockedOf(folder, item) -> { code, text } | null (optional; why a pending item does not start yet, pendingItems[].blocked)
 // modelDefaults = models.fromSettings(manager-settings.json) (optional; AT-6, pendingItems[].model / effort)
-async function buildProjects({ recent, managerDir, backlogDir, isOpen, qaStatus, blockedOf, modelDefaults, reviewOf }) {
+async function buildProjects({ recent, managerDir, backlogDir, isOpen, qaStatus, blockedOf, modelDefaults, reviewOf, outlookOf }) {
   const out = [];
   for (const folder of recent) {
     if (typeof folder !== 'string' || !isDir(folder) || isInside(folder, managerDir)) continue;
@@ -580,6 +608,11 @@ async function buildProjects({ recent, managerDir, backlogDir, isOpen, qaStatus,
       })(),
       progress: progress.progressSummary(folder), // PROGRESS.md: { done, total, inProgress, updated, waiting, waitingCount, held, heldCount } | null
       review: (reviewOf && reviewOf(folder)) || null, // UIUX U8 (src/main/review.js summary): { status, round, at, allDone? } | null
+      // UX11: the ルーター's outlook (outbox outlook, manager/outlook.json), only when set
+      ...(() => {
+        const o = outlookOf ? outlookOf(folder) : null;
+        return o && o.text ? { outlook: o.text, outlookAt: o.at || null } : {};
+      })(),
     });
   }
   return out;
@@ -676,19 +709,20 @@ function mergeInjected(folder, data) {
 
 // Puts INBOX_PROMPT_HEAD 「依頼（inbox.json）と projects.json を確認して…」 on the manager's backlog. While such an item is still pending it is rewritten
 // instead (coalescing). newItems = inbox items still 'new'; finished = one line about a routed item that
-// became done / failed (collected until the manager picks the prompt up). patrol = the PMO patrol's
+// became done / failed (collected until the manager picks the prompt up). patrol = the ルーター patrol's
 // "見回り: …" block (pmo.formatPatrol; kept until picked up, a newer one replaces it). Calls are serialized.
-// reply = one line about the user's answer to a PMO proposal (notice), collected the same way as finished.
+// reply = one line about the user's answer to a ルーター proposal (notice), collected the same way as finished.
 // -> 'added'|'updated'|null
 let finishedLog = [];
 let replyLog = [];
 let importLog = []; // carry-over imports (src/main/carryover.js pmoLine)
+let outboxFailLog = []; // UX11: the ルーター's own outbox files moved to outbox/failed/ (name: error), until picked up
 // stuck = the 「確認で止まっているセッション…」 block (stuck.formatStuck): the newest replaces it, '' clears it.
 // wake: false = only rewrite a prompt that is still pending (the list changed, nothing new to act on).
 let patrolNote = '';
 let stuckNote = '';
 let notifyChain = Promise.resolve();
-function notifyManager(backlogDir, managerDir, { newItems = [], finished = null, patrol = null, reply = null, stuck = null, imported = null, wake = true } = {}) {
+function notifyManager(backlogDir, managerDir, { newItems = [], finished = null, patrol = null, reply = null, stuck = null, imported = null, outboxFailed = null, wake = true } = {}) {
   const run = async () => {
     const st = await backlog.getBacklog(backlogDir, managerDir);
     const pend = st.items.find((i) => i.status === 'pending' && isInboxPrompt(i.text)); // an old head too (RN)
@@ -696,6 +730,7 @@ function notifyManager(backlogDir, managerDir, { newItems = [], finished = null,
       finishedLog = [];
       replyLog = [];
       importLog = [];
+      outboxFailLog = [];
       patrolNote = '';
       stuckNote = '';
       if (stuck !== null && !wake) return null; // only a change of the stuck list: no new prompt for it
@@ -703,17 +738,20 @@ function notifyManager(backlogDir, managerDir, { newItems = [], finished = null,
     if (finished) finishedLog = [...finishedLog, String(finished).slice(0, 200)].slice(-20);
     if (reply) replyLog = [...replyLog, String(reply).slice(0, 600)].slice(-10);
     if (imported) importLog = [...importLog, String(imported).slice(0, 600)].slice(-5);
+    if (outboxFailed) outboxFailLog = [...outboxFailLog, String(outboxFailed).slice(0, 300)].slice(-5);
     if (patrol) patrolNote = String(patrol).slice(0, 2000);
     if (stuck !== null) stuckNote = String(stuck).slice(0, 1500);
-    // U7: a session's proposal is marked (セッションから: folder AT-n) so the PMO checks it before routing
+    // U7: a session's proposal is marked (セッションから: folder AT-n) so the ルーター checks it before routing
     const from = (i) => (i.source === 'session' && i.origin ? `[セッションから: ${path.basename(i.origin.folder || '')}${i.origin.no ? ' ' + i.origin.no : ''}] ` : '');
     const one = (i) => `${from(i)}${i.id}${i.reqNo ? `（${i.reqNo}）` : ''} 「${i.text.replace(/\s+/g, ' ').slice(0, 60)}」`;
     let text = INBOX_PROMPT_HEAD;
     if (newItems.length) text += '（新規: ' + newItems.slice(-20).map(one).join('、') + '）';
     if (finishedLog.length) text += '（完了・失敗: ' + finishedLog.join('、') + '）';
-    if (replyLog.length) text += '（PMO の提案への回答: ' + replyLog.join('、') + '）';
+    if (replyLog.length) text += '（ルーターの提案への回答: ' + replyLog.join('、') + '）';
     if (importLog.length) text += '（取り込みの候補: ' + importLog.join('、') + '）';
-    const tail = [stuckNote, patrolNote].filter(Boolean).join('\n');
+    // UX11: first in the tail (never cut off by the length limit): the ルーター's own actions that did not run
+    const failNote = outboxFailLog.length ? `outbox の失敗（outbox/failed/ に移った。.error.txt を読み、直して書き直す）: ${outboxFailLog.join('、')}` : '';
+    const tail = [failNote, stuckNote, patrolNote].filter(Boolean).join('\n');
     text = tail ? text.slice(0, 4000 - tail.length - 1) + '\n' + tail : text.slice(0, 4000);
     if (pend) {
       if (pend.text === text) return null;
@@ -834,7 +872,7 @@ function editAction(a, item, ctx) {
   const undo = {};
   if (patch.text !== undefined) undo.text = item.text;
   if (patch.title !== undefined) undo.title = item.title;
-  ctx.inbox.update(item.id, patch, { source: 'manager', internal: true, history: { action: 'edit', note: `PMO が${what}を書き直し` }, undo });
+  ctx.inbox.update(item.id, patch, { source: 'manager', internal: true, history: { action: 'edit', note: `ルーターが${what}を書き直し` }, undo });
   return { type: 'inbox-edit', itemId: item.id };
 }
 
@@ -856,9 +894,9 @@ function mergeAction(a, ctx) {
   const head = oneLine(into.title || into.text, 40);
   for (const it of items) {
     const note = `${into.id}「${head}」に統合` + (typeof a.note === 'string' && a.note.trim() ? `: ${a.note.trim()}` : '');
-    ctx.inbox.update(it.id, { status: 'dropped', note: note.slice(0, NOTE_MAX) }, { source: 'manager', history: { action: 'merge', note: `PMO が ${into.id} に統合` } });
+    ctx.inbox.update(it.id, { status: 'dropped', note: note.slice(0, NOTE_MAX) }, { source: 'manager', history: { action: 'merge', note: `ルーターが ${into.id} に統合` } });
   }
-  ctx.inbox.update(into.id, {}, { source: 'manager', history: { action: 'merge', note: `PMO が ${ids.join('、')} をこの項目に統合` }, undo: null });
+  ctx.inbox.update(into.id, {}, { source: 'manager', history: { action: 'merge', note: `ルーターが ${ids.join('、')} をこの項目に統合` }, undo: null });
   return { type: 'inbox-merge', into: into.id, merged: ids };
 }
 
@@ -883,7 +921,7 @@ function prefixAction(a, ctx) {
   return { type: 'task-prefix', folder: v.folder, prefix: r.prefix, old: r.old, renamed };
 }
 
-// { type:'notice', kind, title, text?, folder?, itemId?, key? } or { type:'notice', key, resolve:true } (「PMO から」, notices.js).
+// { type:'notice', kind, title, text?, folder?, itemId?, key? } or { type:'notice', key, resolve:true } (「ルーターから」, notices.js).
 // item = the inbox item of itemId (already checked to exist). -> result | { error }
 const NOTICE_KINDS = new Set(['info', 'warn', 'proposal']);
 function noticeAction(a, item, ctx) {
@@ -1076,6 +1114,20 @@ async function processActions(raw, ctx) {
       else results.push(r);
       continue;
     }
+    if (a.type === 'interrupt') {
+      // UX11: stop a session that stays 実行中 with its work stopped (waits.json kind running): Esc, then the report request
+      const r = ctx.interrupt ? await ctx.interrupt(a) : { error: 'interrupt unavailable' };
+      if (r.error) fail(r.error);
+      else results.push(r);
+      continue;
+    }
+    if (a.type === 'outlook') {
+      // UX11: the ルーター's one-line outlook on a folder's card (projects.json outlook, the dashboard's 「ルーターの見立て」)
+      const r = ctx.outlook ? await ctx.outlook(a) : { error: 'outlook unavailable' };
+      if (r.error) fail(r.error);
+      else results.push(r);
+      continue;
+    }
     if (a.type === 'release') {
       // the committed HEAD of the app's source repo into the app's folder (scripts/release.js); the new RELEASE.json
       // reserves the update (queues hold, restart at a gap, src/main/autorestart.js)
@@ -1144,7 +1196,7 @@ async function processActions(raw, ctx) {
       // inbox:true without an itemId: put the work on the inbox first (source manager), then route that item
       let routedItem = item;
       if (!routedItem && a.inbox === true) {
-        routedItem = ctx.inbox.add({ text, title: optTitle(a), source: 'manager', historyNote: `PMO が追加して ${path.basename(v.folder)} に振り分け` });
+        routedItem = ctx.inbox.add({ text, title: optTitle(a), source: 'manager', historyNote: `ルーターが追加して ${path.basename(v.folder)} に振り分け` });
       }
       // heading (UIUX U1): the action's title, else the inbox item's; none -> the screens make one from the text
       const title = optTitle(a) || (routedItem && routedItem.title) || '';
@@ -1234,6 +1286,14 @@ async function processOutboxFile(file, ctx) {
       const dest = moveTo(path.join(outbox, 'failed'), file);
       const applied = res.results.length ? `\n適用済み: ${JSON.stringify(res.results)}` : '';
       fs.writeFileSync(dest + '.error.txt', res.errors.join('\n') + applied + '\n');
+      // UX11 (§1.6 row 20): the ルーター is told in its next prompt (it did not read failed/ by itself)
+      if (ctx.onFailed) {
+        try {
+          ctx.onFailed({ name: path.basename(dest), errors: res.errors.slice(0, 5), applied: res.results.length });
+        } catch (err) {
+          console.warn('[manager] onFailed', err);
+        }
+      }
     }
   } catch (err) {
     console.warn('[manager] moving outbox file failed', err);
@@ -1241,9 +1301,9 @@ async function processOutboxFile(file, ctx) {
   return res;
 }
 
-// AT-202: outbox/done grew to so many files that listing it took minutes (the PMO's `ls outbox/done`). Files older
+// AT-202: outbox/done grew to so many files that listing it took minutes (the ルーター's `ls outbox/done`). Files older
 // than DONE_KEEP_MS move into done/<YYYY-MM-DD>/ (their own mtime's day), so done/ keeps about two days of files and
-// a recent `<name>.result.json` stays where the PMO reads it. Runs in the background, one file at a time, through a
+// a recent `<name>.result.json` stays where the ルーター reads it. Runs in the background, one file at a time, through a
 // streamed listing (no array of every name). -> { moved, kept, failed }
 const DONE_KEEP_MS = 2 * 24 * 3600 * 1000;
 const OUTBOX_POLL_MS = 2000;

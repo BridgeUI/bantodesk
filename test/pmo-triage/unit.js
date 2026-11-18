@@ -95,7 +95,7 @@ async function main() {
   r = await T.triageRound({ prev: base, cur: next, now, lastWakeAt: now - 1 * MIN, ask: asker(answer({ wake: true, points: [{ ref: reQ, fact: 'three が active から pending に戻った' }, { ref: 'b:/made/up|x', fact: '作り話' }] })) });
   ok('R3 unsure -> one call, woken, the point first, invented ref dropped', r.wake && r.called && calls === 1 && r.reason === 'changes' && r.points.length === 1 && /three が active から pending/.test(r.lines[0]) && !r.lines.some((l) => /作り話/.test(l)), r.lines);
   ok('R4 the prompt lists only the unsure refs, facts only', /\[b:[^\]]*\|r-3\]/.test(prompts[0]) && !/r-2\]/.test(prompts[0]) && !/\[i:q1\]/.test(prompts[0]) && /事実だけを書く/.test(prompts[0]) && /一覧に無い ref を作らない/.test(prompts[0]), prompts[0]);
-  ok('R5 formatTriage names haiku and that the PMO decides', /前さばき（haiku が事実を並べたもの。判断は PMO）/.test(T.formatTriage(r)) && T.formatTriage(r).length <= 1000);
+  ok('R5 formatTriage names haiku and that the ルーター decides', /前さばき（haiku が事実を並べたもの。判断は ルーター）/.test(T.formatTriage(r)) && T.formatTriage(r).length <= 1000);
   r = await T.triageRound({ prev: base, cur: next, now, lastWakeAt: now - 1 * MIN, ask: asker(answer({ wake: false, points: [] })) });
   ok('R6 haiku: nothing to act on -> not woken, the changes kept as passed', !r.wake && r.called && r.ok && r.passed.length === 4, r.passed.map((c) => c.ref));
   const passed = r.passed;
@@ -169,7 +169,7 @@ async function main() {
   // ---- M: wiring ----
   const main = fs.readFileSync(path.join(root, 'src', 'main.js'), 'utf8');
   ok('M1 main.js: the patrol interval from the settings (triage.patrolEveryMs), tests via _EVERY_MS with the e2e mark', /triage\.patrolEveryMs\(loadManagerSettings\(\)\)/.test(main) && /e2e && Number\(process\.env\.AGENT_TERMINAL_PATROL_EVERY_MS\)/.test(main) && !/tick\(pmo\.PATROL_EVERY_MS\)/.test(main));
-  ok('M2 runPatrol runs triageRound and the PMO only on d.report || t.wake (|| a new 見回りの検出, tmp/patrol)', /triage\.triageRound\(/.test(main) && /if \(d\.report \|\| t\.wake( \|\| gapWake)?\)/.test(main) && /triage\.formatTriage\(t\)/.test(main));
+  ok('M2 runPatrol runs triageRound and the ルーター only on d.report || t.wake (|| a new 見回りの検出, tmp/patrol)', /triage\.triageRound\(/.test(main) && /if \(d\.report \|\| t\.wake( \|\| gapWake)?\)/.test(main) && /triage\.formatTriage\(t\)/.test(main));
   ok('M3 the patrol, the progress check and the waits opinion (依頼-187) share haikuRunner (one at a time, memory)', (main.match(/haikuRunner\(\)\.run\(/g) || []).length === 3 && /memOk: \(\) => !schedMon\(\)\.over\(/.test(main));
   const pc = fs.readFileSync(path.join(root, 'src', 'main', 'progress-check.js'), 'utf8');
   ok('M4 progress-check.js uses triage.runClaude (no own spawn)', /triage\.runClaude\(/.test(pc) && !/require\('child_process'\)/.test(pc));

@@ -41,7 +41,7 @@ function longTempEnv(env) {
   return env;
 }
 // SEC5 (src/main/pretool-guard.js, docs/security.md): every claude the app starts (folder tabs,
-// routed sessions, the PMO, temp windows) gets
+// routed sessions, the ルーター, temp windows) gets
 //   permissions.deny  globs for command lines endpoint security (EDR) products judges as malware. These work under the managed policy.
 //   hooks.PreToolUse  node <pretool-guard.js> (the precise check with a reason). Ignored on a PC whose managed settings
 //                     have allowManagedHooksOnly; kept for when that is lifted.
@@ -55,11 +55,11 @@ const MCP_ALLOW = ['mcp__bantodesk__notify'];
 //            and Claude Code's temp folders, reads under the home folder except the secret stores, and a fixed list of
 //            commands (git incl. push, file tools, node <file>, npm run / test). User QA (UX9 #2): deleting, git push and
 //            the outside of the folder need no confirmation; only kernel / malware-like moves do.
-//   manager  the PMO's resident session: reads and edits in the manager folder (cwd, with outbox/), reads under the home
+//   manager  the ルーター's resident session: reads and edits in the manager folder (cwd, with outbox/), reads under the home
 //            folder except the secret stores (the projects' PROGRESS.md / docs), read-only commands.
 // Claude Code checks deny, then ask, then allow (the first match wins), and the PreToolUse hook runs before them, so the
 // SEC5 deny rules and the hook stay above every allow here. The ask rules below put the shapes that used to ask (and
-// that the PMO never presses for: inline code, heredocs, find -exec, the secret stores, force push, .git) back to a
+// that the ルーター never presses for: inline code, heredocs, find -exec, the secret stores, force push, .git) back to a
 // dialog even when an allow rule would match them. Nothing denied by SEC5 is allowed: tmp/nonstop/unit.js checks that
 // no allow rule is a deny rule and that the deny list is the SEC5 one unchanged.
 // Rule syntax: ./x = the cwd (the work folder), ~/x = the home folder, //x = an absolute path.
@@ -71,7 +71,7 @@ const ROUTED_BASH = [
   'printf', 'date', 'which', 'basename', 'dirname', 'realpath', 'sed -n', 'test', 'true', 'sleep', 'cd', 'mkdir', 'touch', 'cp', 'mv', 'rm',
   'node', 'npm test', 'npm run', 'npm ls', 'timeout * node', 'timeout * npm run', 'timeout * npm test',
 ];
-// The PMO: read-only commands (it edits nothing outside the manager folder, manager.js "他のフォルダのファイルを自分で編集しない").
+// The ルーター: read-only commands (it edits nothing outside the manager folder, manager.js "他のフォルダのファイルを自分で編集しない").
 const MANAGER_BASH = [
   ...['status', 'diff', 'log', 'show', 'rev-parse', 'ls-files', 'branch', 'blame'].map((c) => `git ${c}`), 'git -C * status', 'git -C * log', 'git -C * diff', 'git -C * show',
   'ls', 'cat', 'head', 'tail', 'wc', 'grep', 'rg', 'find', 'diff', 'sort', 'jq', 'stat', 'pwd', 'date', 'sed -n', 'cd', 'sleep',
@@ -100,7 +100,7 @@ const ASK_BASH = [
   // AT-135: making a repository, changing who can see it, and pointing the work
   // folder at another remote need the user. Ask, not the SEC5 deny:
   // the OSS release uses gh repo create --public with the user's OK. stuck.js REPO_RE keeps the
-  // PMO from pressing these dialogs.
+  // ルーター from pressing these dialogs.
   ...REPO_ASK_BASH(),
 ];
 // gh repo create / edit (--visibility) / delete / rename / archive / fork, gh api calls that write (-X / --method other
@@ -130,7 +130,7 @@ function claudeTempRules(tool, tmp) {
   if (process.platform !== 'win32') out.push(`${tool}(//tmp/claude-*/**)`, `${tool}(//private/tmp/claude-*/**)`);
   return out;
 }
-// The ask rules every kind but the PMO carries (the PMO edits nothing outside its folder, so no Edit asks there).
+// The ask rules every kind but the ルーター carries (the ルーター edits nothing outside its folder, so no Edit asks there).
 const askRules = () => [...SECRET_PATHS.map((p) => `Read(${p})`), ...SECRET_PATHS.map((p) => `Edit(${p})`), ...ASK_BASH.map((p) => `Bash(${p})`)];
 function roleRules(kind, tmp) {
   if (kind === 'routed') {
@@ -153,10 +153,46 @@ function roleRules(kind, tmp) {
   return { allow: [], ask: askRules() };
 }
 const SETTINGS_KINDS = ['base', 'routed', 'manager'];
-const settingsName = (kind) => (kind === 'base' || !kind ? SETTINGS_NAME : `claude-settings-${kind}.json`);
+const settingsName = (kind, lean = false) => {
+  const stem = kind === 'base' || !kind ? 'claude-settings' : `claude-settings-${kind}`;
+  return lean ? `${stem}-lean.json` : `${stem}.json`;
+};
 
-// kind: 'base' (folder tabs opened by hand, temp windows), 'routed', 'manager' (roleRules above).
-function claudeSettings(tmp, kind = 'base') {
+// TK2 (docs/plan-token.md §3・§5): the lean preamble. Added to the --settings file of a claude started with leanPreamble
+// on (the default; off for the whole app or per folder in manager-settings.json, leanPreambleFor). Each key is a
+// documented setting that --settings may set (https://code.claude.com/docs/en/settings-reference, measured with
+// tmp/tk2/probe.mjs on claude 2.1.316: the system blob 45,670 -> 12,474 chars):
+//   disableClaudeAiConnectors  the claude.ai connectors (Adobe, Gmail, Drive, Calendar, …): their deferred tool names and
+//                              MCP instructions.
+//   syncClaudeAiPlugins false  the plugins enabled on the claude.ai account (their skills and their MCP servers).
+//   syncClaudeAiSkills false   the skills enabled on the claude.ai account (anthropic-skills:*).
+// Kept: the app's MCP (--mcp-config, bantodesk notify), the user's own MCP servers (~/.claude.json, .mcp.json: no
+// --strict-mcp-config), personal and project skills, the built-in skills and Claude in Chrome. The synced files under
+// ~/.claude are left as they are (only this session does not load them); ~/.claude/settings.json is never written.
+// Decided at the start and never changed while the session runs: the system layer is the head of the prompt cache.
+const LEAN_SETTINGS = Object.freeze({ disableClaudeAiConnectors: true, syncClaudeAiPlugins: false, syncClaudeAiSkills: false });
+
+// manager-settings.json { leanPreamble?: boolean (default true), leanPreambleOff?: [absolute folder, …] } -> whether a
+// claude started in workDir gets the lean settings. A folder inside a listed folder is off too. workDir null (no
+// folder) -> the app-wide value.
+function leanPreambleFor(settings, workDir) {
+  const s = settings && typeof settings === 'object' ? settings : {};
+  if (s.leanPreamble === false) return false;
+  if (!workDir || !Array.isArray(s.leanPreambleOff)) return true;
+  const norm = (p) => {
+    const r = path.resolve(String(p));
+    return process.platform === 'win32' ? r.toLowerCase() : r;
+  };
+  const w = norm(workDir);
+  return !s.leanPreambleOff.some((f) => {
+    if (typeof f !== 'string' || !path.isAbsolute(f)) return false;
+    const o = norm(f);
+    return w === o || w.startsWith(o.endsWith(path.sep) ? o : o + path.sep);
+  });
+}
+
+// kind: 'base' (folder tabs opened by hand, temp windows), 'routed', 'manager' (roleRules above). lean: + LEAN_SETTINGS.
+function claudeSettings(tmp, kind = 'base', lean = false) {
   const r = roleRules(kind, tmp);
   const deny = guard.denyRules();
   // an allow rule that is also a SEC5 deny rule is dropped (e.g. Bash(node) alone: SEC5 denies code piped into it)
@@ -165,24 +201,25 @@ function claudeSettings(tmp, kind = 'base') {
   // likewise an ask rule that is a deny rule (deny is checked first, so it never asks; e.g. Bash(node -))
   const ask = r.ask.filter((a) => !denied.has(a));
   if (ask.length) permissions.ask = ask;
-  return { ...CLAUDE_SETTINGS, permissions, hooks: guard.hookSettings() };
+  return { ...CLAUDE_SETTINGS, ...(lean ? LEAN_SETTINGS : {}), permissions, hooks: guard.hookSettings() };
 }
 
-// Writes <dir>/claude-settings.json (or claude-settings-<kind>.json). Returns its path, or null when it could not be written.
-function writeClaudeSettings(dir, kind = 'base') {
-  const file = path.join(dir, settingsName(kind));
+// Writes <dir>/claude-settings.json (or claude-settings-<kind>.json; lean: …-lean.json). Returns its path, or null when
+// it could not be written.
+function writeClaudeSettings(dir, kind = 'base', lean = false) {
+  const file = path.join(dir, settingsName(kind, lean));
   try {
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(claudeSettings(undefined, kind), null, 1));
+    fs.writeFileSync(file, JSON.stringify(claudeSettings(undefined, kind, lean), null, 1));
     return file;
   } catch (err) {
     console.warn('[claude-cmd] settings file not written', err);
     return null;
   }
 }
-// All three -> { base, routed, manager } (paths or null).
-function writeAllClaudeSettings(dir) {
-  return Object.fromEntries(SETTINGS_KINDS.map((k) => [k, writeClaudeSettings(dir, k)]));
+// All three -> { base, routed, manager } (paths or null). lean: the TK2 files (claude-settings[-kind]-lean.json).
+function writeAllClaudeSettings(dir, lean = false) {
+  return Object.fromEntries(SETTINGS_KINDS.map((k) => [k, writeClaudeSettings(dir, k, lean)]));
 }
 
 // PowerShell single-quoted string literal. Inside '...' only quote characters are special;
@@ -224,12 +261,15 @@ const GUARD_PROMPT = [
 const ROUTED_PROMPT_FALLBACK = [
   'このセッションは、依頼やバックログから振り分けられた作業を、ユーザーが画面を見ていない状態で進めている。',
   '並行できる作業（調べもの、複数ファイルの読み取り、差分のレビュー、動作確認、独立した小さな実装）は、Agent ツールのサブエージェントや Agent Teams のチームメンバーに分担して並行に進める。',
+  '分担の目安: 独立した塊が 2 つ以上あり、それぞれが 10 分を超えそうなら分ける。結果だけが要るものは name なしのサブエージェント、途中でやり取りが要るものは name 付きのチームメンバーにし、名前付きのメンバーは一度に数人ずつ起こす。',
   '1 回で終わる小さな作業は分けずに自分でやる。開発サーバーや Electron を起動するときは、ポートと user-data-dir をエージェントごとに分ける。',
   // docs/plan-backlog-sched.md "同じフォルダで並列に動くときのコミット"
   '同じフォルダで別の作業が並列に動いていることがある。コミットは自分が触ったファイルだけを git commit -m <メッセージ> -- <ファイル> で入れ、新しいファイルは先に git add -N -- <ファイル> する。パスなしの git commit、git commit -a、git add . / -A は使わない。',
   'index.lock や cannot lock ref のエラー、新しいファイルの pathspec did not match が出たら、少し待って add からやり直す。.git/index.lock は消さない。',
   // PROGRESS 40: no endless waits
   '長いコマンドや外部の処理には必ず打ち切り時間を付ける。バックグラウンドで待つときは、何を何分くらい待つ見込みかを返答に書く。待っている相手が止まったと思ったら、待ち続けずに出力とプロセスを確かめる。チームの担当に完了の通知を待つだけの役をさせない。',
+  // 依頼 2026-11-16: no endless watch (patrol-gaps (3) finds tail -f)
+  'バックグラウンドの見張りに tail -f / tail -F を使わない（自分では終わらない）。コマンドの完了の通知を待ち、途中の様子はその都度 tail -n で読む。',
   // UX9: no questions to the user, the hypotheses in the last reply, the permissions decided at the start, SEC5 in short
   'ユーザーへの質問（AskUserQuestion）は使わない。指示文の事前の QA の回答（空欄は仮説どおり）、リポジトリの決まり、いまのコードから仮説を立てて進め、最後の返答に 仮説で決めたこと（何を・なぜ・違ったときの直し方）と 事後の確認 を書く。',
   '本当に決められないもの（目的が分からない、取り返しがつかない、費用がかかる）だけは、決められる部分を済ませてから、propose で依頼に出すか 作業中断: <理由> で返す。',
@@ -239,7 +279,7 @@ const ROUTED_PROMPT_FALLBACK = [
   '指示文の範囲が終わったら、続きの作業を自分で始めない（同じセッションで続けると重くなる）。指示文の範囲の中の小さな直し（テストの直し、書き漏れ）は、今のセッションで済ませてよい。',
   '範囲の外の作業や、大きな作業（1 時間を超える、ほかのファイル群に広がる）が次に要ると分かったら、次にやること（propose）として依頼に出す。迷ったら出す。出した後は、今の作業を区切りよく終えて 作業完了 で終える。',
   '出し方: 作業フォルダの直下の .bantodesk/outbox/ に、名前が .json で終わるファイルを 1 つ書く（例 .bantodesk/outbox/propose-1.json。.bantodesk は git に入らない）。中身は JSON のオブジェクト 1 つか、その配列（一度に 5 件まで）。欄は type（propose と書く）、title（20 字程度の見出し）、text（新しいセッションがそれだけで作業できる指示文: 目的、背景、やること、完了の条件、確かめ方）、reason（なぜ次に要るか）、from（この作業の id。指示文の末尾の この作業の id）、任意で kind（research / implement / verify）、touches（変えるファイル・フォルダの相対パスの配列）、after（先に終わっている必要がある作業の id の配列）。',
-  'アプリが数秒で読み取り、.bantodesk/outbox/done/ に移して結果を <名前>.result.json に置く。不正なものは failed/ に移り、理由が <名前>.error.txt に残るので、直して書き直す。出した項目は依頼に入り、PMO が目的と重複を見て振り分ける。自分で振り分けたり、出した作業を自分で始めたりしない。',
+  'アプリが数秒で読み取り、.bantodesk/outbox/done/ に移して結果を <名前>.result.json に置く。不正なものは failed/ に移り、理由が <名前>.error.txt に残るので、直して書き直す。出した項目は依頼に入り、ルーターが目的と重複を見て振り分ける。自分で振り分けたり、出した作業を自分で始めたりしない。',
   // the app reads this mark to judge the routed item done / stopped
   '作業をすべて終えたら、最後の返答の末尾に 作業完了 の 1 行だけを書く。途中で止める場合は 作業中断: <理由> と書く。サブエージェントやチームメンバー、バックグラウンドのコマンドの結果を待つ間は書かない（この印でアプリが完了を判定する）。',
 ].join('\n');
@@ -259,9 +299,12 @@ function routedPrompt(file) {
 // so Japanese, quotes and line breaks reach claude unchanged.
 // model / effort (AT-6, src/main/models.js): --model / --effort on every start, --resume too; only valid values.
 // mcpConfigPath (PROGRESS 4, src/main/mcp-server.js): the tab's --mcp-config file (the app's localhost MCP server).
-function buildClaudeArgs({ mode, id, worktree, team, settingsPath, mcpConfigPath, appendPrompt, model, effort }) {
+// lean / leanSettingsPath (TK2): lean on and a lean file written -> that file in place of settingsPath (the same
+// permissions + LEAN_SETTINGS); otherwise settingsPath. One --settings either way.
+function buildClaudeArgs({ mode, id, worktree, team, settingsPath, leanSettingsPath, lean, mcpConfigPath, appendPrompt, model, effort }) {
   const a = [];
-  if (settingsPath) a.push('--settings', settingsPath);
+  const settings = lean && leanSettingsPath ? leanSettingsPath : settingsPath;
+  if (settings) a.push('--settings', settings);
   if (mcpConfigPath) a.push('--mcp-config', mcpConfigPath);
   if (appendPrompt) a.push('--append-system-prompt', String(appendPrompt));
   if (models.isModel(model)) a.push('--model', model);
@@ -423,7 +466,7 @@ function launchSpec({ shell, override, claude, env = process.env, platform = pro
   if (platform !== 'win32') return posixLaunchSpec({ shell, override, claude, env });
   const legacy = (kind, sh) => {
     const ps = isPowerShell(sh);
-    const cmd = override ?? buildClaudeCmd({ ...claude, settingsPath: ps ? claude.settingsPath : null, mcpConfigPath: ps ? claude.mcpConfigPath : null, appendPrompt: ps ? claude.appendPrompt : null });
+    const cmd = override ?? buildClaudeCmd({ ...claude, settingsPath: ps ? claude.settingsPath : null, leanSettingsPath: ps ? claude.leanSettingsPath : null, mcpConfigPath: ps ? claude.mcpConfigPath : null, appendPrompt: ps ? claude.appendPrompt : null });
     return { kind, file: sh, args: ['-NoLogo', '-NoExit', '-Command', cmd] };
   };
   if (shell) return legacy('shell', shell);
@@ -470,7 +513,7 @@ function walkPosixPath(name, env) {
 }
 function posixLaunchSpec({ shell, override, claude, env }) {
   if (shell) {
-    const cmd = override ?? buildClaudeCmd({ ...claude, settingsPath: null, mcpConfigPath: null, appendPrompt: null });
+    const cmd = override ?? buildClaudeCmd({ ...claude, settingsPath: null, leanSettingsPath: null, mcpConfigPath: null, appendPrompt: null });
     return { kind: 'shell', file: shell, args: ['-l', '-i', '-c', cmd] };
   }
   if (override != null) return { kind: 'override', file: '/bin/sh', args: ['-c', String(override)] };
@@ -479,4 +522,4 @@ function posixLaunchSpec({ shell, override, claude, env }) {
   return { kind: exe ? 'direct' : 'fallback', file: exe || 'claude', args: buildClaudeArgs(claude) };
 }
 
-module.exports = { ROUTED_BASH, MANAGER_BASH, SECRET_PATHS, ASK_BASH, SETTINGS_KINDS, settingsName, roleRules, writeAllClaudeSettings, MCP_ALLOW, findOnPosixPath, CLAUDE_SETTINGS, SETTINGS_NAME, tempReadRules, claudeSettings, longTempEnv, GUARD_PROMPT, PROGRESS_PROMPT, ROUTED_PROMPT_FALLBACK, routedPrompt, writeClaudeSettings, psQuote, isPowerShell, buildClaudeArgs, buildClaudeCmd, findOnPath, shimTokens, shimTarget, cmdArg, launchSpec };
+module.exports = { LEAN_SETTINGS, leanPreambleFor, ROUTED_BASH, MANAGER_BASH, SECRET_PATHS, ASK_BASH, SETTINGS_KINDS, settingsName, roleRules, writeAllClaudeSettings, MCP_ALLOW, findOnPosixPath, CLAUDE_SETTINGS, SETTINGS_NAME, tempReadRules, claudeSettings, longTempEnv, GUARD_PROMPT, PROGRESS_PROMPT, ROUTED_PROMPT_FALLBACK, routedPrompt, writeClaudeSettings, psQuote, isPowerShell, buildClaudeArgs, buildClaudeCmd, findOnPath, shimTokens, shimTarget, cmdArg, launchSpec };

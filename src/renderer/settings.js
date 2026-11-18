@@ -120,6 +120,7 @@
   }
   const note = (cls) => h('span', `st-note ${cls || ''}`.trim());
 
+  let zoomHooked = false; // UX18: one listener for the zoom changed by the menu / keys while 設定 is open
   // ---- built-in sections --------------------------------------------------------
   const BUILTIN = [
     {
@@ -130,7 +131,7 @@
         const s = ns();
         const ay = window.AutoYes;
         box.append(
-          checkRow('autoYes', ay ? ay.get() : localStorage.getItem('autoYes') !== '0', W.autoYes || '安全な確認は自動で通す', `Claude Code の許可の確認のうち、既定が「はい」で危なくないものを自動で押します。全部のウィンドウで同じ設定です（${window.Labels.shortcutKey('autoYes')}）`, (v) => {
+          checkRow('autoYes', ay ? ay.get() : localStorage.getItem('autoYes') !== '0', W.autoYes || '安全な確認は自動で通す', `Claude Code の許可の確認のうち、既定が「はい」で危なくないものを自動で押します。全部のウィンドウで同じ設定です（切り替えはここだけ）`, (v) => {
             if (ay) ay.set(v);
           }),
           checkRow('routedTeam', s.routedTeam !== false, 'サブエージェントに分担させる', '振り分けたセッションで Agent Teams を有効にし、サブエージェントやチームへの分担を促します。次に振り分けたセッションから効きます', (v) => setN({ routedTeam: v })),
@@ -157,6 +158,37 @@
       },
     },
     {
+      // UX17 (docs/ux-journey.md §5.6): the ground, through window.Theme (theme.js, localStorage 'theme')
+      id: 'look',
+      title: W.look || '見た目',
+      order: 17,
+      render(box) {
+        const T = window.Theme;
+        const v = T ? T.get() : 'os';
+        box.append(row(W.theme || '地の色', [select('theme', v, [
+          ['os', W.themeOs || 'OS に合わせる'],
+          ['dark', W.themeDark || '暗い'],
+          ['light', W.themeLight || '明るい'],
+        ], (x) => T && T.set(x))], W.themeTip || ''));
+        // UX18 (§5.7): the zoom of every window (main: app-settings.json zoom, webContents.setZoomFactor)
+        const ZOOMS = [0.8, 0.9, 1, 1.1, 1.25, 1.5];
+        const pct = (z) => `${Math.round(z * 100)}%`;
+        const zsel = select('zoom', '1', ZOOMS.map((z) => [String(z), z === 1 ? `${pct(z)}（${W.zoomNormal || '標準'}）` : pct(z)]), (x) => {
+          Promise.resolve(safe(() => window.api?.setAppSettings?.({ zoom: Number(x) }), null)).catch(() => {});
+        });
+        const showZoom = (z) => { if (ZOOMS.includes(Number(z))) zsel.value = String(Number(z)); };
+        const L = window.Labels;
+        const keys = L && L.key ? ['mod+=', 'mod+-', 'mod+0'].map((k) => L.key(k)).join(' / ') : '';
+        const zTip = [(W.zoomTip || '').replace('{keys}', keys), L && L.isMac && !L.isMac() ? W.zoomTipTerm || '' : ''].filter(Boolean).join('。');
+        box.append(row(W.zoom || '拡大率', [zsel], zTip));
+        Promise.resolve(safe(() => window.api?.appSettings?.(), null)).then((st) => st && showZoom(st.zoom)).catch(() => {});
+        if (!zoomHooked) {
+          zoomHooked = true;
+          safe(() => window.api?.onZoomChanged?.((z) => { const el = document.querySelector('select[data-setting="zoom"]'); if (el && ZOOMS.includes(Number(z))) el.value = String(Number(z)); }));
+        }
+      },
+    },
+    {
       id: 'parallel',
       title: '同時に動かす作業',
       order: 20,
@@ -167,13 +199,35 @@
           row('空きメモリ', [num('minFreeGB', s.minFreeGB ?? 1, { min: 0, max: 256, step: 0.5, width: '4em' }, (v) => setN({ minFreeGB: v })), 'GB 以上'], '空きメモリがこれより少ないあいだは、新しい作業を始めません（0 で見ない）'),
           row('CPU', [num('maxCpuPct', s.maxCpuPct ?? 80, { min: 0, max: 100, step: 5, width: '4em' }, (v) => setN({ maxCpuPct: v })), '% 以下'], 'CPU がこれを超え続けているあいだは、新しい作業を始めません（0 で見ない）'),
         );
+        // 依頼-414: proposeDayMax in manager-settings.json through main (propose:settings / propose:setSettings)
+        const api = window.api;
+        if (api && typeof api.proposeSettings === 'function') {
+          const tipOf = (st) => `1 つのフォルダのセッションが 24 時間に出せる依頼（propose）の数。超えた分は依頼に保留で入り、3 倍を超えると入りません。ルーターは ${st ? st.near : 25} 件から「上限が近い」と知らせます（既定 ${st ? st.def : 30} 件）`;
+          const slot = h('span', 'st-ctl-slot');
+          const r = row('セッションからの依頼', [slot, '件 / 24 時間'], tipOf(null));
+          r.dataset.role = 'propose-limit';
+          const msg = note('nt-propose-note');
+          r.append(msg);
+          box.append(r);
+          const draw = (st) => {
+            if (!st) return;
+            r.title = tipOf(st);
+            const help0 = r.querySelector('.st-help');
+            if (help0) help0.title = tipOf(st);
+            slot.replaceChildren(num('proposeDayMax', st.max, { min: st.min, max: st.maxRange, width: '4.5em', round: true }, (v) => {
+              msg.textContent = '';
+              Promise.resolve(safe(() => api.setProposeSettings({ max: v }), null)).then((x) => (x ? draw(x) : (msg.textContent = '保存できませんでした'))).catch(() => (msg.textContent = '保存できませんでした'));
+            }));
+          };
+          Promise.resolve(safe(() => api.proposeSettings(), null)).then(draw).catch(() => {});
+        }
       },
     },
     {
       // PM1 段 3 (依頼-189): how often the app compares PROGRESS.md with the backlogs (haiku). manager settings.json
       // progressCheckMinutes through main (progress:settings / progress:setSettings)
       id: 'pmo',
-      title: W.pmo || 'PMO',
+      title: W.pmo || 'ルーター',
       order: 25,
       render(box) {
         const api = window.api;
@@ -181,7 +235,7 @@
           box.append(h('div', 'st-empty', '—'));
           return;
         }
-        const tip = 'アプリが各フォルダの PROGRESS.md と待ちを比べ、ずれがあるときだけ haiku に事実を並べさせて「PMO の記録」に出します。手を打つずれは PMO の見回りにも載せます。止めると回りません（1 日 1 回の棚卸しの前の確認も止まります）';
+        const tip = 'アプリが各フォルダの PROGRESS.md と待ちを比べ、ずれがあるときだけ haiku に事実を並べさせて「ルーターの記録」に出します。手を打つずれは ルーターへの知らせにも載せます。止めると回りません（1 日 1 回の棚卸しの前の確認も止まります）';
         const slot = h('span', 'st-ctl-slot');
         const r = row('進み具合の確認（haiku）', slot, tip);
         r.dataset.role = 'progress-check';
@@ -211,7 +265,7 @@
         const s = ns();
         box.append(
           row('完了の後', [num('doneStopMin', s.doneStopMin ?? 2, { min: 0, max: 1440, width: '4em' }, (v) => setN({ doneStopMin: v })), '分で止める'], '振り分けた作業が「作業完了」で終わってからこの時間がたつと、claude を止めてメモリを空けます。タブと会話は残り、開いて送ると続きから再開します（0 で止めない）'),
-          row('使っていないタブ', [num('restIdleMin', s.restIdleMin ?? 30, { min: 0, max: 1440, step: 5, round: true }, (v) => setN({ restIdleMin: v })), '分で休ませる'], '最後に使ってからこの時間がたったタブの claude を休ませてメモリを空けます。開くか送ると続きから再開します。応答中・要対応・作業中のタブと PMO は休ませません（0 で休ませない）'),
+          row('使っていないタブ', [num('restIdleMin', s.restIdleMin ?? 30, { min: 0, max: 1440, step: 5, round: true }, (v) => setN({ restIdleMin: v })), '分で休ませる'], '最後に使ってからこの時間がたったタブの claude を休ませてメモリを空けます。開くか送ると続きから再開します。応答中・要対応・作業中のタブと ルーターは休ませません（0 で休ませない）'),
         );
       },
     },
@@ -223,7 +277,7 @@
         const s = ns();
         box.append(
           row('待つ時間', [num('updateHoldMin', s.updateHoldMin ?? 30, { min: 5, max: 1440, step: 5, round: true }, (v) => setN({ updateHoldMin: v })), '分'], '新しい版が入ってからこの時間がたっても作業が終わらなければ、ターンの合間で再起動します。実行中の作業は同じ会話の続きで再開します'),
-          checkRow('showUpdateBar', s.showUpdateBar === true, '更新の帯を出す', '新しい版を待っているあいだ、上のバーに「更新待ち」を出します。出さなくても「PMO の記録」に残ります', (v) => {
+          checkRow('showUpdateBar', s.showUpdateBar === true, '更新の帯を出す', '新しい版を待っているあいだ、上のバーに「更新待ち」を出します。出さなくても「ルーターの記録」に残ります', (v) => {
             setN({ showUpdateBar: v });
             safe(() => window.dispatchEvent(new CustomEvent('bantodesk:update-bar')));
           }),
@@ -261,7 +315,7 @@
         }
         box.append(
           row('鳴らさないとき', select('suppress', s.suppress || 'visible', [['visible', 'そのタブを見ている'], ['focused', 'このウィンドウを使っている'], ['never', 'いつも鳴らす']], (v) => setN({ suppress: v }))),
-          checkRow('desktop', s.desktop !== false, 'デスクトップ通知', 'OS の通知を出します', (v) => setN({ desktop: v })),
+          checkRow('desktop', s.desktop !== false, 'デスクトップ通知', '要対応が増えたときに OS の通知を 1 回出します（セッションごとの完了・エラーは ルーターの記録に残ります）', (v) => setN({ desktop: v })),
         );
       },
     },
@@ -288,13 +342,18 @@
             document.dispatchEvent(new CustomEvent('bantodesk:mem-threshold'));
             render();
           }), 'MB'], 'メモリがこれを超えたセッションを目立たせます（右クリック →「再起動」で軽くできます）'),
-          checkRow('pmoAuto', hs.pmoAuto, 'PMO を自動で引き継ぐ', 'PMO のコンテキストかメモリが下の値を超えたら、ターンの合間に自動で新しいセッションへ引き継ぎます（1 時間に 1 回まで）', (v) => set({ pmoAuto: v })),
-          row('PMO のしきい値', [
+          checkRow('pmoAuto', hs.pmoAuto, 'ルーターを自動で引き継ぐ', 'ルーターのコンテキストかメモリが下の値を超えたら、ターンの合間に自動で新しいセッションへ引き継ぎます（1 時間に 1 回まで）', (v) => set({ pmoAuto: v })),
+          row('ルーターのしきい値', [
             num('pmoPct', hs.pmoPct, { min: 1, max: 99, width: '4em' }, (v) => set({ pmoPct: v })),
             '% か',
             num('pmoMemMb', hs.pmoMemMb, { min: 50, max: 32000, step: 50, width: '5.5em' }, (v) => set({ pmoMemMb: v })),
             'MB',
           ], 'コンテキストの % か、メモリの MB のどちらかを超えたら'),
+          // TK1 (docs/plan-token.md §5): on a 1M window 70 % is 700k; the token mark keeps the ルーター near 200k
+          row(W.pmoMaxTok || 'ルーターの文脈の上限', [
+            num('pmoMaxTok', hs.pmoMaxTok, { min: 0, max: 2000000, step: 10000, width: '7em', round: true }, (v) => set({ pmoMaxTok: v > 0 && v < 10000 ? 10000 : v })),
+            'トークン（0 で使わない）',
+          ], 'コンテキストのトークン数がこれを超えても、ターンの合間に引き継ぎます。1M のモデルでは % より先にこちらが効き、会話が大きく育つのを止めます（費用が減ります）'),
         );
       },
     },
@@ -484,7 +543,7 @@
     const ex = h('button', 'st-btn', '集計を書き出す');
     ex.type = 'button';
     ex.dataset.role = 'usage-export';
-    ex.title = '直近 30 日の集計を、管理フォルダの .bantodesk/usage/ に Markdown と JSON で書きます（id と数だけ。最新の 8 つを残します）。PMO や設計の作業が読みます';
+    ex.title = '直近 30 日の集計を、管理フォルダの .bantodesk/usage/ に Markdown と JSON で書きます（id と数だけ。最新の 8 つを残します）。ルーターや設計の作業が読みます';
     ex.addEventListener('click', () => {
       ex.disabled = true;
       Promise.resolve(safe(() => window.api?.usage?.exportReport?.(), null))
@@ -551,7 +610,7 @@
       const didT = usageTable('usage-did', ['開いて何をしたか', '回数'], Object.keys(USAGE_DID).map((k) => [USAGE_DID[k], op.did[k] || 0]));
       out.append(didT);
       out.append(h('h4', 'st-usub', '代わりにしてくれたこと'));
-      out.append(usageTable('usage-auto', ['操作', 'アプリ・PMO', '手', 'アプリの割合'], s.auto.map((r) => [USAGE_AUTO[r.kind] || r.kind, r.auto, r.hand, `${r.autoShare}%`])));
+      out.append(usageTable('usage-auto', ['操作', 'アプリ・ルーター', '手', 'アプリの割合'], s.auto.map((r) => [USAGE_AUTO[r.kind] || r.kind, r.auto, r.hand, `${r.autoShare}%`])));
     }
     function refresh() {
       for (const b of seg.children) b.classList.toggle('on', b.dataset.period === String(period));

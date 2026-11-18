@@ -1,30 +1,30 @@
 // 「あなたの番」 (UIUX U3, docs/concept-uiux.md §2.1 / §2.2 / §4): the one list of what only the user can decide.
 // main builds it from what it already keeps and pushes it to the dashboard (attention:list / attention:changed):
-//   confirm   a session's permission dialog the PMO may not press (pmoVerdict below; the reason comes along), a dialog
-//             the screen parser could not read, or any dialog of the PMO's own session (it cannot answer itself)
-//   question  AskUserQuestion (prompt kind question / multi / menu): the PMO never chooses for the user
+//   confirm   a session's permission dialog the ルーター may not press (pmoVerdict below; the reason comes along), a dialog
+//             the screen parser could not read, or any dialog of the ルーター's own session (it cannot answer itself)
+//   question  AskUserQuestion (prompt kind question / multi / menu): the ルーター never chooses for the user
 //   qa        an unanswered pre-answered QA table (qa.json status open) of a request / task not started yet
-//   proposal  an unanswered PMO proposal (notices.json kind proposal, no answer)
-//   nudge     a session the PMO nudged NUDGE_LIMIT times that still waits (counted from its nudge actions)
-//   pmosend   the PMO's own queue: its auto send stopped (API errors / by hand), or a prompt not sent for 15 min
-//             (src/renderer/autosend.js stalls; the PMO cannot tell this itself, it gets nothing). 再開 on the card.
+//   proposal  an unanswered ルーター proposal (notices.json kind proposal, no answer)
+//   nudge     a session the ルーター nudged NUDGE_LIMIT times that still waits (counted from its nudge actions)
+//   pmosend   the ルーター's own queue: its auto send stopped (API errors / by hand), or a prompt not sent for 15 min
+//             (src/renderer/autosend.js stalls; the ルーター cannot tell this itself, it gets nothing). 再開 on the card.
 // Each item carries which request / task it is about (task: { no, reqNo, title, text } -> Labels.taskName) and why it is
 // the user's (why: { short, full }). Order is fixed (createOrder): oldest first, a new one goes to the end, a gone one
 // leaves no gap; a state change does not move an item.
 // The answers go through the existing paths: dashboard:answer (promptKey checked), qa:answer, notices:answer.
-// PMO 指摘 (warn notices) are not here: the PMO repairs those and they only go to the record (U3 QA 1 / §6 論点 2).
+// ルーター指摘 (warn notices) are not here: the ルーター repairs those and they only go to the record (U3 QA 1 / §6 論点 2).
 // No Electron imports (testable from plain Node).
 const path = require('path');
 const stuck = require('./stuck');
 
-const GRACE_MS = 10 * 1000; // a confirm shows after this long (Auto-yes / the PMO get the first go)
+const GRACE_MS = 10 * 1000; // a confirm shows after this long (Auto-yes / the ルーター get the first go)
 const NUDGE_LIMIT = 2; // nudges after which a still waiting session becomes the user's
 const NUDGE_SETTLE_MS = 5 * 60 * 1000; // time the session gets to move after the last nudge
 const str = (v, max) => (typeof v === 'string' ? v : v == null ? '' : String(v)).slice(0, max);
 const oneLine = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 const mins = (ms) => `${Math.max(1, Math.round(ms / 60000))}分`;
 
-// ---- what the PMO may press (U3 QA 1: network, outside the folder and deleting temporary files are fine) ------------
+// ---- what the ルーター may press (U3 QA 1: network, outside the folder and deleting temporary files are fine) ------------
 // stuck.classify is the base rule. Its reasons are tested in a fixed order (組織 → 秘密情報 → リポジトリ・remote〈AT-135〉→ 削除 →
 // git → ネットワーク → 取り返しのつかない操作 → フォルダの外), so a reason tells which earlier ones did not match (a ネットワーク
 // reason is never a gh repo create / remote change: those stop at リポジトリ・remote and are not widened). Only the later rules are
@@ -63,13 +63,13 @@ const onlyTempDeletes = (text) => tempDeletesRest(text) !== null;
 const textOf = (p) => [...(p.context || []), p.question || '', ...(p.options || []).map((o) => o.label)].join('\n');
 
 // prompt (stuck.promptOf / userList prompt), folder -> { safe, choice, reason } like stuck.classify, with the U3 widening.
-// relaxed: the stuck.classify reason that no longer stops the PMO (for the record).
+// relaxed: the stuck.classify reason that no longer stops the ルーター (for the record).
 function pmoVerdict(prompt, folder) {
   const v = stuck.classify(prompt, folder);
   if (v.safe || !prompt || prompt.kind !== 'permission') return v;
   const yes = prompt.options.find((o) => /^(yes|はい)\b/i.test(o.label) && !/don.?t ask|always|\ball\b|session|remember|from now|今後|以降|常に|すべて/i.test(o.label));
   if (!yes) return v;
-  const ok = { safe: true, choice: yes.n, reason: `ツールの許可・作業を進めるかの確認（その場限りの Yes。${v.reason} は PMO が押してよい）`, relaxed: v.reason };
+  const ok = { safe: true, choice: yes.n, reason: `ツールの許可・作業を進めるかの確認（その場限りの Yes。${v.reason} は ルーターが押してよい）`, relaxed: v.reason };
   const text = textOf(prompt);
   // the folder check comes last in classify: no deny rule matched
   if (/^作業フォルダの外のパス/.test(v.reason)) return ok;
@@ -82,7 +82,7 @@ function pmoVerdict(prompt, folder) {
     if (rest === null) return v;
     if (GIT_RE.test(rest)) return { safe: false, choice: null, reason: '取り返しのつかない git の操作' };
     if (IRREV_RE.test(rest)) return { safe: false, choice: null, reason: '取り返しのつかない操作' };
-    return { ...ok, reason: 'ツールの許可・作業を進めるかの確認（その場限りの Yes。一時ファイルの削除は PMO が押してよい）' };
+    return { ...ok, reason: 'ツールの許可・作業を進めるかの確認（その場限りの Yes。一時ファイルの削除は ルーターが押してよい）' };
   }
   return v;
 }
@@ -159,17 +159,17 @@ function build(o) {
     }
     if (QUESTION_KINDS.has(p.kind)) {
       const multi = p.kind === 'multi' ? '（複数選べます）' : '';
-      out.push({ ...base, id: `s:${e.tabId}:${p.key}:${e.since}`, kind: 'question', why: { short: '質問', full: `セッションがあなたに質問しています${multi}。PMO は代わりに選びません${p.question ? `\n\n${oneLine(p.question, 300)}` : ''}` } });
+      out.push({ ...base, id: `s:${e.tabId}:${p.key}:${e.since}`, kind: 'question', why: { short: '質問', full: `セッションがあなたに質問しています${multi}。ルーターは代わりに選びません${p.question ? `\n\n${oneLine(p.question, 300)}` : ''}` } });
       continue;
     }
     // a permission / proceed dialog
     let why;
-    if (own) why = { short: '確認（PMO）', full: 'PMO 自身のセッションの確認です。PMO は自分の確認に答えられません' };
+    if (own) why = { short: '確認（ルーター）', full: 'ルーター自身のセッションの確認です。ルーターは自分の確認に答えられません' };
     else {
       const v = pmoVerdict(p, e.folder);
-      if (v.safe) continue; // Auto-yes or the PMO's answer action takes it
+      if (v.safe) continue; // Auto-yes or the ルーター's answer action takes it
       const short = e.danger || (/^作業フォルダの外/.test(v.reason) ? 'フォルダの外' : /画面に収まって/.test(v.reason) ? '読み切れない' : '確認');
-      why = { short: short === '確認' ? '確認' : `確認（${oneLine(short.replace(/（.*$/, ''), 20)}）`, full: `PMO は押せません: ${v.reason}` };
+      why = { short: short === '確認' ? '確認' : `確認（${oneLine(short.replace(/（.*$/, ''), 20)}）`, full: `ルーターは押せません: ${v.reason}` };
     }
     if (now - e.since < graceMs) continue;
     out.push({ ...base, id: `s:${e.tabId}:${p.key}:${e.since}`, kind: 'confirm', why });
@@ -205,7 +205,7 @@ function build(o) {
     });
   }
 
-  // PMO proposals without an answer
+  // ルーター proposals without an answer
   for (const n of o.notices || []) {
     if (!n || n.kind !== 'proposal' || n.answer || n.resolvedAt) continue;
     const it = n.itemId ? inboxById.get(n.itemId) : null;
@@ -217,14 +217,14 @@ function build(o) {
       folderName: n.folder ? path.basename(n.folder) : it && it.folder ? path.basename(it.folder) : '',
       task: taskOf(it),
       label: '',
-      why: { short: '提案', full: `PMO の提案です。進めるか却下かを決めてください\n\n${oneLine(n.title, 200)}` },
+      why: { short: '提案', full: `ルーターの提案です。進めるか却下かを決めてください\n\n${oneLine(n.title, 200)}` },
       noticeId: n.id,
       title: str(n.title, 200),
       text: str(n.text, 8000),
     });
   }
 
-  // sessions the PMO nudged NUDGE_LIMIT times that still wait
+  // sessions the ルーター nudged NUDGE_LIMIT times that still wait
   for (const g of o.nudges || []) {
     if (!g || g.count < limit || now - g.lastAt < settle) continue;
     out.push({
@@ -235,7 +235,7 @@ function build(o) {
       folderName: g.folderName || (g.folder ? path.basename(g.folder) : ''),
       task: taskOf(taskAt(g.folder, g.backlogId)),
       label: str(g.label, 200),
-      why: { short: `止まって ${mins(now - g.firstAt)}`, full: `PMO が ${g.count} 回後押ししても動きません${g.waitText ? `（${oneLine(g.waitText, 200)}）` : ''}。会話を開いて確かめてください` },
+      why: { short: `止まって ${mins(now - g.firstAt)}`, full: `ルーターが ${g.count} 回後押ししても動きません${g.waitText ? `（${oneLine(g.waitText, 200)}）` : ''}。会話を開いて確かめてください` },
       wcId: g.wcId,
       tabId: g.tabKey,
       tabKey: g.tabKey,
@@ -244,12 +244,12 @@ function build(o) {
     });
   }
 
-  // the PMO's own queue
+  // the ルーター's own queue
   for (const s of o.pmo || []) {
     if (!s || (s.kind !== 'off' && s.kind !== 'slow')) continue;
     const off = s.kind === 'off';
     const why = oneLine(s.why, 200);
-    const title = off ? `PMO への自動送信が止まっています（${why}）` : `PMO への知らせが ${mins(now - (s.since || now))} 送られていません（${why}）`;
+    const title = off ? `ルーターへの自動送信が止まっています（${why}）` : `ルーターへの知らせが ${mins(now - (s.since || now))} 送られていません（${why}）`;
     out.push({
       id: `pmo:${s.tabId || '-'}:${s.kind}`,
       kind: 'pmosend',
@@ -257,7 +257,7 @@ function build(o) {
       folder: null,
       folderName: 'ダッシュボード',
       task: null,
-      label: 'PMO',
+      label: 'ルーター',
       own: true,
       tabId: s.tabId || null,
       off,
@@ -265,7 +265,7 @@ function build(o) {
       title,
       why: {
         short: off ? '自動送信の停止' : '送られていない',
-        full: `${title}。依頼（inbox.json）の確認を PMO に送れていないので、新しい依頼が振り分けられません${s.tabId ? '。「再開」で送ります' : ''}`,
+        full: `${title}。依頼（inbox.json）の確認を ルーターに送れていないので、新しい依頼が振り分けられません${s.tabId ? '。「再開」で送ります' : ''}`,
       },
     });
   }
@@ -288,7 +288,7 @@ function createOrder() {
   };
 }
 
-// The PMO's nudges per tab (nudge action + the waits each check sees). -> tracker
+// The ルーター's nudges per tab (nudge action + the waits each check sees). -> tracker
 //   nudged(e)        a nudge was sent to waits entry e ({ tabKey, wcId, folder, folderName, label, backlogId, wait })
 //   seen(entries)    every waits check: a tab that no longer waits (no alerts / gone / running) starts over
 //   list()           [{ tabKey, …, count, firstAt, lastAt, waitText }]

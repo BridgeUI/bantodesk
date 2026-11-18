@@ -1,0 +1,74 @@
+/* BantoDesk の見た目の決まり（UX17。案は docs/ux/tokens.css、決まりは docs/ux-journey.md §5.6）。index.html で最初に読む。
+   色・余白・文字の段・角は、ここの変数だけを使う（tmp/ux17/unit.js が、ほかの CSS に色の直書きが無いことを確かめる）。
+   色は意味で 4 つだけ: 黄 = あなたの番 / 青 = 動作中 / 緑 = 完了 / 赤 = 危ない。それ以外は無彩色。
+   地は暗いのが既定。明るい地は :root[data-theme="light"]（theme.js が 設定 > 見た目 の 暗い / 明るい / OS に合わせる から付ける）。
+   文字（--text・--muted・--faint・4 つの色）と地（--bg・--surface・--raised）のコントラストは、どちらの地でも 4.5 以上。 */
+:root {
+  /* 無彩色（暗い既定） */
+  --bg: #141519;          /* 窓の地 */
+  --surface: #1b1c21;     /* 本体・欄 */
+  --raised: #23252b;      /* カード・入力欄 */
+  --hover: #2a2c33;       /* ホバー・選んでいる行の地 */
+  --line: #2e3138;        /* 区切り線 */
+  --strong: #43464f;      /* 強い線（入力欄の枠・スクロールバー・押せるものの枠） */
+  --text: #e7e8eb;
+  --muted: #a0a4ad;
+  --faint: #9195a0;       /* 補助の文字（docs/ux の案の #6e727c は 4.5 に届かないので、ホバーの地の上でも 4.5 になるよう明るくした） */
+  --focus: #e7e8eb;       /* 選んでいるタブの下線・フォーカスの枠（色に意味を持たせない） */
+  --on-color: #141519;    /* 意味の色で塗った地の上の文字 */
+  --shade: #000;          /* 影と幕の元の色（color-mix で薄めて使う） */
+  --paper: #fff;          /* 白いままにする地（QR・HTML の下見） */
+
+  /* 意味の色（この 4 つ以外の色を UI に使わない） */
+  --you: #f0b955;   /* あなたの番 */
+  --run: #63a6f6;   /* 動作中 */
+  --done: #5cc58f;  /* 完了 */
+  --risk: #ef6f6f;  /* 危ない（押す前に確かめる） */
+  --you-bg: color-mix(in srgb, var(--you) 12%, transparent);
+  --run-bg: color-mix(in srgb, var(--run) 12%, transparent);
+  --done-bg: color-mix(in srgb, var(--done) 12%, transparent);
+  --risk-bg: color-mix(in srgb, var(--risk) 12%, transparent);
+
+  /* コードの色分け（会話とビューアのコード。中身の色で、UI の意味の色ではない） */
+  --syn-kw: #cba6f7; --syn-str: #a6e3a1; --syn-num: #fab387; --syn-fn: #89b4fa;
+  --syn-type: #f9e2af; --syn-bi: #f38ba8; --syn-attr: #94e2d5; --syn-cmt: var(--muted);
+
+  /* ターミナル（Claude Code が暗い地の色で描くので、明るい地でも暗いまま。xterm の色は renderer.js の THEME） */
+  --term-bg: #1b1c21;
+
+  /* 文字。Mac と Windows の両方で、OS の UI の書体に落ちる順に並べる（等幅は日本語で Osaka に落ちないよう Hiragino Sans を挟む） */
+  --font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN",
+             "Segoe UI Variable Text", "Segoe UI", "Yu Gothic UI", "Meiryo UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, "Hiragino Sans", "Cascadia Mono", Consolas, "BIZ UDGothic", monospace;
+  --font-code: ui-monospace, "SF Mono", Menlo, "Hiragino Sans", "Cascadia Code", Consolas, "BIZ UDGothic", monospace;
+  --fs-xs: 11px; --fs-s: 12px; --fs-m: 13px; --fs-l: 15px; --fs-xl: 18px;
+  --lh: 1.55;
+
+  /* 余白は 4 の倍数 */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+  /* 角の丸み（ほかは 999px の丸い札・50% の点・2px 以下の細い棒だけ） */
+  --r1: 6px; --r2: 10px;
+
+  /* 窓の枠 */
+  --topbar-h: 40px; /* 上のバー（main.js TITLE_BAR: オーバーレイの高さ・信号機の y） */
+
+  /* 動き: 透明度と位置だけ、120ms */
+  --ease: cubic-bezier(.2, .7, .3, 1);
+  --t-fast: 120ms;
+  color-scheme: dark;
+}
+@media (prefers-reduced-motion: reduce) { :root { --t-fast: 0ms; } }
+
+/* 明るい地 */
+:root[data-theme="light"] {
+  --bg: #f4f5f7; --surface: #ffffff; --raised: #f7f8fa; --hover: #eceef1; --line: #e1e4e8; --strong: #c5cad2;
+  --text: #1d1f23; --muted: #50565f; --faint: #62686f; --focus: #1d1f23; --on-color: #ffffff;
+  --you: #8f5d0f; --run: #2a62bb; --done: #26774b; --risk: #b33131;
+  --you-bg: color-mix(in srgb, var(--you) 10%, transparent);
+  --run-bg: color-mix(in srgb, var(--run) 9%, transparent);
+  --done-bg: color-mix(in srgb, var(--done) 9%, transparent);
+  --risk-bg: color-mix(in srgb, var(--risk) 8%, transparent);
+  --syn-kw: #7a3bc8; --syn-str: #2d7a34; --syn-num: #a64b00; --syn-fn: #2a5fc0;
+  --syn-type: #7d5a00; --syn-bi: #b5273d; --syn-attr: #12707a;
+  color-scheme: light;
+}

@@ -28,7 +28,9 @@ function sessionOf(win, t, waits = null) {
   if (!tabId) return null;
   const status = str(t.status, 20);
   const unread = t.unread && typeof t.unread === 'object' && ATTN.has(t.unread.kind) ? t.unread : null;
-  const attention = unread ? unread.kind : status === 'asking' ? 'input' : null;
+  const working = t.working === true; // 依頼-524: turn over but a background command / subagent / member runs
+  // a 'done' notice is stale while work goes on (an 'input' / 'error' one is not)
+  const attention = unread && !(working && unread.kind === 'done') ? unread.kind : status === 'asking' ? 'input' : null;
   const choices = t.choices && typeof t.choices === 'object' && Array.isArray(t.choices.options) ? t.choices : null;
   const question = choices ? str(choices.question, 500) : '';
   const options = choices
@@ -50,7 +52,8 @@ function sessionOf(win, t, waits = null) {
     rest: t.rest === 'done' || t.rest === 'idle' ? t.rest : null,
     // ended with 作業完了 (renderer doneMarkAt; its claude may not be stopped yet): shown as 完了, never as 待機中 /
     // 待ちが長い / エラー (PROGRESS 50)
-    finished: Number.isFinite(t.doneAt) && t.doneAt > 0 && status !== 'asking' && status !== 'running',
+    finished: Number.isFinite(t.doneAt) && t.doneAt > 0 && status !== 'asking' && status !== 'running' && !working,
+    working,
     attention,
     text: str(unread && unread.text ? unread.text : question, 500),
     question,
@@ -60,6 +63,8 @@ function sessionOf(win, t, waits = null) {
     promptKey: status === 'asking' && t.prompt && typeof t.prompt.key === 'string' ? str(t.prompt.key, 40) : '',
     danger: status === 'asking' ? stuck.dangerOf(stuck.promptOf(t)) : '',
     at,
+    // UX12: the last transcript event (renderer tab.eventAt, 10 s rounded): the row's 「最後の動き」
+    eventAt: Number.isFinite(t.eventAt) && t.eventAt > 0 ? t.eventAt : 0,
     // session memory (renderer's pty:mem figure) and whether it is over the user's mark (roadmap 22)
     memMb: Number.isFinite(t.memMb) && t.memMb >= 0 ? Math.round(t.memMb) : null,
     memHeavy: t.memHeavy === true,
@@ -69,6 +74,8 @@ function sessionOf(win, t, waits = null) {
     costUsd: Number.isFinite(t.costUsd) && t.costUsd >= 0 ? Math.round(t.costUsd * 100) / 100 : null,
     doing: doingOf(t.todos),
     agents: agentsOf(t.agents),
+    // 関係図 (agents-view.js, 依頼-481): the tab's background commands from its transcript (Panel.summary cmds)
+    cmds: cmdsOf(t.cmds),
     // what an idle / asking session waits for (src/main/waits.js Wait, set by main's checkWaits) | null
     wait: (waits && waits.get(`${win.wcId}:${tabId}`)) || null,
   };
@@ -95,6 +102,7 @@ function agentsOf(a) {
     agentId: id(x.agentId),
     agentType: str(x.agentType, 60),
     description: str(x.description, 200),
+    teamName: str(x.teamName, 60),
     status: st(x.status),
     lastTool: tool(x.lastTool),
     tokens: num(x.tokens),
@@ -125,7 +133,17 @@ function agentsOf(a) {
   return { subagents, team };
 }
 
-// 「PMO から」 notices (src/main/notices.js) -> the unread warn / proposal ones for the widget (newest first, ≤ 5 listed).
+const CMD_ST = new Set(['running', 'completed', 'failed', 'killed', 'stopped', 'exited']);
+// TabState.cmds -> [{ id, command, startedAt, endedAt, status }] (≤ 8); [] when none
+function cmdsOf(list) {
+  const n = (v) => (Number.isFinite(v) && v > 0 ? Math.round(v) : 0);
+  return (Array.isArray(list) ? list : [])
+    .filter((c) => c && typeof c === 'object' && typeof c.id === 'string' && c.id)
+    .slice(-8)
+    .map((c) => ({ id: str(c.id, 60), command: str(c.command, 300), startedAt: n(c.startedAt), endedAt: n(c.endedAt), status: CMD_ST.has(c.status) ? c.status : c.endedAt ? 'completed' : 'running' }));
+}
+
+// 「ルーターから」 notices (src/main/notices.js) -> the unread warn / proposal ones for the widget (newest first, ≤ 5 listed).
 function noticesOf(list) {
   const want = (Array.isArray(list) ? list : []).filter((n) => n && !n.readAt && (n.kind === 'warn' || n.kind === 'proposal'));
   return {
@@ -332,7 +350,7 @@ function trayTemplate() {
     { label: n ? `要対応 ${n} 件` : '要対応 なし', enabled: n > 0, click: () => openWaiting() },
     { type: 'separator' },
     { label: 'ダッシュボードを開く', click: () => ctx.openDashboard() },
-    { label: 'PMO に相談', click: () => consultPmo() },
+    { label: 'ルーターに相談', click: () => consultPmo() },
     { label: '新しいセッション…', click: () => newSession() },
     { type: 'separator' },
     { label: '終了', click: () => ctx.app.quit() },
@@ -357,7 +375,7 @@ function tellDashboard(channel) {
   setTimeout(tell, 100);
 }
 
-// 「PMO に相談」 (tray; PROGRESS 45): opens the dashboard and puts the caret in the PMO's input box.
+// 「ルーターに相談」 (tray; PROGRESS 45): opens the dashboard and puts the caret in the ルーター's input box.
 function consultPmo() {
   ctx.openDashboard();
   tellDashboard('dashboard:focusPmo');
@@ -374,7 +392,7 @@ function openWaiting() {
 }
 
 // Tray (U5): あなたの番 (main's attention list) is the number and the dot: yellow while there is something to decide, red when
-// one of them is a confirmation the PMO may not press (danger). The tooltip adds what runs and what ended.
+// one of them is a confirmation the ルーター may not press (danger). The tooltip adds what runs and what ended.
 function updateTray(state) {
   if (!tray || tray.isDestroyed()) return;
   const n = attnCount;
@@ -384,7 +402,7 @@ function updateTray(state) {
     iconKind = kind;
   }
   const sessions = (state && state.sessions) || [];
-  const running = sessions.filter((s) => (s.status === 'running' || s.status === 'starting') && !s.finished).length;
+  const running = sessions.filter((s) => (s.status === 'running' || s.status === 'starting' || s.working) && !s.finished).length;
   const done = sessions.filter((s) => s.attention === 'done' || (s.rest === 'done' && !s.attention) || (s.finished && s.attention !== 'input')).length;
   const open = state && state.inbox ? state.inbox.open : 0;
   const extra = [running ? `動作中 ${running}` : '', done ? `完了 ${done}` : '', open ? `依頼 ${open}` : ''].filter(Boolean).join(' / ');
@@ -440,7 +458,7 @@ function schedule() {
 
 const OPEN_FROM = new Set(require('./usage-ids').OPEN_FROM);
 // o: { app, ipcMain, isDev, listWindows: () => [{ wcId, workDir, win, role }], getInbox: () => { items }, getNotices?: () => Notice[],
-//      openDashboard(), focusTab(wcId, tabId, kind, member?, from?), isQuitting(): boolean }
+//      openDashboard(), focusTab(wcId, tabId, kind, member?, from?, mode?), isQuitting(): boolean }
 // Registers the IPC listeners; the tray appears on start().
 function init(o) {
   ctx = o;
@@ -471,7 +489,9 @@ function init(o) {
     const member = typeof a.agentId === 'string' && AGENT_ID.test(a.agentId) ? { agentId: a.agentId, name: str(a.name, 60) } : null;
     // UA1: where the dashboard opened it from (usage record open.from.<from>; only the listed words)
     const from = OPEN_FROM.has(a.from) ? a.from : 'project';
-    ctx.focusTab(w.wcId, a.tabId, s ? s.attention : null, member, from);
+    // UX14: 'term' / 'split' = ターミナル / 並べる in the workbench (the home's session view)
+    const mode = a.mode === 'term' || a.mode === 'split' ? a.mode : null;
+    ctx.focusTab(w.wcId, a.tabId, s ? s.attention : null, member, from, mode);
   });
   ipcMain.on('widget:choose', (e, a) => {
     if (!isManager(e) || !a || typeof a.tabId !== 'string') return;
@@ -596,6 +616,10 @@ function sendAction(wcId, action) {
 module.exports = {
   init,
   sessionsSnapshot,
+  // 全体図 (overview.js): the dashboard's session list as it is now
+  currentSessions: () => currentState().sessions,
+  // UX13 (oneview.js): the window has that tab (a resting tab has no pty but is still that window's)
+  hasTab: (wcId, tabId) => (tabsByWc.get(wcId) || []).some((t) => String(t.id) === tabId),
   sendAction,
   setWaits,
   setAttention,
@@ -608,6 +632,7 @@ module.exports = {
   _buildState: buildState,
   _sessionOf: sessionOf,
   _agentsOf: agentsOf,
+  _cmdsOf: cmdsOf,
   _iconPng: iconPng,
   _encodePng: encodePng, // src/main/winicon.js (the dashboard window icon)
   _tray: () => tray,

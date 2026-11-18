@@ -7,10 +7,10 @@
 //      scheduler's mark (the caller's memOk) -> { ok: false } so the caller falls to its safe side.
 //   2. The patrol's triage: the app keeps a summary of the state (inbox, backlogs, waits, sessions waiting on a prompt,
 //      PROGRESS.md 確認待ち) in manager/pmo.json and diffs it by code each patrol. Changes the other triggers already wake
-//      the PMO for (new / changed inbox items, done / failed, a new wait alert, a prompt) and changes that mean nothing
+//      the ルーター for (new / changed inbox items, done / failed, a new wait alert, a prompt) and changes that mean nothing
 //      (an item started, a wait ended) are dropped; only the unsure ones go to haiku, which lists facts and says whether
-//      there is something the PMO has to act on (no judgement of what to do: that stays with the PMO). Failing / timing
-//      out / busy / low memory -> the PMO is woken. A change haiku let pass is woken for at the latest CAP_MS after the
+//      there is something the ルーター has to act on (no judgement of what to do: that stays with the ルーター). Failing / timing
+//      out / busy / low memory -> the ルーター is woken. A change haiku let pass is woken for at the latest CAP_MS after the
 //      last patrol wake. No unsure change -> no haiku call, nothing woken (the stale findings keep their own rule).
 const fs = require('fs');
 const path = require('path');
@@ -20,7 +20,7 @@ const MIN = 60 * 1000;
 const DEFAULT_PATROL_MINUTES = 5;
 const MIN_PATROL_MINUTES = 1;
 const MAX_PATROL_MINUTES = 60;
-const CAP_MS = 30 * MIN; // a change haiku let pass wakes the PMO at the latest this long after the last patrol wake
+const CAP_MS = 30 * MIN; // a change haiku let pass wakes the ルーター at the latest this long after the last patrol wake
 const TIMEOUT_MS = 120 * 1000;
 const BUDGET_USD = '0.02';
 const OUT_MAX = 256 * 1024;
@@ -189,25 +189,25 @@ function snapshotOf({ inboxItems = [], backlogs = [], waits = null, sessions = n
   return { refs, names };
 }
 
-// How the app treats one change of a ref: 'handled' (another trigger already wakes the PMO for it), 'quiet' (nothing
+// How the app treats one change of a ref: 'handled' (another trigger already wakes the ルーター for it), 'quiet' (nothing
 // to act on) or 'unsure' (haiku looks at it).
 function classify(ref, from, to) {
   const kind = ref.slice(0, 2);
-  if (kind === 'i:') return to === undefined ? 'quiet' : 'handled'; // inbox changes wake the PMO (onInboxChange)
+  if (kind === 'i:') return to === undefined ? 'quiet' : 'handled'; // inbox changes wake the ルーター (onInboxChange)
   if (kind === 's:') return to === undefined ? 'quiet' : 'handled'; // prompts: the stuck check (2 min)
   if (kind === 'b:') {
     if (to === 'done' || to === 'failed') return 'handled'; // 完了・失敗の知らせ
     if (to === undefined) return from === 'done' || from === 'failed' ? 'quiet' : 'unsure'; // an open item vanished
-    if (from === undefined) return 'quiet'; // a new item (routed by the PMO, or added by the user in that folder)
+    if (from === undefined) return 'quiet'; // a new item (routed by the ルーター, or added by the user in that folder)
     if (from === 'pending' && to === 'active') return 'quiet'; // started as planned
     return 'unsure'; // active -> pending (re-queued), done -> pending (reopened), …
   }
   if (kind === 'w:') {
     if (to === undefined) return 'quiet'; // the wait ended
-    if (from === undefined) return /:/.test(to) ? 'handled' : 'quiet'; // a new alert wakes the PMO (checkWaits)
+    if (from === undefined) return /:/.test(to) ? 'handled' : 'quiet'; // a new alert wakes the ルーター (checkWaits)
     const codes = (s) => new Set((String(s).split(':')[1] || '').split('+').filter(Boolean));
     const f = codes(from);
-    if ([...codes(to)].some((c) => !f.has(c))) return 'handled'; // a new alert code wakes the PMO (checkWaits)
+    if ([...codes(to)].some((c) => !f.has(c))) return 'handled'; // a new alert code wakes the ルーター (checkWaits)
     return String(from).split(':')[0] === String(to).split(':')[0] ? 'quiet' : 'unsure'; // alerts gone: quiet; another kind: unsure
   }
   if (kind === 'p:') return 'unsure';
@@ -228,7 +228,7 @@ function diffOf(prev, cur) {
   return out.sort((a, b) => (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
 }
 
-// A change in one line (the app's own words, for the prompt and for the PMO when haiku is not asked)
+// A change in one line (the app's own words, for the prompt and for the ルーター when haiku is not asked)
 function changeLine(c) {
   const st = (v) => (v === undefined ? 'なし' : v);
   return `${c.name}: ${st(c.from)} → ${st(c.to)}`;
@@ -250,7 +250,7 @@ const HAIKU_ARGS = haikuArgs({ systemPrompt: SYSTEM_PROMPT, schema: TRIAGE_SCHEM
 function buildPrompt(changes, context = []) {
   const lines = [
     'あなたは見回りの前さばきの係です。アプリが前回の見回り（数分前）からの状態の変化をコードで集めました。',
-    '下の変化のうち、PMO（作業の振り分け役）が手を打つ必要がありそうなもの（止まった・戻された・消えた・確認待ちが増えた など）を事実として 1 文で挙げてください。',
+    '下の変化のうち、ルーター（作業の振り分け役）が手を打つ必要がありそうなもの（止まった・戻された・消えた・確認待ちが増えた など）を事実として 1 文で挙げてください。',
     '決まり: 事実だけを書く。何をすべきか・提案・推測は書かない。一覧に無い ref を作らない。手を打つ必要がなさそうなら points は空、wake は false。',
     '答えは JSON だけ: {"wake": <手を打つ候補があれば true>, "points": [{"ref": "<一覧の [ ] の中の文字だけ>", "fact": "<事実の 1 文、日本語、100 字まで>"}]}',
     '',
@@ -285,9 +285,9 @@ function parseTriage(stdout, changes) {
 
 // ---- one round ------------------------------------------------------------------------------------------------------
 // triageRound({ prev, cur, fresh, enabled, passed, lastWakeAt, now, ask, context }) -> {
-//   wake: boolean, reason: 'stale'|'changes'|'haiku-failed'|'cap'|null, called, ok, points, lines (for the PMO),
+//   wake: boolean, reason: 'stale'|'changes'|'haiku-failed'|'cap'|null, called, ok, points, lines (for the ルーター),
 //   unsure, passed (to keep: unsure changes haiku let pass since the last wake), error? }
-// fresh = the patrol already wakes the PMO (new stale findings / the stocktake): the unsure changes are added by code,
+// fresh = the patrol already wakes the ルーター (new stale findings / the stocktake): the unsure changes are added by code,
 // haiku is not asked. ask(prompt) -> { ok, stdout } | { ok: false, error }.
 async function triageRound({ prev = null, cur, fresh = false, enabled = true, passed = [], lastWakeAt = 0, now = Date.now(), ask, context = [] } = {}) {
   const changes = diffOf(prev, cur);
@@ -313,7 +313,7 @@ async function triageRound({ prev = null, cur, fresh = false, enabled = true, pa
     return res;
   }
   if (!enabled) {
-    res.passed = [...carry, ...unsure].slice(-CHANGES_MAX); // off: as before 段 1, changes alone do not wake the PMO
+    res.passed = [...carry, ...unsure].slice(-CHANGES_MAX); // off: as before 段 1, changes alone do not wake the ルーター
     return res;
   }
   res.called = true;
@@ -353,12 +353,12 @@ async function triageRound({ prev = null, cur, fresh = false, enabled = true, pa
   return res;
 }
 
-// The part of the 見回り block for the PMO (≤ 1000 chars), '' when nothing to say.
+// The part of the 見回り block for the ルーター (≤ 1000 chars), '' when nothing to say.
 function formatTriage(r) {
   if (!r || !r.wake || !r.lines.length) return '';
   const head =
     r.reason === 'changes'
-      ? '前さばき（haiku が事実を並べたもの。判断は PMO）: 前回の見回りからの変化で、手を打つ候補があります。'
+      ? '前さばき（haiku が事実を並べたもの。判断は ルーター）: 前回の見回りからの変化で、手を打つ候補があります。'
       : r.reason === 'haiku-failed'
         ? '前さばき: haiku が答えなかったので、前回の見回りからの変化をアプリがそのまま並べます。'
         : r.reason === 'cap'

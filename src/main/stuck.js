@@ -1,4 +1,4 @@
-// Sessions stopped at a choice prompt (roadmap 27): the manager agent (PMO) can read them in manager/sessions.json and
+// Sessions stopped at a choice prompt (roadmap 27): the manager agent (ルーター) can read them in manager/sessions.json and
 // press the plain "Yes" of a permission prompt with the outbox action `answer`. Hooks are not available (organisation
 // setting allowManagedHooksOnly, docs/plan-notify.md), so the prompt comes from the renderer's screen parser
 // (TabState.prompt, see renderer.js scan) and the answer is a digit key sent to the pty.
@@ -102,7 +102,7 @@ function classify(prompt, folder) {
   if (prompt.kind === 'multi' || prompt.kind === 'menu' || !prompt.options.length) {
     return { safe: false, choice: null, reason: '数字で答えられない画面（ユーザーが操作する）' };
   }
-  if (prompt.kind !== 'permission') return { safe: false, choice: null, reason: 'ユーザーへの質問（AskUserQuestion など。PMO は選ばない）' };
+  if (prompt.kind !== 'permission') return { safe: false, choice: null, reason: 'ユーザーへの質問（AskUserQuestion など。ルーターは選ばない）' };
   if (!prompt.complete) return { safe: false, choice: null, reason: '確認の全体が画面に収まっていない（中身を読み切れない）' };
   const yes = prompt.options.find((o) => PLAIN_YES_RE.test(o.label) && !WIDE_YES_RE.test(o.label));
   if (!yes) return { safe: false, choice: null, reason: 'その場限りの「Yes」がない' };
@@ -161,7 +161,7 @@ function formatStuck(list) {
 }
 
 // The warn notice for stuck prompts the app will not let the manager press (null when none). Since U3 / U4 the user
-// answers them in あなたの番 (attention.js, the same prompts with the reason); this notice only goes to 「PMO の記録」.
+// answers them in あなたの番 (attention.js, the same prompts with the reason); this notice only goes to 「ルーターの記録」.
 const STUCK_KEY = 'app:stuck';
 function refusedNotice(list) {
   const refused = (list || []).filter((e) => e.stuck && !e.verdict.safe);
@@ -172,7 +172,7 @@ function refusedNotice(list) {
     .join('\n');
   return {
     kind: 'warn',
-    title: `確認で止まっているセッション ${refused.length} 件（PMO は押せません）`,
+    title: `確認で止まっているセッション ${refused.length} 件（ルーターは押せません）`,
     text: `${text}\n\n「要対応」で答えてください。`,
     folder: refused.length === 1 ? refused[0].folder : null,
     key: STUCK_KEY,
@@ -182,7 +182,7 @@ function refusedNotice(list) {
 }
 
 // The manager agent's own session stopped at a dialog (e.g. Auto-yes off and a permission prompt for its own outbox
-// write): nobody answers it for the user. It is a card in あなたの番 (U3); this warn only goes to 「PMO の記録」 (U4)
+// write): nobody answers it for the user. It is a card in あなたの番 (U3); this warn only goes to 「ルーターの記録」 (U4)
 // (null when none waits ≥ stuckMs).
 const MGR_STUCK_KEY = 'app:mgr-stuck';
 function managerStuckNotice(sessions, now = Date.now(), stuckMs = STUCK_MS) {
@@ -203,8 +203,8 @@ function managerStuckNotice(sessions, now = Date.now(), stuckMs = STUCK_MS) {
     .join('\n');
   return {
     kind: 'warn',
-    title: 'PMO が確認で止まっています',
-    text: `${text}\n\n答えるまで PMO は振り分けや後押しを進められません。「要対応」の「確認（PMO）」のカードで答えてください。`,
+    title: 'ルーターが確認で止まっています',
+    text: `${text}\n\n答えるまで ルーターは振り分けや後押しを進められません。「要対応」の「確認（ルーター）」のカードで答えてください。`,
     folder: null,
     key: MGR_STUCK_KEY,
     source: 'app',

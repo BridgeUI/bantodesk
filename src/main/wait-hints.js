@@ -1,12 +1,12 @@
 // 誤報の見込み for the manager's 「終わらない待ちがあります」 block (PM1 段 2, docs/plan-pmo-models.md 5 章).
-// Most waits alerts PMO got were false (docs/plan-pmo-models.md 2 章: 16 turns, 31% no change): the command pipes or
+// Most waits alerts ルーター got were false (docs/plan-pmo-models.md 2 章: 16 turns, 31% no change): the command pipes or
 // writes its output to a file, or the session already moved on to another command and only the old one's gone stays.
 // This looks at the command text and the wait (no probes, no processes, no model call) and says why an alert may be
-// false. It is a hint: PMO still checks waits.json and decides whether to nudge.
+// false. It is a hint: ルーター still checks waits.json and decides whether to nudge.
 // For the alerts the code has no reason for (a plain command's gone / silent / long), createOpinions asks haiku once
 // per ref through 段 1's runner (src/main/triage.js: claude -p, stdin, no tools, 120 s, one call at a time) with the
 // waits row, the command and the tail of its output file, and the answer is added as 「haiku の見立て: …」. Failing /
-// timing out adds nothing (the PMO is told as before). No Electron imports (testable from plain Node).
+// timing out adds nothing (the ルーター is told as before). No Electron imports (testable from plain Node).
 const triage = require('./triage');
 const oneLine = (s, n) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n);
 const num = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : 0);
@@ -136,7 +136,7 @@ const keyOf = (entry, ref) => `${entry.tabKey}:${ref}`; // the same key main.js 
 //   ask(prompt) -> { ok, stdout } | { ok: false, error } (main: the shared haiku runner). readTail(entry, item) -> string.
 //   Each key is asked once (one call at a time, in order). Failing / timing out / not JSON -> settled with no opinion.
 //   'busy' (the runner is on another call) / 'low memory' -> asked again on a later update for busyRetryMs, then given up.
-//   A key is pending from the update that first sees it until its call settles: main holds back the PMO's wake for it
+//   A key is pending from the update that first sees it until its call settles: main holds back the ルーター's wake for it
 //   (at most the runner's time limit + one round) so the opinion goes with the first notice.
 function createOpinions({ ask, readTail = async () => '', now = () => Date.now(), busyRetryMs = 60 * 1000, max = 300 } = {}) {
   const state = new Map(); // key -> { st: 'queued'|'asking'|'retry'|'done', firstAt, op, entry, need }

@@ -1,0 +1,62 @@
+/* The dashboard's 全体図 tab (overview-view.js, roadmap 14). Colours: the four of tokens.css only (--you / --run / --done / --risk). */
+.ovm { padding: var(--s3) 0 28px; min-width: 0; }
+.ovm-empty { color: var(--faint); padding: 20px 0; }
+.ovm-band { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s2); }
+.ovm-stage { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r2); padding: var(--s2) var(--s3); min-width: 0; }
+.ovm-stage-top { display: flex; align-items: baseline; gap: var(--s2); }
+.ovm-n { font-size: var(--fs-xl); font-variant-numeric: tabular-nums; }
+.ovm-stage.run .ovm-n { color: var(--run); }
+.ovm-stage.you .ovm-n { color: var(--you); }
+.ovm-stage.done .ovm-n { color: var(--done); }
+.ovm-stage-name { color: var(--muted); font-size: var(--fs-s); }
+.ovm-stage-names { color: var(--faint); font-size: var(--fs-s); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.5em; }
+.ovm-router { display: inline-flex; align-items: center; gap: var(--s2); margin: var(--s3) 0 0; padding: var(--s2) var(--s4); border: 1px solid var(--strong); border-radius: 999px; background: var(--surface); }
+.ovm-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--strong); flex: none; }
+.ovm-dot.run { background: var(--run); }
+.ovm-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 var(--s4); margin-top: 0; border-top: 2px solid var(--run); position: relative; }
+.ovm-router + .ovm-cols { margin-top: 0; }
+.ovm-col { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; padding: var(--s3) 0 0 var(--s4); border-left: 2px solid var(--run); }
+.ovm-island { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r2); padding: var(--s3) var(--s4); min-width: 0; }
+.ovm-island::before { content: ""; position: absolute; left: calc(-1 * var(--s4) - 2px); top: 22px; width: var(--s4); height: 2px; background: var(--run); }
+.ovm-island.quiet::before { background: var(--strong); }
+.ovm-ihead { display: flex; align-items: center; gap: var(--s2); background: none; border: 0; color: var(--text); font: inherit; font-size: var(--fs-l); cursor: pointer; padding: 0; max-width: 100%; text-align: left; flex-wrap: wrap; }
+.ovm-ihead:hover .ovm-iname { text-decoration: underline; }
+.ovm-quiet { color: var(--faint); font-size: var(--fs-s); }
+.ovm-bar { display: flex; height: 5px; border-radius: 3px; overflow: hidden; background: var(--hover); margin: var(--s2) 0 var(--s1); gap: 1px; }
+.ovm-bar .seg { display: block; min-width: 2px; }
+.seg.done { background: var(--done); } .seg.run { background: var(--run); } .seg.you { background: var(--you); } .seg.idle, .seg.todo { background: var(--strong); }
+.ovm-counts { color: var(--faint); font-size: var(--fs-s); }
+.ovm-goal { margin-top: var(--s3); min-width: 0; }
+.ovm-goal-head { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; font-size: var(--fs-m); color: var(--muted); margin-bottom: var(--s1); }
+.ovm-gno { color: var(--faint); font-variant-numeric: tabular-nums; }
+.ovm-gt { color: var(--text); }
+.ovm-state { font-size: var(--fs-xs); border: 1px solid var(--strong); border-radius: 999px; padding: 0 var(--s2); color: var(--muted); }
+.ovm-state.run { color: var(--run); border-color: var(--run); } .ovm-state.you { color: var(--you); border-color: var(--you); } .ovm-state.done { color: var(--done); border-color: var(--done); }
+.ovm-drift { color: var(--you); font-size: var(--fs-s); }
+.ovm-work { display: block; width: 100%; text-align: left; font: inherit; color: var(--text); background: var(--raised); border: 0; border-left: 3px solid var(--run); border-radius: var(--r1); padding: var(--s2) var(--s3); margin-top: var(--s2); cursor: pointer; min-width: 0; }
+.ovm-work:hover { background: var(--hover); }
+.ovm-work.st-wait { border-left-color: var(--you); background: var(--you-bg); }
+.ovm-work.st-done { border-left-color: var(--done); }
+.ovm-work.st-err { border-left-color: var(--risk); }
+.ovm-work-head { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.ovm-no, .ovm-req { color: var(--faint); font-size: var(--fs-s); white-space: nowrap; }
+.ovm-wt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ovm-sub { color: var(--faint); font-size: var(--fs-s); }
+.ovm-who { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s2); flex-wrap: wrap; min-width: 0; }
+.ovm-sess { display: inline-block; min-width: 34px; text-align: center; font-size: var(--fs-xs); padding: 2px var(--s2); border: 2px solid var(--run); border-radius: var(--r1); font-variant-numeric: tabular-nums; }
+.ovm-sess.st-wait { border-color: var(--you); color: var(--you); } .ovm-sess.st-err { border-color: var(--risk); color: var(--risk); }
+.ovm-sess.st-idle, .ovm-sess.st-done { border-color: var(--strong); color: var(--muted); }
+.ovm-mem { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: 2px solid var(--run); border-radius: 50%; font-size: var(--fs-xs); }
+.ovm-mem.st-wait { border-color: var(--you); } .ovm-mem.st-err { border-color: var(--risk); } .ovm-mem.st-idle, .ovm-mem.st-done { border-color: var(--strong); color: var(--muted); }
+.ovm-chip { font-size: var(--fs-xs); color: var(--muted); background: var(--hover); border-radius: 999px; padding: 1px var(--s2); white-space: nowrap; }
+.ovm-doing { color: var(--faint); font-size: var(--fs-s); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 8em; }
+.ovm-legend { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); margin-top: var(--s4); color: var(--muted); font-size: var(--fs-s); }
+.ovm-leg { display: inline-flex; align-items: center; gap: var(--s2); }
+.ovm-leg .ovm-sess, .ovm-leg .ovm-mem { min-width: 0; width: 18px; height: 14px; padding: 0; }
+.ovm-leg .ovm-mem { width: 16px; height: 16px; }
+.ovm-leg .ln { width: 24px; height: 2px; background: var(--run); }
+.ovm-leg .sq { width: 10px; height: 10px; border-radius: 2px; background: var(--strong); }
+.ovm-leg .sq.you { background: var(--you); } .ovm-leg .sq.run { background: var(--run); } .ovm-leg .sq.done { background: var(--done); }
+@media (max-width: 1000px) {
+  .ovm-band { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

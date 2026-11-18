@@ -27,6 +27,14 @@ const IDLE_MS = 10_000;
 const GAP_MS = 2_000;
 const CHECK_MS = 2_000;
 const HOLD_MIN_DEFAULT = 30;
+// UPD-MISS (依頼-494): the 15:19 release (11-17) was not picked up and nothing said why. The folder watcher now reads
+// RELEASE.json on any event (macOS FSEvents may coalesce: empty / other name), a failed read (null: half-written,
+// missing) is retried RETRY_N times RETRY_MS apart, and RELEASE.json is read again every POLL_MS (only that file:
+// no process is looked at). The events are recorded through opts.record (main: <userData>/logs/update.jsonl).
+const POLL_MS = 60_000;
+const RETRY_MS = 1_500;
+const RETRY_N = 3;
+const WATCH_DELAY_MS = 500;
 
 function readVersion(file) {
   try {
@@ -48,13 +56,22 @@ const holdMinOf = (wins) => {
 };
 
 // opts: { app, appRoot, userData, listWindows: () => [{ win, workDir, busy, gap?, hidden?, role?, holdMin? }],
-//         send(win, channel, payload), log?, now? (tests) }
+//         send(win, channel, payload), log?, now? (tests), record?(event) (UPD-MISS: { ev, version, startVersion, via?, ... }),
+//         pollMs?, retryMs?, timers? { setTimeout, setInterval, clearInterval } and watch?(dir, opts, cb) (tests) }
 function init(opts) {
   const { app, appRoot, userData, listWindows, send } = opts;
   const log = opts.log || (() => {});
   const clock = opts.now || Date.now;
   const file = path.join(appRoot, 'RELEASE.json'); // written by scripts/release.js
   const startVersion = readVersion(file);
+  const T = opts.timers || { setTimeout, setInterval, clearInterval };
+  const pollMs = opts.pollMs || POLL_MS;
+  const retryMs = opts.retryMs || RETRY_MS;
+  const record = (ev, extra) => {
+    try {
+      if (typeof opts.record === 'function') opts.record({ ev, version: pending, startVersion, state, ...(extra || {}) });
+    } catch {}
+  };
   let pending = null; // new version string
   let state = 'none';
   let since = 0;
@@ -117,6 +134,7 @@ function init(opts) {
       log('[autorestart] could not record folders', err);
     }
     log(`[autorestart] restarting for version ${pending} (${folders.length} folders${resume ? ', running items resume' : ''})`);
+    record('restart', { resume, folders: folders.length });
     broadcast(true);
     try {
       if (typeof opts.onRestart === 'function') opts.onRestart(); // UA1: auto.restart (usage record)
@@ -141,12 +159,34 @@ function init(opts) {
     broadcast(true);
   }
 
-  function onChange() {
+  // via: 'watch' (a folder event), 'retry' (after a failed read), 'poll' (every pollMs), 'test'
+  let retryTimer = null;
+  let retries = 0;
+  let readFailed = false;
+  function onChange(via, name) {
+    if (state === 'restarting') return;
     const v = readVersion(file);
-    if (!v || v === startVersion || v === pending || state === 'restarting') return;
+    if (!v) {
+      // half-written or missing: read again a few times (the poll catches it later anyway)
+      if (!readFailed) record('read-fail', { via: via || 'test', name: name == null ? null : String(name).slice(0, 40) });
+      readFailed = true;
+      if (retries < RETRY_N && !retryTimer) {
+        retries++;
+        retryTimer = T.setTimeout(() => {
+          retryTimer = null;
+          onChange('retry');
+        }, retryMs);
+      }
+      return;
+    }
+    readFailed = false;
+    retries = 0;
+    if (v === startVersion || v === pending) return;
+    const prev = pending;
     pending = v;
-    log(`[autorestart] new version ${v} (running ${startVersion || 'unknown'}): queues hold until the restart`);
+    log(`[autorestart] new version ${v} (running ${startVersion || 'unknown'}, via ${via || 'test'}): queues hold until the restart`);
     reserve();
+    record('reserve', { via: via || 'test', prev: prev || null, name: name == null ? null : String(name).slice(0, 40) });
   }
 
   // 「今すぐ更新」: wait for a turn gap now (no need to wait out the hold). From 'postponed' it reserves again.
@@ -154,6 +194,7 @@ function init(opts) {
     if (!pending || state === 'restarting') return false;
     if (state !== 'pending') reserve();
     forced = true;
+    record('now');
     gapSince = 0;
     broadcast(true);
     setTimeout(check, 0);
@@ -167,18 +208,31 @@ function init(opts) {
     since = 0;
     clearInterval(timer);
     log(`[autorestart] update to ${pending} postponed`);
+    record('postpone');
     broadcast(true);
     return true;
   }
 
   try {
     // Watch the folder: release.js replaces files, and watching a missing file throws.
-    fs.watch(appRoot, { persistent: false }, (_ev, name) => {
-      if (String(name || '').toLowerCase() === 'release.json') setTimeout(onChange, 500); // let the writer finish
+    // Any event (not only name === release.json): FSEvents may report it without a name or under another one.
+    // One read per burst, after the writer finished; reading the small file is cheap.
+    let watchTimer = null;
+    (opts.watch || fs.watch)(appRoot, { persistent: false }, (_ev, name) => {
+      if (watchTimer) return;
+      watchTimer = T.setTimeout(() => {
+        watchTimer = null;
+        onChange('watch', name);
+      }, WATCH_DELAY_MS);
     });
   } catch (err) {
     log('[autorestart] watch failed', err);
+    record('watch-fail', { code: err && err.code ? String(err.code) : null });
   }
+  // the poll: even when no event comes at all
+  const poll = T.setInterval(() => onChange('poll'), pollMs);
+  if (poll && typeof poll.unref === 'function') poll.unref();
+  record('start');
 
   return {
     status,
@@ -189,6 +243,7 @@ function init(opts) {
     holding: () => state === 'pending',
     _check: check, // tests
     _onChange: onChange,
+    _stop: () => T.clearInterval(poll), // tests
   };
 }
 
@@ -208,4 +263,4 @@ function takeReopen(userData) {
   }
 }
 
-module.exports = { init, takeReopen, readVersion, IDLE_MS, GAP_MS, HOLD_MIN_DEFAULT };
+module.exports = { init, takeReopen, readVersion, IDLE_MS, GAP_MS, HOLD_MIN_DEFAULT, POLL_MS, RETRY_MS, RETRY_N };

@@ -5,9 +5,23 @@
 // (the app's shortcuts, Labels.SHORTCUTS). A key the page handles itself (preventDefault) never reaches the menu.
 'use strict';
 
-// macTemplate({ appName, onSettings }) -> a Menu template (plain objects; unit-tested in tmp/ux4/unit.js)
-function macTemplate({ appName = 'BantoDesk', onSettings } = {}) {
+// macTemplate({ appName, onSettings, onZoom }) -> a Menu template (plain objects; unit-tested in tmp/ux4/unit.js)
+// UX18 (docs/ux-journey.md §5.7): with onZoom(dir) the 表示 items change the app's one zoom (every window, saved in
+// app-settings.json) instead of the roles' per-page zoom: +1 拡大 (⌘+, and ⌘= without Shift), -1 縮小 (⌘-), 0 実際のサイズ (⌘0).
+function macTemplate({ appName = 'BantoDesk', onSettings, onZoom } = {}) {
   const sep = { type: 'separator' };
+  const zoom = typeof onZoom === 'function'
+    ? [
+      { id: 'resetZoom', label: '実際のサイズ', accelerator: 'Command+0', click: () => onZoom(0) },
+      { id: 'zoomIn', label: '拡大', accelerator: 'Command+Plus', click: () => onZoom(1) },
+      { id: 'zoomInEq', label: '拡大', accelerator: 'Command+=', visible: false, acceleratorWorksWhenHidden: true, click: () => onZoom(1) },
+      { id: 'zoomOut', label: '縮小', accelerator: 'Command+-', click: () => onZoom(-1) },
+    ]
+    : [
+      { role: 'resetZoom', label: '実際のサイズ' },
+      { role: 'zoomIn', label: '拡大' },
+      { role: 'zoomOut', label: '縮小' },
+    ];
   return [
     {
       label: appName,
@@ -37,11 +51,7 @@ function macTemplate({ appName = 'BantoDesk', onSettings } = {}) {
     },
     {
       label: '表示',
-      submenu: [
-        { role: 'resetZoom', label: '実際のサイズ' },
-        { role: 'zoomIn', label: '拡大' },
-        { role: 'zoomOut', label: '縮小' },
-      ],
+      submenu: zoom,
     },
     {
       label: 'ウインドウ',

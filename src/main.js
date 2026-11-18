@@ -49,6 +49,8 @@ const fileWatchers = require('./main/watchers').track(require('chokidar'));
 const { waitThenQuit } = require('./main/quitwait');
 const chokidar = fileWatchers.chokidar;
 const transcript = require('./main/transcript');
+const oneview = require('./main/oneview'); // UX13: the main window's session view (relay)
+const workbench = require('./main/workbench'); // UX14: when a folder window (the workbench) shows
 const sessions = require('./main/sessions');
 const gitTools = require('./main/git');
 const teams = require('./main/teams');
@@ -63,31 +65,40 @@ const samesave = require('./main/samesave'); // UX6 / J2: drop a window's backlo
 const files = require('./main/files');
 const claudeCmd = require('./main/claude-cmd');
 const models = require('./main/models');
+const leanPref = require('./main/lean-pref'); // TK3
 const inboxStore = require('./main/inbox');
 const qaStore = require('./main/qa');
 const manager = require('./main/manager');
 const propose = require('./main/propose');
 const review = require('./main/review'); // UIUX U8: the review when a folder's work is over
 const pmo = require('./main/pmo');
-const noticesStore = require('./main/notices'); // 「PMO から」 notices (dashboard, widget)
+const noticesStore = require('./main/notices'); // 「ルーターから」 notices (dashboard, widget)
 const progressFile = require('./main/progress'); // PROGRESS.md per folder (dashboard:progress)
-const progressCheck = require('./main/progress-check'); // PM1 段 3: hourly PROGRESS.md / backlog gaps (haiku) -> 「PMO から」 info
+const progressCheck = require('./main/progress-check'); // PM1 段 3: hourly PROGRESS.md / backlog gaps (haiku) -> 「ルーターから」 info
 const triage = require('./main/triage'); // PM1 段 1: the patrol's haiku triage + the one shared claude -p runner
 const carryover = require('./main/carryover'); // AT-carryover: unfinished PROGRESS.md / roadmap rows -> inbox (hold) on first open
 const widget = require('./main/widget');
 const winIcon = require('./main/winicon'); // DOCKID: the dashboard window's icon and title (taskbar / Dock)
 const stuck = require('./main/stuck'); // roadmap 27: prompts that stopped a session (manager answer action)
 const waits = require('./main/waits'); // PROGRESS 40: what idle sessions wait for, waits that never end
+const lookout = require('./main/lookout'); // UX11: the watchers' gaps (closed folders, after-failed, heartbeat, outlook)
+const reviewsMod = require('./main/reviews'); // UX12: 事後の確認 (manager/reviews.json)
+const Reassure = require('./renderer/reassure'); // UX12: 安心の 1 行・留守の間・事後の確認の見出し (shared with the renderer)
 const waitHints = require('./main/wait-hints'); // PM1 段 2: 誤報の見込み under the manager's waits block
 const patrolGapsMod = require('./main/patrol-gaps'); // 見回りの検出
 const attention = require('./main/attention'); // UIUX U3: 「あなたの番」 (what only the user can decide)
-const AutoSend = require('./renderer/autosend'); // the backlog's auto send after API errors (a stopped PMO -> あなたの番)
+const AutoSend = require('./renderer/autosend');
+const Nonstop = require('./renderer/nonstop'); // UX10: the usage limit hold (上限待ち), shared with the renderer // the backlog's auto send after API errors (a stopped ルーター -> あなたの番)
 const tempSessions = require('./main/tempsessions'); // roadmap 9 / 19: temp + edit windows (block "temp / edit sessions" below)
 const fileEdit = require('./main/fileedit');
 const procMem = require('./main/procmem'); // memory of each session's process tree (pty:mem)
 const stopTree = require('./main/stoptree'); // stop a session's whole process tree and check it is gone (PROGRESS 49)
 const orphans = require('./main/orphans'); // startup sweep of suspended children a killed previous run left (PROGRESS 47)
 const leftovers = require('./main/leftovers'); // processes the tabs left behind: counted for the dashboard, stopped by the setting (51c)
+const simview = require('./main/simview').create({ ipcMain, userData: () => app.getPath('userData'), workDirOf: (e) => windows.get(e.sender.id)?.workDir || '' }); // IOS-SIM: iOS Simulator pane
+const pincomment = require('./main/pincomment').create({ ipcMain, windowOf: (e) => windows.get(e.sender.id)?.win || null, workDirOf: (e) => windows.get(e.sender.id)?.workDir || '' }); // 15 場所を指定したコメント
+const present = require('./main/present').create({ ipcMain, dialog: require('electron').dialog, windowOf: (e) => windows.get(e.sender.id)?.win || null, workDirOf: (e) => windows.get(e.sender.id)?.workDir || '', userData: () => app.getPath('userData'), renderer: (() => { const r = require('./main/present-render').pickRenderer(); return () => r; })(), thumbOf: (f) => { try { const img = require('electron').nativeImage.createFromPath(f); if (img.isEmpty()) return ''; return img.resize({ width: 320 }).toDataURL(); } catch { return ''; } } }); // 18 資料パネル (第 1 段)
+const browserview = require('./main/browserview').create({ ipcMain, WebContentsView: require('electron').WebContentsView, session: require('electron').session, dialog: require('electron').dialog, downloadsDir: () => app.getPath('downloads'), windowOf: (e) => windows.get(e.sender.id)?.win || null, workDirOf: (e) => windows.get(e.sender.id)?.workDir || '' }); // 内蔵ブラウザ (PROGRESS 6)
 const viewer = require('./main/viewer'); // roadmap 5b: file viewer panels, atview: protocol (CONTRACT.md "Viewer")
 const sched = require('./main/sched'); // backlog start rules across folders (limit / resources / touches / after)
 const keepAwakeMod = require('./main/keepawake'); // keep the PC awake while work runs, lid action (docs/keep-awake.md)
@@ -188,9 +199,17 @@ async function chooseFolderFallback() {
   else quitIfNoVisibleWindow();
 }
 
+// UX14: a folder chosen on the home's ＋ opens hidden (its first session shows in the home: dashboard.js startFolder);
+// without a main window (the OS folder dialog) it is the window, as before
 function openFolder(dir) {
   if (typeof dir !== 'string' || !isDir(dir)) return;
-  openWindow(path.resolve(dir));
+  const reason = mainOn() ? 'session' : 'folder';
+  const hidden = !workbench.showOnOpen(reason, { main: mainOn() });
+  const was = windowOf(path.resolve(dir));
+  // 'session' (＋ 新しいセッション): the window starts a new session (a new window: on its empty screen, an open one: one more tab)
+  const s = openWindow(path.resolve(dir), { hidden, wantTab: reason === 'session' });
+  if (hidden && s) addRecent(s.workDir); // a hidden window is not added by openWindow (routed work is not "recent")
+  if (reason === 'session' && was && s === was && s.role === 'project' && !s.temp) send(s, 'session:newTab', {});
 }
 
 const hasArgFolder = (argv, cwd) => {
@@ -203,8 +222,16 @@ function launch(argv, cwd) {
   if (t.edit) return void openEditWindow(t.edit);
   if (t.temp) return void openTempWindow();
   const dir = parseWorkDir(argv, cwd);
-  if (dir) openWindow(dir, { launch: true });
-  else openStart();
+  if (!dir) return void openStart();
+  // UX14: a folder on the command line opens hidden (the workbench); the main window shows (the home as the user left it:
+  // its saved folder filter is not replaced)
+  if (!workbench.showOnOpen('launch', { main: mainOn() })) {
+    const s = openWindow(dir, { launch: true, hidden: true });
+    if (s && s.role === 'project' && !s.temp) addRecent(s.workDir);
+    openStart();
+    return;
+  }
+  openWindow(dir, { launch: true });
 }
 
 // UIUX U5: started without a folder (or started again) -> the dashboard, whose 新しいセッション panel (folders, temp / edit
@@ -221,18 +248,53 @@ function openStart({ panel = false } = {}) {
   else tell(300);
 }
 
+// SCH-FR2: the dashboard is never throttled, so its page always reads visibilityState 'visible'. win:seen tells it
+// whether anyone can see it: shown, not minimized, the screen not locked (preload: <html data-unseen> + 'bantodesk:seen').
+let screenLocked = false;
+const seenWins = new Set();
+function seenOf(win) {
+  return !win.isDestroyed() && win.isVisible() && !win.isMinimized() && !screenLocked;
+}
+function tellSeen(win, seen = seenOf(win)) {
+  try {
+    // E2E-SEEN: an app a test started is always seen (src/main/e2e.js seenFor), unless AGENT_TERMINAL_E2E_REAL_SEEN=1
+    if (!win.isDestroyed()) win.webContents.send('win:seen', require('./main/e2e').seenFor(seen && !screenLocked));
+  } catch {}
+}
+let lockWatched = false;
+function watchSeen(win) {
+  seenWins.add(win);
+  // during 'hide' / 'minimize' isVisible() / isMinimized() may not have changed yet (macOS): the event says it
+  win.on('hide', () => tellSeen(win, false));
+  win.on('minimize', () => tellSeen(win, false));
+  for (const e of ['show', 'restore']) win.on(e, () => tellSeen(win));
+  win.webContents.on('did-finish-load', () => tellSeen(win));
+  win.on('closed', () => seenWins.delete(win));
+  if (lockWatched) return;
+  lockWatched = true;
+  try {
+    const { powerMonitor } = require('electron');
+    const set = (v) => {
+      screenLocked = v;
+      for (const w of seenWins) tellSeen(w);
+    };
+    powerMonitor.on('lock-screen', () => set(true));
+    powerMonitor.on('unlock-screen', () => set(false));
+  } catch {}
+}
+
 // Shows a window that was opened hidden (routed work, the manager) and focuses it.
 function revealWindow(s) {
   if (s.win.isDestroyed()) return;
   if (s.hidden) {
     s.hidden = false;
     s.win.setSkipTaskbar(false);
-    s.win.webContents.setBackgroundThrottling(true);
     if (s.role !== 'manager' && !s.temp) addRecent(s.workDir);
   }
   if (s.win.isMinimized()) s.win.restore();
   s.win.show();
   s.win.focus();
+  if (seenWins.has(s.win)) tellSeen(s.win); // SCH-FR2 ('show' may not come for a window shown again on macOS)
 }
 
 // Hidden windows (routed work, the manager agent) do not keep the app alive: it quits when the last
@@ -240,10 +302,14 @@ function revealWindow(s) {
 let quitting = false;
 const reopenLater = require('./main/reopenlater').createReopenLater({ app, log: (m) => console.warn('[main] ' + m) });
 const anyVisibleWindow = () => [...windows.values()].some((s) => !s.hidden && !s.win.isDestroyed()) || choosingFolder;
+// UX14 (§5.7 窓を閉じたとき): macOS keeps the app when the last window closes (Dock / menu bar open the main window, ⌘Q
+// quits); Windows quits as before
 function quitIfNoVisibleWindow() {
   if (quitting) return;
-  if (!anyVisibleWindow()) app.quit();
+  if (!anyVisibleWindow() && (workbench.quitWhenNoneVisible() || !mainOn())) app.quit(); // no main window to come back to: quit (as before)
 }
+// UX14: a main window (the home) can be shown -> folder windows stay hidden unless asked for (src/main/workbench.js)
+const mainOn = () => workbench.mainAvailable({ managerDir, noManager: process.env.AGENT_TERMINAL_NO_MANAGER === '1' });
 
 const isManagerDir = (dir) => !!managerDir && norm(dir) === norm(managerDir);
 
@@ -271,11 +337,11 @@ function openWindow(workDir, opts = {}) {
   const win = new BrowserWindow({
     width: 1400,
     height: 850,
-    minWidth: 760,
+    minWidth: 720, // UX18 (docs/ux-journey.md §5.7): the smallest window is 720 wide
     minHeight: 480,
     show: !hidden,
     skipTaskbar: hidden,
-    backgroundColor: '#11111b',
+    backgroundColor: firstGround(), // UX18: the ground of the chosen theme (no dark flash when the light ground opens)
     // DOCKID: the dashboard's title starts with 「ダッシュボード」 (taskbar, the Dock's window list, the ウインドウ menu)
     title: role === 'manager' && !temp ? winIcon.dashboardTitle(isDev) : `BantoDesk${isDev ? ' [DEV]' : ''} - ${winLabel}`,
     ...TITLE_BAR,
@@ -285,14 +351,24 @@ function openWindow(workDir, opts = {}) {
       nodeIntegration: false,
       // Notification sounds (WebAudio) must play although the user may not have clicked the window yet.
       autoplayPolicy: 'no-user-gesture-required',
-      backgroundThrottling: !hidden,
+      // SCH-FR (docs/sched-assigned.md「SCH-FR」): a project window runs its queue on a 1 s timer (start, send, watch).
+      // Throttled while the user does not look at it, the timer woke once a minute: a new tab's item waited 7 min
+      // (AT-165) or failed the 60 s start watch 3 times (AT-166).
+      // SCH-FR2 (「SCH-FR2」): the dashboard (manager) too — the ルーター's prompts (依頼を確認して…) go out from its 1 s queue
+      // timer and sendText's timers; throttled, they reached the ルーター 1-3 min late (the ルーター transcript's prompts at the
+      // same second, :21.0xx, all afternoon). The dashboard's "draw nothing while hidden" (§5.5.2) follows win:seen.
+      backgroundThrottling: false,
+      zoomFactor: zoomFactor(), // UX18: one zoom for every window (app-settings.json zoom)
     },
   });
   if (!hidden && role !== 'manager' && !temp) addRecent(workDir);
   const id = win.webContents.id;
   // launch: opened by starting the app (command line), not from the picker later (AT-139: an empty one shows the dashboard)
-  const state = { win, workDir, ptys: new Map(), hidden, role, temp, launch: opts.launch === true };
+  // wantTab (UX14): opened from the home's ＋ — with nothing to restore it starts a session (else AT-139's empty screen)
+  const state = { win, workDir, ptys: new Map(), hidden, role, temp, launch: opts.launch === true, wantTab: opts.wantTab === true };
   windows.set(id, state);
+  win.webContents.on('did-finish-load', () => { try { win.webContents.setZoomFactor(zoomFactor()); } catch {} }); // UX18
+  if (zoomFactor() !== 1 || themeNow() !== 'dark') fitWindowButtons(win); // UX18 (TITLE_BAR is the 100% / dark one)
   if (temp) attachTempWindow(state);
   if (role === 'manager') {
     managerState = state;
@@ -303,12 +379,22 @@ function openWindow(workDir, opts = {}) {
       e.preventDefault();
       state.hidden = true;
       win.setSkipTaskbar(true);
-      win.webContents.setBackgroundThrottling(false);
+      win.hide();
+      tellSeen(win, false); // SCH-FR2 ('hide' is not emitted for a hide() inside 'close' on macOS)
+      quitIfNoVisibleWindow();
+    });
+    watchSeen(win);
+  } else {
+    // UX14: closing a folder window (the workbench) only hides it while a main window can come back; its sessions go on
+    win.on('close', (e) => {
+      if (!workbench.hideOnClose({ quitting, role, temp, main: mainOn() })) return;
+      e.preventDefault();
+      state.hidden = true;
+      win.setSkipTaskbar(true);
       win.hide();
       quitIfNoVisibleWindow();
     });
-  } else if (!hidden) {
-    scheduleManagerStart();
+    if (!hidden) scheduleManagerStart();
   }
   files.prewarm(workDir); // the first @-search should not pay for spawning git (~300 ms on Windows)
   if (role === 'project' && !temp) carryoverSoon(workDir); // AT-carryover: first open on this PC -> the folder's open rows
@@ -360,13 +446,20 @@ function openWindow(workDir, opts = {}) {
   win.webContents.on('did-navigate', () => {
     for (const t of state.ptys.values()) killPty(t);
     state.ptys.clear();
+    try { views.windowGone(state); } catch {} // UX13
     viewer.windowGone(id);
+    simview.windowGone(id); // IOS-SIM: stop its capture loops
+    present.windowGone(id); // 18: stop its file watchers
+    browserview.windowGone(id); // 内蔵ブラウザ: destroy its views
   });
   win.on('closed', () => {
     for (const t of state.ptys.values()) killPty(t);
+    try { views.windowGone(state); } catch {} // UX13
     if (state.temp) tempWindowClosed(state); // delete / keep the temp folder (after its ptys exit)
     windows.delete(id);
     viewer.windowGone(id, { closed: true });
+    simview.windowGone(id);
+    browserview.windowGone(id);
     if (managerState === state) managerState = null;
     schedWindowClosed(state);
     // 52b: a close that quits the app (the last visible window, or the hidden ones the quit destroys) leaves the
@@ -436,9 +529,12 @@ const INHERITED_SESSION_ENV = [
 
 // <userData>\claude-settings.json (+ -routed / -manager), written once at startup (a null path when writing failed).
 let claudeSettingsPaths = {}; // { base, routed, manager } (claudeCmd.writeAllClaudeSettings, UX9)
+// TK2: the same three with the lean preamble (claude-settings[-kind]-lean.json, claude-cmd.js LEAN_SETTINGS)
+let claudeLeanSettingsPaths = {};
 // PROGRESS 4: the app's localhost MCP server (src/main/mcp-server.js, CONTRACT.md "App MCP server"). Started in
 // whenReady; a tab that starts before it listens (or with AGENT_TERMINAL_NO_MCP=1) gets no --mcp-config.
 const mcpServerLib = require('./main/mcp-server');
+const codeMode = require('./main/code-mode'); // 依頼-535: Claude Code's code mode (docs/plan-code-mode.md)
 let mcpServer = null;
 function startMcpServer() {
   if (process.env.AGENT_TERMINAL_NO_MCP === '1') return;
@@ -471,12 +567,12 @@ function startMcpServer() {
 // claude.delegate (a session the app started for a routed item, setting on): + docs/prompts/routed-session.md.
 const ROUTED_PROMPT_FILE = path.join(__dirname, '..', 'docs', 'prompts', 'routed-session.md');
 // model / effort (AT-6, src/main/models.js): the tab's own (a routed item's, sent by the renderer) when valid, else the
-// default of manager-settings.json (the PMO's for the manager window), read at every start so a change applies to the
+// default of manager-settings.json (the ルーター's for the manager window), read at every start so a change applies to the
 // next start.
 function claudeModel(s, own) {
   return models.pick(models.fromSettings(loadManagerSettings()), s.role, own);
 }
-// UX9: the --settings file by the kind of claude: the PMO's (manager folder + outbox), a routed session's (the
+// UX9: the --settings file by the kind of claude: the ルーター's (manager folder + outbox), a routed session's (the
 // permissions decided at the start, claude-cmd.js roleRules), else the base one. Each has the SEC5 deny rules and hook.
 function settingsPathFor(s, claude) {
   const p = claudeSettingsPaths || {};
@@ -484,18 +580,30 @@ function settingsPathFor(s, claude) {
   if (!s.temp && claude.delegate) return p.routed || p.base || null;
   return p.base || null;
 }
+// TK2: the lean file of the same kind (no fallback to another kind: a missing one = the usual file, by buildClaudeArgs)
+function leanSettingsPathFor(s, claude) {
+  const p = claudeLeanSettingsPaths || {};
+  if (s.role === 'manager') return p.manager || null;
+  if (!s.temp && claude.delegate) return p.routed || null;
+  return p.base || null;
+}
 function claudeLaunch(s, claude, override) {
   const folder = s.role !== 'manager' && !s.temp;
-  claude = { ...claude, ...claudeModel(s, { model: claude.model, effort: claude.effort }) };
+  claude = { ...claude, ...claudeModel(s, { model: claude.model, effort: claude.effort, kind: claude.kind }) };
   const parts = [claudeCmd.GUARD_PROMPT]; // SEC5: every claude, the manager and temp windows too
   if (folder) parts.push(claudeCmd.PROGRESS_PROMPT);
   if (folder && claude.delegate) parts.push(claudeCmd.routedPrompt(ROUTED_PROMPT_FILE));
   const appendPrompt = parts.join('\n\n');
-  return claudeCmd.launchSpec({
+  // code mode (experimental, env only): on / off / auto from manager-settings.json, read at every start
+  const cmEnv = codeMode.envFor({ mode: codeMode.modeOf(loadManagerSettings()), role: s.role, temp: !!s.temp, team: !!claude.team, kind: claude.kind, model: claude.model, env: process.env });
+  const spec = claudeCmd.launchSpec({
     shell: process.env.AGENT_TERMINAL_SHELL || null,
     override,
-    claude: { ...claude, settingsPath: settingsPathFor(s, claude), mcpConfigPath: mcpServer ? mcpServer.configFor(claude.id) : null, appendPrompt },
+    // TK2 (docs/plan-token.md): the lean preamble unless manager-settings.json turns it off (app-wide / this folder),
+    // read at every start; a running claude keeps what it started with (the system layer heads the prompt cache)
+    claude: { ...claude, settingsPath: settingsPathFor(s, claude), leanSettingsPath: leanSettingsPathFor(s, claude), lean: claudeCmd.leanPreambleFor(loadManagerSettings(), s.workDir), mcpConfigPath: mcpServer ? mcpServer.configFor(claude.id) : null, appendPrompt },
   });
+  return Object.keys(cmEnv).length ? { ...spec, env: cmEnv } : spec;
 }
 
 function spawnPty(state, id, cols, rows, launch, cwd, opts = {}) {
@@ -509,6 +617,7 @@ function spawnPty(state, id, cols, rows, launch, cwd, opts = {}) {
   // Agent Teams (docs/agent-teams-plan.md): in-process teammates only. A TMUX variable makes
   // Claude Code try the tmux backend, which on Windows leaves teammates stuck at "Initializing…",
   // and an inherited CLAUDE_PID (app started from inside a Claude session) stops them starting.
+  if (launch.env) Object.assign(env, launch.env); // code mode (claudeLaunch)
   if (opts.team) {
     env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1';
     delete env.TMUX;
@@ -553,13 +662,15 @@ ipcMain.handle('app:info', async (e) => {
   const temp = s.temp ? { kind: s.temp.kind, ...(s.temp.name ? { name: s.temp.name } : {}), ...(s.temp.original ? { original: s.temp.original } : {}) } : null;
   // AT-139: a project window with nothing to restore starts no claude, also in an app a test started (the e2e open
   // their first tab themselves: tmp/dock/start-tab.mjs)
-  return { workDir: s.workDir, dev: isDev, isGit: await gitTools.isGit(s.workDir), role: s.role, hidden: !!s.hidden, temp, launch: !!s.launch };
+  const wantTab = !!s.wantTab;
+  s.wantTab = false; // once (a reload does not start another)
+  return { workDir: s.workDir, dev: isDev, isGit: await gitTools.isGit(s.workDir), role: s.role, hidden: !!s.hidden, temp, launch: !!s.launch, wantTab };
 });
 ipcMain.on('win:title', (e, text) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (!win || win.isDestroyed() || typeof text !== 'string') return;
   // DOCKID: the dashboard keeps 「ダッシュボード — BantoDesk」 (the page's "<tab> - ダッシュボード - …" would put the
-  // PMO tab's name first in the taskbar and the Dock's window list)
+  // ルーター tab's name first in the taskbar and the Dock's window list)
   const s = stateOf(e);
   win.setTitle(s && s.role === 'manager' && !s.temp ? winIcon.dashboardTitle(isDev) : text.slice(0, 300));
 });
@@ -580,7 +691,7 @@ ipcMain.handle('picker:browse', async (e) => {
 ipcMain.on('picker:open', (_e, dir) => openFolder(dir));
 ipcMain.on('picker:show', () => openStart({ panel: true })); // U5: the dashboard's 新しいセッション
 // U5 「新しい作業」 on the dashboard's 新しいセッション panel: { name } -> a new folder under the work root (the same place and
-// naming as the PMO's create action: manager.createWorkFolder, never an existing folder), opened in its own window.
+// naming as the ルーター's create action: manager.createWorkFolder, never an existing folder), opened in its own window.
 // -> { ok: true, folder } | { error }
 ipcMain.handle('dashboard:newWork', (e, o) => {
   if (stateOf(e)?.role !== 'manager') return { error: 'not allowed' };
@@ -592,22 +703,35 @@ ipcMain.handle('dashboard:newWork', (e, o) => {
   } catch (err) {
     return { error: String((err && err.message) || err).slice(0, 200) };
   }
-  // the same check as the PMO's create (a work root set inside the app data is refused)
+  // the same check as the ルーター's create (a work root set inside the app data is refused)
   const v = manager.validateFolder(dir, app.getPath('userData'));
   if (!v.ok) return { error: String(v.error || 'not allowed').slice(0, 200) };
   dir = v.folder;
   addRecent(dir);
-  openWindow(dir);
+  openWindow(dir, { hidden: !workbench.showOnOpen('session', { main: mainOn() }), wantTab: mainOn() }); // UX14: its session shows in the home
   return { ok: true, folder: dir };
 });
 
 // --- pty ----------------------------------------------------------------------
+// Where a resumed claude starts: the tab's saved cwd when it is a folder inside the window's folder; else the last cwd
+// the session's (newest) transcript recorded, when that is inside; else the folder. claude finds the conversation by the
+// cwd's project folder, so the folder root is wrong for a session that ran in a sub-folder (the ルーター in manager/outbox):
+// a saved cwd from the former data folder (BN3: …/agent-terminal/manager/outbox) made every ルーター resume exit.
+function resumeDir(s, id, cwd) {
+  const ok = (d) => typeof d === 'string' && d && isDir(d) && isInside(d, s.workDir);
+  if (ok(cwd)) return path.resolve(cwd);
+  const last = transcript.lastCwd(id);
+  if (ok(last)) return path.resolve(last);
+  return s.workDir;
+}
+
 ipcMain.on('pty:create', (e, o) => {
   const s = stateOf(e);
   const { id, cols, rows, mode = 'new', cwd, worktree } = o || {};
   const team = (o || {}).team === true;
   const delegate = (o || {}).delegate === true; // routed item: the delegation prompt (claudeLaunch)
-  const own = { model: (o || {}).model, effort: (o || {}).effort }; // AT-6: a routed item's own (checked in claudeLaunch)
+  // AT-6: a routed item's own (checked in claudeLaunch); MODEL-KIND: + its kind (the default by kind)
+  const own = { model: (o || {}).model, effort: (o || {}).effort, kind: (o || {}).kind };
   if (!s || typeof id !== 'string' || !UUID_RE.test(id) || s.ptys.has(id)) return;
   const reject = (why) => {
     console.warn(`[main] pty:create rejected (${why})`);
@@ -625,7 +749,7 @@ ipcMain.on('pty:create', (e, o) => {
     if (!worktree && typeof cwd === 'string' && cwd && isDir(cwd) && isInside(cwd, s.workDir)) dir = path.resolve(cwd);
   } else if (mode === 'resume') {
     launch = claudeLaunch(s, { mode, id, team, delegate, ...own });
-    if (typeof cwd === 'string' && cwd && isDir(cwd) && isInside(cwd, s.workDir)) dir = path.resolve(cwd);
+    dir = resumeDir(s, id, cwd);
   } else {
     return reject('bad mode');
   }
@@ -687,7 +811,7 @@ ipcMain.on('pty:restart', async (e, o) => {
   const { id, cols, rows, cwd } = o || {};
   const team = (o || {}).team === true;
   const delegate = (o || {}).delegate === true;
-  const own = { model: (o || {}).model, effort: (o || {}).effort }; // AT-6 (as pty:create)
+  const own = { model: (o || {}).model, effort: (o || {}).effort, kind: (o || {}).kind }; // AT-6 (as pty:create)
   if (!s || typeof id !== 'string' || !UUID_RE.test(id)) return;
   if (s.restarting?.has(id)) return;
   (s.restarting ||= new Set()).add(id);
@@ -701,8 +825,7 @@ ipcMain.on('pty:restart', async (e, o) => {
       await Promise.race([gone, new Promise((r) => setTimeout(r, 5000))]);
     }
     if (s.win.isDestroyed() || s.ptys.has(id)) return;
-    let dir = s.workDir;
-    if (typeof cwd === 'string' && cwd && isDir(cwd) && isInside(cwd, s.workDir)) dir = path.resolve(cwd);
+    const dir = resumeDir(s, id, cwd);
     // AGENT_TERMINAL_CMD (tests) replaces the command here too, so a restart never starts a real claude in a test.
     // No transcript yet (claude exited before the first message): --resume would only print "No conversation found"
     // and exit, so the same session id starts fresh instead.
@@ -859,9 +982,32 @@ ipcMain.handle('proc:leftoversMode', async (_e, mode) => {
 // --- transcripts --------------------------------------------------------------
 // Only to the window that has the session open (events now carry tool output; other sessions on
 // the machine would just be IPC noise). Sessions opened later get their history via assist:replay.
+// UX13: a window that views the session in place (the dashboard's session view) also gets it, on 'view:event'
+// (src/main/oneview.js: at most once per window and channel).
+const views = oneview.create({
+  windows,
+  send: (s, ch, payload) => send(s, ch, payload),
+  replay: async (id) => [...(await transcript.replay(id)), ...teams.eventsFor(id)],
+  hasTab: (wcId, id) => widget.hasTab(wcId, id),
+});
 function emit(evt) {
-  for (const s of windows.values()) if (evt && s.ptys.has(evt.sessionId)) send(s, 'assist:event', evt);
+  views.emit(evt);
 }
+// manager window only: { tabId } -> { ok, sessionId, owned, folder, events }
+ipcMain.handle('view:open', (e, o) => {
+  const s = stateOf(e);
+  if (s?.role !== 'manager') return { ok: false, why: 'bad' };
+  return views.open(s, o);
+});
+ipcMain.on('view:close', (e) => views.close(stateOf(e)));
+// { tabId, type: 'text'|'choice'|'key', value } -> '' (sent) | the reason it was not sent
+ipcMain.handle('view:input', (e, o) => {
+  const s = stateOf(e);
+  if (s?.role !== 'manager') return 'bad';
+  return views.input(s, o);
+});
+ipcMain.on('view:inputDone', (e, o) => views.inputDone(stateOf(e), o)); // the owner window's reply
+ipcMain.on('view:screen', (e, o) => views.screen(stateOf(e), o)); // the owner window's screen state (while watched)
 ipcMain.handle('assist:replay', async (_e, sessionId) => {
   if (typeof sessionId !== 'string' || !UUID_RE.test(sessionId)) return [];
   try {
@@ -991,6 +1137,57 @@ ipcMain.handle('backlog:drop', async (_e, o) => {
   const r = await backlogUpdate({ folder, backlogId: id, status: 'dropped', note: 'ユーザーが取り消しました', by: 'user', from: ['pending'] });
   return r.error ? { ok: false, error: r.error } : { ok: true, item: r.item };
 });
+// UX15: the card's row menu (was the バックログ panel's buttons): { folder, id, op } -> { ok } | { ok: false, error }.
+//   op 'reopen' (戻す): a done / failed / dropped item waits again. op 'done' (完了にする): a running item is done by hand.
+// The folder's own window holds the queue (a running item, its save): it does it there (backlog:op) and saves. A folder
+// without a window: main writes the file (done needs a running item, which only a window has: refused).
+ipcMain.handle('backlog:set', async (e, o) => {
+  if (stateOf(e)?.role !== 'manager') return { ok: false, error: 'bad request' };
+  const folder = o && o.folder;
+  const id = o && o.id;
+  const op = o && o.op;
+  if (typeof folder !== 'string' || !path.isAbsolute(folder) || typeof id !== 'string' || !['reopen', 'done', 'title'].includes(op)) return { ok: false, error: 'bad request' };
+  // 見出しを直す (the card's row menu, was the panel's 編集): empty = made from the text again (titleAuto)
+  const title = op === 'title' ? (typeof o.title === 'string' ? o.title.replace(/\s+/g, ' ').trim().slice(0, 200) : null) : undefined;
+  if (title === null) return { ok: false, error: 'bad request' };
+  if (managerDir && norm(folder) === norm(managerDir)) return { ok: false, error: "the manager folder's own queue cannot be changed" };
+  const items = (await backlog.getBacklog(userFile('backlog'), folder)).items || [];
+  const it = items.find((i) => i && i.id === id);
+  const own = windowOf(folder);
+  if (own && own.role !== 'manager') {
+    // the window's copy may be newer than the file (an item it just started): it checks the status itself
+    send(own, 'backlog:op', op === 'title' ? { id, op, title } : { id, op });
+    if (op === 'title') {
+      pmoLog({ type: 'backlog-update', by: 'user', folder, backlogId: id, from: it ? it.status : '', status: it ? it.status : '', note: `見出しを直す: ${title || '（本文の先頭から）'}` });
+      return { ok: true, window: true };
+    }
+    pmoLog({ type: 'backlog-update', by: 'user', folder, backlogId: id, from: it ? it.status : '', status: op === 'done' ? 'done' : 'pending', note: op === 'done' ? '手動で完了' : '戻す' });
+    return { ok: true, window: true };
+  }
+  if (!it) return { ok: false, error: `unknown backlogId ${JSON.stringify(id)}` };
+  if (op === 'title') {
+    const st0 = await backlog.getBacklog(userFile('backlog'), folder);
+    const items0 = st0.items.map((i) => {
+      if (i.id !== id) return i;
+      const n = { ...i };
+      if (title) n.title = title;
+      else delete n.title;
+      return n;
+    });
+    await backlog.saveBacklog(userFile('backlog'), folder, { ...st0, items: items0 });
+    backlogChanged(folder, 'main');
+    pmoLog({ type: 'backlog-update', by: 'user', folder, backlogId: id, from: it.status, status: it.status, note: `見出しを直す: ${title || '（本文の先頭から）'}` });
+    return { ok: true };
+  }
+  if (op === 'done') return { ok: false, error: '動いている作業はフォルダの窓が持っています（窓が閉じていると完了にできません）' };
+  if (!['done', 'failed', 'dropped'].includes(it.status)) return { ok: false, error: `backlog item ${id} is ${it.status} (only done / failed / dropped items can be put back)` };
+  const st = await backlog.getBacklog(userFile('backlog'), folder);
+  const next = { ...st, items: st.items.map((i) => (i.id === id ? { ...i, status: 'pending', doneAt: null, note: '' } : i)) };
+  await backlog.saveBacklog(userFile('backlog'), folder, next);
+  backlogChanged(folder, 'main');
+  pmoLog({ type: 'backlog-update', by: 'user', folder, backlogId: id, from: it.status, status: 'pending', note: '戻す' });
+  return { ok: true };
+});
 // Read-only view of any folder's backlog (dashboard). -> BacklogState
 ipcMain.handle('backlog:getFolder', async (_e, o) => {
   const folder = o && o.folder;
@@ -1001,7 +1198,7 @@ ipcMain.handle('backlog:getFolder', async (_e, o) => {
 // --- global inbox + managing agent (roadmap 20, docs/plan-dashboard.md) ---------------------------
 let inbox = null; // inbox.createInbox store, set when ready
 let qa = null; // qa.createQa store (pre-answered QA per queued task), set with the inbox
-let notices = null; // notices.createNotices store (「PMO から」), <managerDir>/notices.json, set with the manager folder
+let notices = null; // notices.createNotices store (「ルーターから」), <managerDir>/notices.json, set with the manager folder
 let managerDir = null; // <userData>\manager (canonical)
 let managerState = null; // the manager's window state while open
 let managerTimer = null;
@@ -1076,12 +1273,17 @@ function schedNumbered(folder, items) {
 // Each window asks sched:plan before it starts waiting routed items (r-*, tabId null) in new tabs; main decides over
 // all folders: at most `limit` running at once, nothing more while resources are short (unless nothing runs),
 // no overlap of touches within a folder, prerequisites (after) done. Running = r-* items of open (non-manager) windows'
-// folders that are active, or pending with a tabId, + reservations (ids sched:plan just started, until that folder's
-// save shows them, at most 60 s, so a slow save cannot start the same item twice).
+// folders that are active, or pending with a tabId (SCH-AS: only for 90 s from when main first saw it so, docs/sched-assigned.md),
+// + reservations (ids sched:plan just started, until that folder's save shows them, at most 60 s, so a slow save cannot
+// start the same item twice).
 const SCHED_RESERVE_MS = 60_000;
 const schedItemsCache = new Map(); // norm(folder) -> { folder, items } (last saved / read backlog of open windows)
 const schedReserved = new Map(); // backlogId -> { folder, id, kind, touches, at }
 const schedWaiting = new Map(); // norm(folder) -> { folder, reasons: { [id]: { code, text } } }
+// SCH-AS (docs/sched-assigned.md): backlogId -> { tabId, at } when main first saw a routed item pending with a tab
+// (assigned, its start not confirmed yet). It counts as running only for sched.ASSIGN_COUNT_MS from then.
+const schedAssigned = new Map();
+const schedStaleTold = new Set(); // ids logged once as stale
 let schedLimit = sched.DEFAULT_LIMIT;
 let schedThresholds = sched.normalizeThresholds(null);
 // The setting 同時に動かす作業 lives in the windows (localStorage notifySettings) and comes with sched:plan. main keeps
@@ -1116,7 +1318,8 @@ function schedMon() {
   if (!schedMonitor) schedMonitor = sched.createResourceMonitor({ sampleMs: 2000, windowMs: 30000 });
   return schedMonitor;
 }
-const isRoutedRunning = (i) => i && typeof i.id === 'string' && i.id.startsWith('r-') && (i.status === 'active' || (i.status === 'pending' && i.tabId));
+const isRoutedRunning = (i) => // active, or assigned to a tab (pending with a tabId; SCH-AS: counted only for a while)
+  i && typeof i.id === 'string' && i.id.startsWith('r-') && (i.status === 'active' || (i.status === 'pending' && i.tabId));
 const schedFolders = () => [...windows.values()].filter((s) => s.role !== 'manager' && !isManagerDir(s.workDir) && !s.win.isDestroyed());
 
 async function schedItemsOf(folder) {
@@ -1141,16 +1344,30 @@ async function schedRunning() {
   const statuses = new Map();
   const nos = new Map(); // the reasons name items by their number (AT-12) when they have one
   const ids = new Set();
+  const assigned = new Set(); // SCH-AS: ids pending with a tab now (their clocks in schedAssigned stay)
   for (const s of schedFolders()) {
-    for (const i of await schedItemsOf(s.workDir)) {
+    const items = await schedItemsOf(s.workDir);
+    for (const i of items) {
       if (!i || typeof i.id !== 'string') continue;
       statuses.set(i.id, i.status);
       if (typeof i.no === 'string' && i.no) nos.set(i.id, i.no);
-      if (!isRoutedRunning(i) || ids.has(i.id)) continue;
-      ids.add(i.id);
-      running.push({ folder: s.workDir, id: i.id, kind: i.kind || null, touches: Array.isArray(i.touches) ? i.touches : [], startedAt: i.startedAt || null });
+      if (isRoutedRunning(i) && i.status === 'pending') assigned.add(i.id);
+    }
+    // SCH-AS: active r- items, and pending ones with a tab only for a while (sched.routedRunning, docs/sched-assigned.md)
+    const r = sched.routedRunning(s.workDir, items, { now, seen: schedAssigned });
+    for (const x of r.running) {
+      if (ids.has(x.id)) continue;
+      ids.add(x.id);
+      running.push(x);
+    }
+    for (const id of r.stale) {
+      if (schedStaleTold.has(id)) continue;
+      schedStaleTold.add(id);
+      console.warn(`[sched] ${id} is assigned to a tab but did not start within ${sched.ASSIGN_COUNT_MS / 1000} s: not counted as running`);
     }
   }
+  sched.pruneAssigned(schedAssigned, assigned);
+  for (const id of [...schedStaleTold]) if (!assigned.has(id)) schedStaleTold.delete(id);
   for (const r of schedReserved.values()) {
     if (ids.has(r.id) || isManagerDir(r.folder)) continue;
     ids.add(r.id);
@@ -1160,18 +1377,54 @@ async function schedRunning() {
 }
 
 // Status (and number, into nos) of `after` ids not in an open folder: looked up in the recent folders' backlogs (only when needed).
+// UX11 (§1.6 row 11, docs/ux11-check.md): the folders whose queues main reads without a window. recent-folders.json
+// holds only the last 12 folders the user showed (addRecent; a folder opened hidden for a route is never put there), so
+// a 13th folder's queue, or a routed folder never shown, was never started. Now also every folder of the backlog's
+// number registry (numbers.json) that has a backlog file.
+function schedKnownFolders() {
+  const dir = userFile('backlog');
+  let reg = [];
+  try {
+    reg = backlog.knownFolders(dir).filter((e) => fs.existsSync(e.file)).map((e) => e.folder);
+  } catch {}
+  return lookout.knownFolders(loadRecent(), reg, (f) => isDir(f) && !isManagerDir(f));
+}
+// The items of a folder without a window, read again only when its backlog file changed (mtime + size): the registry
+// may know many folders, read every SCHED_CLOSED_MS.
+const closedItemsCache = new Map(); // file -> { mtimeMs, size, items }
+async function closedItemsOf(folder) {
+  const dir = userFile('backlog');
+  const file = backlog.backlogFile(dir, folder);
+  let st = null;
+  try {
+    st = fs.statSync(file);
+  } catch {
+    closedItemsCache.delete(file);
+    return [];
+  }
+  const c = closedItemsCache.get(file);
+  if (c && c.mtimeMs === st.mtimeMs && c.size === st.size) return c.items;
+  let items = [];
+  try {
+    items = (await backlog.getBacklog(dir, folder)).items || [];
+  } catch {}
+  closedItemsCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, items });
+  if (closedItemsCache.size > 500) closedItemsCache.delete(closedItemsCache.keys().next().value);
+  return items;
+}
+
 async function schedResolveAfter(statuses, waiting, nos = null) {
   const missing = new Set();
   for (const w of waiting) for (const a of w.after) if (!statuses.has(a)) missing.add(a);
   if (!missing.size) return;
   const seen = new Set(schedFolders().map((s) => norm(s.workDir)));
   if (managerDir) seen.add(norm(managerDir));
-  for (const folder of loadRecent()) {
+  for (const folder of schedKnownFolders()) {
     if (!missing.size) break;
     if (typeof folder !== 'string' || seen.has(norm(folder))) continue;
     seen.add(norm(folder));
     try {
-      for (const i of (await backlog.getBacklog(userFile('backlog'), folder)).items || []) {
+      for (const i of await closedItemsOf(folder)) {
         if (i && missing.has(i.id)) {
           statuses.set(i.id, i.status);
           if (nos && typeof i.no === 'string' && i.no) nos.set(i.id, i.no);
@@ -1210,6 +1463,7 @@ async function schedStateNow() {
     resources: { ...mon.snapshot(), over: sched.blockingOver(overAll, running, waiting), overAll },
     running,
     waiting,
+    hold: schedLimitHold(), // UX12: the account-wide 上限待ち { code: 'usage', text } | null (the home's 安心の 1 行)
   };
 }
 
@@ -1221,7 +1475,8 @@ function schedMaybeChanged() {
   schedChangedTimer = setTimeout(async () => {
     try {
       const st = await schedStateNow();
-      const sig = JSON.stringify([st.limit, st.thresholds, st.running.map((r) => [r.folder, r.id]), st.waiting, st.resources.over]);
+      afterFailedTell(st.waiting); // UX11 row 9: a prerequisite failed -> the ルーター now
+      const sig = JSON.stringify([st.limit, st.thresholds, st.running.map((r) => [r.folder, r.id]), st.waiting, st.resources.over, st.hold && st.hold.text]);
       if (sig === schedSig) return;
       schedSig = sig;
       broadcast('sched:changed', st);
@@ -1273,6 +1528,13 @@ ipcMain.handle('sched:plan', (e, o) => {
   if (s.role === 'manager' || isManagerDir(s.workDir)) return { start: waiting.map((w) => w.id), reasons: {} };
   // nothing waiting = a window only telling the setting (at load / when changed, renderer schedTellSettings)
   if (!waiting.length) return { start: [], reasons: {} };
+  const usage = schedLimitHold(); // UX10: 上限待ち (the API usage limit)
+  if (usage) {
+    const reasons = Object.fromEntries(waiting.map((w) => [w.id, { code: usage.code, text: usage.text }]));
+    schedWaiting.set(norm(s.workDir), { folder: s.workDir, reasons });
+    schedMaybeChanged();
+    return { start: [], reasons };
+  }
   // serialized: two windows asking at once must not both fill the last free slot
   const p = schedChain.then(async () => {
     schedOpening.delete(norm(s.workDir)); // a window opened for its queue (schedCheckClosed) asks for itself now
@@ -1319,11 +1581,91 @@ const SCHED_CLOSED_MS = Number(process.env.AGENT_TERMINAL_SCHED_CLOSED_MS) || 15
 const SCHED_CLOSED_FIRST_MS = Number(process.env.AGENT_TERMINAL_SCHED_CLOSED_FIRST_MS) || 10_000;
 const schedOpening = new Map(); // norm(folder) -> { at, entries: [{ folder, id, kind, touches }] } (opened, its window not asked yet)
 let schedClosedTimer = null;
+let closedQueued = []; // UX11: the folders without a window that have queued items (last pass), also in projects.json
 const UPDATE_HOLD = Object.freeze({ code: 'update', text: '更新待ち（再起動の後に始めます）' });
 const schedUpdateHold = () => {
   const st = updater ? safeStatus() : null;
   return st && (st.state === 'pending' || st.state === 'restarting') ? UPDATE_HOLD : null;
 };
+// UX10 (docs/ux-journey.md §1.6 row 13): the API usage limit is one for the account. A window whose session got the
+// limit message tells its reset time (sched:limit); until then no routed item starts anywhere (sched:plan, the closed
+// folders' pass, the queue order) with the reason 上限待ち HH:MM, and a warn notice (ルーターの記録) says so; it is resolved
+// at the time. Not kept over a restart (the next limit message sets it again).
+const USAGE_KEY = 'app:usage-limit';
+let schedUsageHold = null; // { resetAt, text, at }
+let schedUsageTimer = null;
+function schedLimitHold() {
+  const h = Nonstop.holdOf(schedUsageHold);
+  if (!h && schedUsageHold) {
+    schedUsageHold = null;
+    if (notices && notices.findKey(USAGE_KEY)) notices.resolve(USAGE_KEY);
+  }
+  return h;
+}
+const schedHold = () => schedUpdateHold() || schedLimitHold();
+ipcMain.handle('sched:limit', (e, o) => {
+  if (!stateOf(e)) return false;
+  const rec = Nonstop.cleanHold(o);
+  if (!rec) return false;
+  const prev = schedLimitHold() ? schedUsageHold : null;
+  schedUsageHold = Nonstop.laterHold(prev, rec);
+  schedMaybeChanged(); // UX12: sched:changed carries the hold (the home's line), also with nothing waiting
+  if (prev && prev.resetAt === schedUsageHold.resetAt) return true;
+  console.log('[main] usage limit: new starts wait until', new Date(schedUsageHold.resetAt).toISOString());
+  if (notices) {
+    notices.add({
+      kind: 'warn',
+      title: `API の利用の上限: ${Nonstop.holdText(schedUsageHold)}`,
+      text: [`新しい作業はこの時刻まで始めません。動いていた作業は、時刻を過ぎたら続きを送ります。`, rec.text ? `メッセージ: ${rec.text}` : ''].filter(Boolean).join('\n'),
+      key: USAGE_KEY,
+      source: 'app',
+    });
+  }
+  clearTimeout(schedUsageTimer);
+  schedUsageTimer = setTimeout(() => {
+    schedLimitHold();
+    schedMaybeChanged();
+  }, Math.max(1000, schedUsageHold.resetAt - Date.now() + 1000));
+  schedUsageTimer.unref?.();
+  schedMaybeChanged();
+  return true;
+});
+// HOLD-LOG (依頼-497, src/main/hold-log.js): the update hold's start / end and the ルーター's m- prompts taken meanwhile go to
+// 「ルーターの記録」 (pmoLog type 'update-hold') and to <from>/.bantodesk/update/hold.jsonl, <from> = RELEASE.json's `from` (the
+// dev repo the release came from), so an agent there sees them without opening <userData>. Local files only: times,
+// versions, counts. E2E runs never write to <from> (a stable-check run would mix its lines in): AGENT_TERMINAL_HOLD_LOG_DIR.
+const holdLog = require('./main/hold-log').createHoldLog();
+const HOLD_LOG_MAX = 512 * 1024;
+function holdLogDir() {
+  if (require('./main/e2e').isE2E()) return process.env.AGENT_TERMINAL_HOLD_LOG_DIR || null;
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'RELEASE.json'), 'utf8'));
+    const from = j && typeof j.from === 'string' ? j.from : '';
+    if (!from || !path.isAbsolute(from) || !isDir(from) || path.resolve(from) === path.resolve(app.getAppPath())) return null;
+    return path.join(from, '.bantodesk', 'update');
+  } catch {
+    return null; // the dev repo itself (no RELEASE.json): nothing to tell
+  }
+}
+function holdLogWrite(lines) {
+  if (!Array.isArray(lines) || !lines.length) return;
+  for (const l of lines) if (l.ev !== 'start') pmoLog({ type: 'update-hold', ...l });
+  try {
+    const dir = holdLogDir();
+    if (!dir) return;
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'hold.jsonl');
+    const at = new Date().toISOString();
+    const userData = path.basename(app.getPath('userData'));
+    fs.appendFileSync(file, lines.map((l) => JSON.stringify({ at, app: userData, pid: process.pid, ...l }) + '\n').join(''));
+    if (fs.statSync(file).size > HOLD_LOG_MAX) {
+      const text = fs.readFileSync(file, 'utf8');
+      fs.writeFileSync(file, text.slice(text.indexOf('\n', text.length - HOLD_LOG_MAX / 2) + 1));
+    }
+  } catch (err) {
+    console.warn('[main] hold log failed', err && err.message);
+  }
+}
 function safeStatus() {
   try {
     return updater.status();
@@ -1339,16 +1681,16 @@ async function schedCheckClosed() {
     for (const [k, o] of schedOpening) if (now - o.at > SCHED_RESERVE_MS || !windowOf(o.folder)) schedOpening.delete(k);
     const seen = new Set();
     const folders = [];
-    for (const folder of loadRecent()) {
+    for (const folder of schedKnownFolders()) {
       const key = norm(folder);
       if (seen.has(key) || isManagerDir(folder) || windowOf(folder)) continue;
       seen.add(key);
-      let items = [];
-      try {
-        items = (await backlog.getBacklog(userFile('backlog'), folder)).items || [];
-      } catch {}
+      const items = await closedItemsOf(folder);
+      // a folder outside recent-folders.json is judged only when it has something queued (UX11: no empty passes)
+      if (!items.some((i) => i && (i.status === 'pending' || i.status === 'active'))) continue;
       folders.push({ folder, items });
     }
+    closedQueued = folders.map((f) => f.folder);
     const { running, statuses, nos } = await schedRunning();
     const ids = new Set(running.map((r) => r.id));
     for (const o of schedOpening.values()) for (const e of o.entries) if (!ids.has(e.id)) running.push({ ...e, startedAt: o.at });
@@ -1360,7 +1702,7 @@ async function schedCheckClosed() {
       items: statuses,
       limit: schedLimit, // the user's setting from the start (schedLoadSettings), not only after a window asked
       resources: { over: schedMon().over(schedThresholds) },
-      hold: schedUpdateHold(),
+      hold: schedHold(),
       nos,
     });
     for (const [k, w] of schedWaiting) if (w.closed) schedWaiting.delete(k); // this pass's reasons replace the last one's
@@ -1406,17 +1748,14 @@ function startSchedClosed() {
 // The scheduler's reason why a pending item does not start yet (projects.json pendingItems[].blocked), or null.
 function schedBlockedOf(folder, item) {
   if (!item || item.status !== 'pending') return null;
-  const hold = schedUpdateHold();
-  if (hold && !item.tabId) return { ...hold };
   const w = schedWaiting.get(norm(folder));
-  const why = w && w.reasons[item.id];
-  return why ? { code: why.code, text: why.text } : null;
+  return require('./main/blocked-of').blockedOf(item, schedUpdateHold(), w && w.reasons[item.id]);
 }
 
 // --- sched:alert: a routed session stopped without its done mark / a team deadlock / aborted (renderer watches) ---
 // Told once per backlogId + kind: a 見回り line to the manager agent (in the same block as the stuck prompts, see
 // checkStuck) + a warn notice (key app:sched:<backlogId>). kind 'resumed' resolves the notice and drops the line.
-const SCHED_ALERT_KINDS = new Set(['stalled', 'deadlock', 'aborted', 'resumed']);
+const SCHED_ALERT_KINDS = new Set(['stalled', 'deadlock', 'aborted', 'nostart', 'resumed']); // nostart: SCH-AS
 const schedAlerted = new Set(); // `${backlogId}\n${kind}`
 const schedNotes = new Map(); // backlogId -> { line, at } (見回り lines for the manager agent)
 const SCHED_NOTE_MS = 60 * 60 * 1000;
@@ -1428,6 +1767,35 @@ function withSchedNotes(base) {
   if (!lines.length) return base;
   const block = ['見回り（バックログの作業）:', ...lines.map((l) => `- ${l}`)].join('\n');
   return [base, block].filter(Boolean).join('\n');
+}
+// UX11 (§1.6 row 9): an item whose prerequisite (after) failed waits forever; the ルーター read it only from blocked in
+// projects.json at a patrol. Every scheduler change (sched:plan of a window, the closed folders' pass) its reasons are
+// looked at; a new after-failed one is a 見回り line now (schedNotes, wakes the ルーター), told once per item until it goes
+// away (then a recurrence is new again).
+const afterFailedTold = new Set(); // lookout.afterFailed keys
+function schedItemOf(folder, id) {
+  const c = schedItemsCache.get(norm(folder));
+  const fromCache = c && Array.isArray(c.items) ? c.items.find((i) => i && i.id === id) : null;
+  if (fromCache) return fromCache;
+  const cc = closedItemsCache.get(backlog.backlogFile(userFile('backlog'), folder));
+  return cc ? cc.items.find((i) => i && i.id === id) || null : null;
+}
+function afterFailedTell(waiting) {
+  const list = lookout.afterFailed(
+    Object.entries(waiting || {}).map(([folder, reasons]) => ({ folder, reasons })),
+    schedItemOf,
+  );
+  const now = new Set(list.map((x) => x.key));
+  for (const k of [...afterFailedTold]) if (!now.has(k)) afterFailedTold.delete(k);
+  const fresh = list.filter((x) => !afterFailedTold.has(x.key));
+  if (!fresh.length) return;
+  for (const x of fresh) {
+    afterFailedTold.add(x.key);
+    schedNotes.set(x.id, { line: x.line, at: Date.now() });
+    pmoLog({ type: 'after-failed', folder: x.folder, backlogId: x.id, text: x.line });
+  }
+  console.log(`[sched] after-failed -> ルーター: ${fresh.map((x) => x.id).join(', ')}`);
+  schedTellManager();
 }
 function schedTellManager() {
   if (!managerDir || !inbox) return;
@@ -1480,7 +1848,9 @@ ipcMain.handle('sched:alert', (e, o) => {
       ? 'チームが互いの返事を待って止まっている可能性があります'
       : o.kind === 'aborted'
         ? '作業が完了の印のないまま終わりました'
-        : '作業が完了の印のないまま止まっています';
+        : o.kind === 'nostart'
+          ? '作業を割り当てたセッションで開始を確かめられず、失敗にしました'
+          : '作業が完了の印のないまま止まっています';
   const title = `「${name}」の${what}（${id}）`;
   schedNotes.set(id, { line: `「${name}」の ${id}: ${what}${detail ? ` — ${detail}` : ''}`.slice(0, 420), at: Date.now() });
   schedTellManager();
@@ -1519,7 +1889,7 @@ function notifyManager(finished) {
 
 // --- AT-carryover (src/main/carryover.js, docs/plan-carryover.md) ---------------------------------------------------------
 // A project folder opened: when this userData has never imported it and its backlog is empty, its unfinished PROGRESS.md
-// rows (and docs/roadmap.md rows PROGRESS.md does not list) go to the inbox as hold items, and the PMO gets one line.
+// rows (and docs/roadmap.md rows PROGRESS.md does not list) go to the inbox as hold items, and the ルーター gets one line.
 // Waits for the inbox / manager (started after the first window) for up to 3 minutes. AGENT_TERMINAL_NO_CARRYOVER=1 disables.
 // Off under the e2e mark unless AGENT_TERMINAL_CARRYOVER=1 (older e2e tests open folders with a PROGRESS.md and count inbox items).
 const carryoverBusy = new Set();
@@ -1575,7 +1945,7 @@ function onInboxChange(_state, info) {
   widget.changed(); // inbox counts
   attentionSoon();
   reviewSoon(); // U8: a new request takes 「すべて完了」 off
-  // user and session (U7 propose) adds are new work for the PMO; manager / app (carry-over, hold) adds: no new-work line
+  // user and session (U7 propose) adds are new work for the ルーター; manager / app (carry-over, hold) adds: no new-work line
   if (info.type === 'add' && (info.source === 'user' || info.source === 'session')) notifyManager();
   else if (info.type === 'update' && info.source !== 'manager' && info.prev.status !== info.item.status) {
     if (info.item.status === 'done' || info.item.status === 'failed') {
@@ -1593,7 +1963,9 @@ async function currentProjects() {
   const recent = loadRecent();
   const known = new Set(recent.map(norm));
   // plus open windows not in the recent list (e.g. hidden ones opened for routed work)
-  for (const s of windows.values()) if (!s.temp && !known.has(norm(s.workDir))) recent.push(s.workDir); // not temp / edit folders
+  for (const s of windows.values()) if (!s.temp && !known.has(norm(s.workDir))) (recent.push(s.workDir), known.add(norm(s.workDir))); // not temp / edit folders
+  // UX11: and the folders outside the recent list whose queue main found (schedCheckClosed), so the card shows its reasons
+  for (const f of closedQueued) if (!known.has(norm(f))) (recent.push(f), known.add(norm(f)));
   return manager.buildProjects({
     recent,
     managerDir,
@@ -1603,6 +1975,7 @@ async function currentProjects() {
     blockedOf: schedBlockedOf, // why a pending item does not start yet (sched:plan of its window / schedCheckClosed)
     modelDefaults: models.fromSettings(loadManagerSettings()), // AT-6: pendingItems[].model / effort
     reviewOf: (folder) => (reviewStore ? review.summary(reviewStore.get(folder)) : null), // U8: 「すべて完了」 / a running review
+    outlookOf: (folder) => outlooks().get(folder), // UX11: the ルーター's 見立て (outbox outlook)
   });
 }
 function scheduleProjects() {
@@ -1638,10 +2011,10 @@ function scheduleProjects() {
   }, 800);
 }
 
-// PMO patrol (roadmap 20 stage 2, src/main/pmo.js): every patrolMinutes (manager settings, default 5, 1-60; PM1 段 1,
+// ルーター patrol (roadmap 20 stage 2, src/main/pmo.js): every patrolMinutes (manager settings, default 5, 1-60; PM1 段 1,
 // 依頼-64; first ~2 min after start) look for neglected inbox / backlog items; when some were not reported before, add a
 // "見回り" block to the manager prompt. Each round also diffs a summary of the state with the last one (src/main/triage.js):
-// the unsure changes go to haiku, and the PMO is woken only when there is something to act on (haiku failing = woken,
+// the unsure changes go to haiku, and the ルーター is woken only when there is something to act on (haiku failing = woken,
 // a change haiku let pass = woken within 30 min). patrolTriage: false turns the haiku part off.
 // Once a day (first patrol ≥ 24 h after the last one) it is a "棚卸し" that re-reports everything still stale.
 // Reported keys + the last stocktake time are kept in manager/pmo.json so a restart does not repeat a report.
@@ -1671,7 +2044,7 @@ async function currentStale(now = Date.now(), out = null) {
   syncPatrolNotice(findings);
   return findings;
 }
-// The patrol's findings as one warn notice in 「PMO から」 (key app:patrol), resolved when nothing is stale any more.
+// The patrol's findings as one warn notice in 「ルーターから」 (key app:patrol), resolved when nothing is stale any more.
 // It is unread (announced) again only when a finding appears that the notice did not list yet.
 function syncPatrolNotice(findings) {
   if (!notices) return;
@@ -1731,8 +2104,8 @@ async function patrolGaps(now, backlogs, gs = {}) {
     }
   }
   const items = inbox.get().items;
-  const counts = folders.map((folder) => ({ folder, day: items.filter((i) => i.source === 'session' && i.folder && norm(i.folder) === norm(folder) && now - (i.createdAt || 0) < 24 * 60 * 60 * 1000).length, max: propose.PER_FOLDER_DAY }));
-  const hp = patrolGapsMod.holdProposals(patrolGapsMod.findProposals(failed, counts, { near: set.proposeNear }), gs.proposeSeen || {});
+  const counts = folders.map((folder) => ({ folder, day: items.filter((i) => i.source === 'session' && i.folder && norm(i.folder) === norm(folder) && now - (i.createdAt || 0) < 24 * 60 * 60 * 1000).length, max: propose.dayLimitOf(loadManagerSettings()) })); // SCH-HO 4: the setting proposeDayMax (default 30)
+  const hp = patrolGapsMod.holdProposals(patrolGapsMod.findProposals(failed, counts) /* 依頼-414: near = nearOf(each folder's max) */, gs.proposeSeen || {});
   findings.push(...hp.findings);
   // (5) (7) git status of the folders with work (read only, on offthread's worker, ≤ GAP_GIT_FOLDERS a round)
   const gitCounts = {};
@@ -1812,7 +2185,7 @@ async function runPatrol() {
       ask: (prompt) => haikuRunner().run(prompt, { program: haikuProgram(), args: triage.HAIKU_ARGS, timeoutMs: triage.TIMEOUT_MS }),
     });
     if (t.called && !t.ok) console.warn('[main] patrol triage: haiku', t.error);
-    // 見回りの検出: facts by code, before the triage; a new one wakes the PMO (each key once, like the stale findings)
+    // 見回りの検出: facts by code, before the triage; a new one wakes the ルーター (each key once, like the stale findings)
     const gsaved = saved.gaps && typeof saved.gaps === 'object' ? saved.gaps : {};
     let gaps2 = null;
     try {
@@ -1880,7 +2253,7 @@ function haikuProgram() {
 
 // 進み具合の確認 (PM1 段 3, src/main/progress-check.js): every progressCheckMinutes (manager settings, default 60, 0 = off)
 // compare each recent / open folder's PROGRESS.md with its backlog; gaps -> one haiku call for all folders -> one info per
-// folder in 「PMO から」 (key app:progress:<folder>). haiku failing: nothing shown, the PMO is not woken, next round again.
+// folder in 「ルーターから」 (key app:progress:<folder>). haiku failing: nothing shown, the ルーター is not woken, next round again.
 // Tests (e2e mark only): AGENT_TERMINAL_HAIKU_CMD = a .js file run by this executable as node instead of claude,
 // AGENT_TERMINAL_PROGRESS_FIRST_MS / AGENT_TERMINAL_PROGRESS_EVERY_MS shorten the timer.
 let progressChecker = null;
@@ -1982,6 +2355,7 @@ function initManager() {
   startPatrol();
   startProgressCheck();
   startStuckCheck();
+  startHeartbeat(); // UX11: manager/heartbeat.json, wakes a ルーター that takes no prompt
   startAttention();
   setTimeout(() => autoDropSoon(), 20_000).unref?.(); // replaced items left from before (also after every backlog change)
   manager.watchOutbox(
@@ -1997,6 +2371,9 @@ function initManager() {
       onReordered,
       answer: answerAction,
       nudge: nudgeAction,
+      interrupt: interruptAction, // UX11
+      outlook: outlookAction, // UX11
+      onFailed: outboxFailed, // UX11: told in the next prompt
       release: releaseAction,
       backlogUpdate: (o) => backlogUpdate({ ...o, from: ['pending', 'failed'] }),
       onCreated: (folder) => addRecent(folder), // shows on the dashboard / picker
@@ -2022,7 +2399,7 @@ function initManager() {
 
 // --- UIUX U7: a routed session's "next thing to do" (src/main/propose.js, docs/plan-propose.md) ---------------------
 // <folder>/.bantodesk/outbox/*.json (and the former .agent-terminal/outbox) of every open project window -> the inbox (source session, status new); the
-// PMO gets them as 新規 (onInboxChange). Off when AGENT_TERMINAL_NO_PROPOSE=1.
+// ルーター gets them as 新規 (onInboxChange). Off when AGENT_TERMINAL_NO_PROPOSE=1.
 let proposeWatch = null;
 function proposeFolders() {
   const out = [];
@@ -2051,7 +2428,7 @@ function startProposeWatch() {
 // --- UIUX U8: all the work of a folder is over -> a review is put on it (src/main/review.js, docs/plan-review.md) -------
 // Looks at the known project folders after backlog / inbox changes (debounced) and every REVIEW_TICK_MS. A review is an
 // inbox item (source app, routed) + its r- backlog item, started by the folder's window like routed work; what it finds
-// comes back with the U7 propose. 「すべて完了」 / the stop after 3 rounds go to 「PMO の記録」 (pmoLog) and the PMO's
+// comes back with the U7 propose. 「すべて完了」 / the stop after 3 rounds go to 「ルーターの記録」 (pmoLog) and the ルーター's
 // conversation (notifyManager). Off when AGENT_TERMINAL_NO_REVIEW=1, and in e2e runs unless AGENT_TERMINAL_REVIEW_IDLE_MS
 // is set (other tests finish work and must not get reviews).
 const REVIEW_TEMPLATE_FILE = path.join(__dirname, '..', 'docs', 'prompts', 'review.md');
@@ -2204,7 +2581,7 @@ ipcMain.on('autoYes:set', (e, on) => {
   for (const s of windows.values()) if (!s.win.isDestroyed() && s.win.webContents.id !== e.sender.id) send(s, 'autoYes:changed', payload);
 });
 
-// --- 「PMO から」 notices (src/main/notices.js, CONTRACT.md "Inbox / manager") ----------------------
+// --- 「ルーターから」 notices (src/main/notices.js, CONTRACT.md "Inbox / manager") ----------------------
 // notices:changed { notices } (debounced) to manager windows. The dashboard raises the desktop notification for unread
 // warn / proposal notices whose announcedAt is not their updatedAt (notices:announced). The widget gets them via WidgetState.
 function onNoticesChange() {
@@ -2230,7 +2607,7 @@ ipcMain.handle('notices:announced', (e, o) => {
   if (stateOf(e)?.role !== 'manager' || !notices || !o || !Array.isArray(o.ids)) return 0;
   return notices.announced(o.ids.filter((x) => typeof x === 'string'));
 });
-// manager window only: { title, text?, key? } -> Notice | null. An app info notice from the window (the PMO's automatic
+// manager window only: { title, text?, key? } -> Notice | null. An app info notice from the window (the ルーター's automatic
 // handoff, PROGRESS 45): always kind info, source app, key under app:pmo-.
 ipcMain.handle('notices:add', (e, o) => {
   if (stateOf(e)?.role !== 'manager' || !notices || !o || typeof o.title !== 'string' || !o.title.trim()) return null;
@@ -2239,7 +2616,7 @@ ipcMain.handle('notices:add', (e, o) => {
   return r ? r.notice || null : null;
 });
 // manager window only: { id, choice: 'go'|'reject', comment? } -> Notice | null. The answer goes to the manager agent's
-// backlog prompt (「PMO の提案への回答: …」, same coalesced item as the inbox check).
+// backlog prompt (「ルーターの提案への回答: …」, same coalesced item as the inbox check).
 ipcMain.handle('notices:answer', (e, o) => {
   if (stateOf(e)?.role !== 'manager' || !notices || !o || typeof o.id !== 'string') return null;
   const n = notices.answer(o.id, o.choice, typeof o.comment === 'string' ? o.comment : '');
@@ -2299,7 +2676,7 @@ function backlogUpdate(o) {
       const name = path.basename(folder) || folder;
       notices.add({
         kind: 'info',
-        title: `「${name}」の待ち行列の項目を PMO が${STATUS_JA_BL[r.item.status]}にしました`,
+        title: `「${name}」の待ち行列の項目を ルーターが${STATUS_JA_BL[r.item.status]}にしました`,
         text: `**項目**: ${oneLineText(r.item.text, 120)}（${r.item.id}、${r.prev.status} → ${r.item.status}）\n\n**理由**: ${r.item.note}`,
         folder,
         key: `app:backlog-update:${r.item.id}`,
@@ -2314,7 +2691,7 @@ function backlogUpdate(o) {
 }
 
 // Auto clean-up (src/main/backlog.js findReplaced): a waiting item whose prerequisite failed and whose inbox item was routed
-// again (a newer backlog item for it exists) never starts: it becomes dropped, told per folder as a 「PMO から」 info.
+// again (a newer backlog item for it exists) never starts: it becomes dropped, told per folder as a 「ルーターから」 info.
 const AUTO_DROP_NOTE = '前提が失敗し、振り直された項目に置き換わったため';
 let autoDropTimer = null;
 let autoDropRunning = false;
@@ -2372,10 +2749,10 @@ async function autoDropReplaced() {
   }
 }
 
-// --- PMO: reorder of a folder's queue + answers to stuck prompts (roadmap 27, src/main/stuck.js) ----------------
+// --- ルーター: reorder of a folder's queue + answers to stuck prompts (roadmap 27, src/main/stuck.js) ----------------
 // Every reorder / answer (and refused answer) is appended to userData/logs/pmo-actions.jsonl and shown as an info
-// notice in 「PMO から」 (one per folder / per session, replaced by the next one, keeping the last few lines).
-const PMO_LOG_AUTO = { answer: 'auto.answer', nudge: 'auto.nudge' }; // UA1: what the PMO did instead of the user
+// notice in 「ルーターから」 (one per folder / per session, replaced by the next one, keeping the last few lines).
+const PMO_LOG_AUTO = { answer: 'auto.answer', nudge: 'auto.nudge' }; // UA1: what the ルーター did instead of the user
 function pmoLog(entry) {
   if (entry && PMO_LOG_AUTO[entry.type]) usageAuto(PMO_LOG_AUTO[entry.type]);
   try {
@@ -2386,7 +2763,7 @@ function pmoLog(entry) {
   }
   pmoLogSoon();
 }
-// 「PMO の記録」 (UIUX U4, notices.forLog): the tail of pmo-actions.jsonl (last 256 KB) + every stored notice, newest first.
+// 「ルーターの記録」 (UIUX U4, notices.forLog): the tail of pmo-actions.jsonl (last 256 KB) + every stored notice, newest first.
 // pmo:log -> { entries } (manager window only); pmo:log-changed { entries } (debounced) after a pmoLog line or a notice change.
 function pmoLogEntries() {
   let actions = [];
@@ -2421,7 +2798,7 @@ const oneLineText = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(
 // A reorder main wrote while the folder's window holds its own copy of the backlog: re-applied to that window's saves
 // until one follows it (the window takes it over on backlog:changed { order }), the user moves an item, or 60 s pass.
 // userAt (queue order, docs/queue-order.md): set when the order came from the user's ↑ / ↓ on the dashboard (ms) or the
-// user handed the order to the PMO (null = the lock lifted); the window's saves carry it too until they follow the order.
+// user handed the order to the ルーター (null = the lock lifted); the window's saves carry it too until they follow the order.
 const pendingOrders = new Map(); // norm(folder) -> { order, at, userAt? }
 function withUserAt(data, p) {
   if (!p || p.userAt === undefined) return data;
@@ -2456,8 +2833,8 @@ function onReordered(folder, { order, reason, items }) {
   const list = pend.slice(0, 10).map((i, k) => `${k + 1}. ${oneLineText(i.text, 80)}`).join('\n');
   notices.add({
     kind: 'info',
-    title: `「${name}」の待ち行列を PMO が並べ替えました`,
-    text: `**理由**: ${reason}\n\n**新しい順番**:\n${list}${pend.length > 10 ? `\n…ほか ${pend.length - 10} 件` : ''}\n\n変えたいときは、そのフォルダのバックログで ↑ ↓ を使ってください（24 時間は PMO が並べ替えません）。`,
+    title: `「${name}」の待ち行列を ルーターが並べ替えました`,
+    text: `**理由**: ${reason}\n\n**新しい順番**:\n${list}${pend.length > 10 ? `\n…ほか ${pend.length - 10} 件` : ''}\n\n変えたいときは、そのフォルダのバックログで ↑ ↓ を使ってください（24 時間は ルーターが並べ替えません）。`,
     folder,
     key: `app:reorder:${shortHash(norm(folder))}`,
     source: 'app',
@@ -2467,11 +2844,11 @@ function onReordered(folder, { order, reason, items }) {
 // --- queue order on the dashboard cards (docs/queue-order.md, src/main/queueorder.js) ---------------------------------
 // queue:order { folders?: string[] } -> queueorder.buildQueueOrder(...) for those folders (default: the open ones + the
 // recent ones): every waiting task in the order it is sent, the one that starts next over all folders, why each does
-// not start yet, the PMO's last reorder and the user's order lock per folder. One call for the whole プロジェクト tab.
+// not start yet, the ルーター's last reorder and the user's order lock per folder. One call for the whole プロジェクト tab.
 // queue:move { folder, id, dir: -1 | 1 } the user's ↑ / ↓ on a card (same save and 24 h lock as the window's ↑ / ↓).
 // queue:askPmo { folder, note } a 依頼 (source user) 「<フォルダ> の待ち行列の順番を見直して: <ひとこと>」; the user's
-// lock on that queue is lifted (they hand the order to the PMO).
-let queueReorderMap = null; // norm(folder) -> { at, reason } (the PMO's last reorder; read once from pmo-actions.jsonl)
+// lock on that queue is lifted (they hand the order to the ルーター).
+let queueReorderMap = null; // norm(folder) -> { at, reason } (the ルーター's last reorder; read once from pmo-actions.jsonl)
 function queueReorders() {
   if (queueReorderMap) return queueReorderMap;
   queueReorderMap = new Map();
@@ -2526,7 +2903,7 @@ ipcMain.handle('queue:order', async (_e, o) => {
     await schedResolveAfter(statuses, want, nos);
     const reorders = {};
     for (const [k, v] of queueReorders()) reorders[queueOrderLib.normFolder(k)] = v;
-    return queueOrderLib.buildQueueOrder({ folders, running, statuses, nos, limit: schedLimit, over: schedMon().over(schedThresholds), hold: schedUpdateHold(), reorders, locks });
+    return queueOrderLib.buildQueueOrder({ folders, running, statuses, nos, limit: schedLimit, over: schedMon().over(schedThresholds), hold: schedHold(), reorders, locks });
   } catch (err) {
     console.warn('[main] queue:order failed', err);
     return null;
@@ -2538,7 +2915,7 @@ function queueSerial(fn) {
   queueChain = p.catch(() => {});
   return p.catch((err) => ({ ok: false, error: String((err && err.message) || err) }));
 }
-// writes the folder's backlog with the new pending order / lock and tells its window (same path as the PMO's reorder)
+// writes the folder's backlog with the new pending order / lock and tells its window (same path as the ルーター's reorder)
 async function queueWrite(folder, st, items, userAt) {
   const data = { ...st, items };
   if (typeof userAt === 'number') data.userOrderAt = userAt;
@@ -2590,7 +2967,7 @@ ipcMain.handle('queue:askPmo', (_e, o) =>
 );
 
 const stuckMs = () => Number(process.env.AGENT_TERMINAL_STUCK_MS) || stuck.STUCK_MS; // tests may shorten it
-// with the U3 widening of what the PMO may press (attention.pmoVerdict: network, outside the folder, temporary files)
+// with the U3 widening of what the ルーター may press (attention.pmoVerdict: network, outside the folder, temporary files)
 const currentWaiting = (now = Date.now()) => attention.relaxWaiting(stuck.waitingList(widget.sessionsSnapshot(), now, stuckMs()));
 const answerLines = new Map(); // tabKey -> last answer lines for its notice
 async function answerAction(a) {
@@ -2612,7 +2989,7 @@ async function answerAction(a) {
     answerLines.set(e.tabKey, lines);
     notices.add({
       kind: 'info',
-      title: `PMO が「${e.folderName}」の確認に答えました（${oneLineText(e.label, 40)}）`,
+      title: `ルーターが「${e.folderName}」の確認に答えました（${oneLineText(e.label, 40)}）`,
       text: lines.join('\n'),
       folder: e.folder || null,
       key: `app:answer:${shortHash(e.tabKey)}`,
@@ -2730,6 +3107,8 @@ async function readWaitTail(file) {
     if (fh) await fh.close().catch(() => {});
   }
 }
+// UX11: how long a 実行中 tab may write no transcript line (tests shorten it; the e2e mark only)
+const runQuietMs = () => (require('./main/e2e').isE2E() && Number(process.env.AGENT_TERMINAL_RUN_QUIET_MS)) || waits.RUN_QUIET_MIN * 60_000;
 function waitSettings() {
   const o = loadManagerSettings();
   const s = waits.settingsOf({ silentMin: o.waitSilentMin, longMin: o.waitLongMin });
@@ -2858,6 +3237,9 @@ async function checkWaits() {
           }
         }
       }
+      // UX11 (§1.6 row 6): 実行中 with no transcript line for 15 min (waits.runningOf) is told the same way
+      const running = () =>
+        x.role === 'manager' ? null : waits.runningOf(t, { now, runningSince: tr && tr.status === 'running' ? tr.idleSince : 0, quietMs: runQuietMs() });
       const wait = waits.waitOf(t, {
         now,
         idleSince: tr ? tr.idleSince : now,
@@ -2875,7 +3257,7 @@ async function checkWaits() {
         staleAgentMs: Number(process.env.AGENT_TERMINAL_WAIT_STALE_MS) || undefined, // same rule as the renderer's staleAgentMs
         staleQuietMs: Number(process.env.AGENT_TERMINAL_WAIT_STALE_QUIET_MS) || undefined,
         updateHold,
-      });
+      }) || running();
       entries.push({
         tabKey: String(t.id),
         wcId: x.wcId,
@@ -2908,7 +3290,7 @@ async function checkWaits() {
     for (const k of [...waitsSent.keys()]) if (!windows.has(k)) waitsSent.delete(k);
     widget.setWaits(entries);
 
-    // the manager (not its own session: it cannot nudge itself) and 「PMO から」
+    // the manager (not its own session: it cannot nudge itself) and 「ルーターから」
     const project = entries.filter((e) => e.role !== 'manager');
     if (managerDir) {
       const forMgr = waits.forManager(project, now);
@@ -3000,6 +3382,25 @@ ipcMain.handle('progress:setSettings', (e, o) => {
   if (progressTick) progressTick();
   return { minutes: progressCheck.minutesOf({ progressCheckMinutes: m }), choices: progressCheck.CHOICES };
 });
+// 依頼-414: セッションからの依頼の上限（24 時間）. manager-settings.json proposeDayMax (1..1000, default 30), saved the way
+// the other settings are (other keys kept). The outbox reads it at every file (propose.readDayLimit), the patrol at every
+// round (dayLimitOf + nearOf), so no restart. -> { max, near, min, maxRange, def } / set { max } -> same | null (bad value)
+const proposeSettingsOf = () => {
+  const max = propose.dayLimitOf(loadManagerSettings());
+  return { max, near: patrolGapsMod.nearOf(max), min: propose.DAY_MAX_RANGE[0], maxRange: propose.DAY_MAX_RANGE[1], def: propose.PER_FOLDER_DAY };
+};
+ipcMain.handle('propose:settings', () => proposeSettingsOf());
+ipcMain.handle('propose:setSettings', (e, o) => {
+  const n = Number(o && o.max);
+  if (!Number.isInteger(n) || n < propose.DAY_MAX_RANGE[0] || n > propose.DAY_MAX_RANGE[1]) return null;
+  try {
+    manager.writeJsonAtomic(managerSettingsFile(), { ...loadManagerSettings(), proposeDayMax: n });
+  } catch (err) {
+    console.warn('[main] saving the propose limit failed', err);
+    return null;
+  }
+  return proposeSettingsOf();
+});
 ipcMain.handle('waits:settings', () => waits.settingsOf({ silentMin: loadManagerSettings().waitSilentMin, longMin: loadManagerSettings().waitLongMin }));
 ipcMain.handle('waits:setSettings', (e, o) => {
   if (stateOf(e)?.role !== 'manager') return null;
@@ -3029,7 +3430,7 @@ async function nudgeAction(a) {
   if (notices) {
     notices.add({
       kind: 'info',
-      title: `PMO が「${e.folderName}」のリーダーに確かめさせました（${oneLineText(e.label, 40)}）`,
+      title: `ルーターが「${e.folderName}」のリーダーに確かめさせました（${oneLineText(e.label, 40)}）`,
       text: `**待っていたもの**: ${e.wait.text}\n\n**送った文**: ${oneLineText(c.text, 400)}\n\n**理由**: ${reason}`,
       folder: e.folder || null,
       key: `app:nudge:${shortHash(e.tabKey)}`,
@@ -3039,8 +3440,205 @@ async function nudgeAction(a) {
   return { type: 'nudge', tabKey: e.tabKey, folder: e.folder };
 }
 
+// UX11: the manager's interrupt action (CONTRACT.md "Waits"): a tab in waits.json as kind running (実行中 with no
+// transcript line for 15 min) gets Esc, then the text once its input box is back (renderer interruptTab).
+async function interruptAction(a) {
+  const c = waits.checkInterrupt(a, waitEntries.filter((e) => e.role !== 'manager'));
+  if (c.error) {
+    pmoLog({ type: 'interrupt-refused', tabKey: a && a.tabKey, reason: a && a.reason, error: c.error });
+    return { error: c.error };
+  }
+  const e = c.entry;
+  if (!widget.sendAction(e.wcId, { tabId: e.tabKey, type: 'interrupt', text: c.text })) return { error: 'the window of that tab is gone' };
+  const reason = oneLineText(a.reason, 500);
+  pmoLog({ type: 'interrupt', folder: e.folder, tabKey: e.tabKey, label: e.label, text: c.text, reason, wait: e.wait.text });
+  attentionSoon();
+  if (notices) {
+    notices.add({
+      kind: 'info',
+      title: `ルーターが「${e.folderName}」の実行中のセッションを止めて、状況を聞きました（${oneLineText(e.label, 40)}）`,
+      text: `**様子**: ${e.wait.text}\n\n**送った文**: ${oneLineText(c.text, 400)}\n\n**理由**: ${reason}`,
+      folder: e.folder || null,
+      key: `app:interrupt:${shortHash(e.tabKey)}`,
+      source: 'app',
+    });
+  }
+  return { type: 'interrupt', tabKey: e.tabKey, folder: e.folder };
+}
+// UX11: the ルーター's outlook on a folder's card (manager/outlook.json -> projects.json outlook -> 「ルーターの見立て」)
+let outlookStore = null;
+function outlooks() {
+  if (!outlookStore) {
+    const file = () => (managerDir ? path.join(managerDir, 'outlook.json') : null);
+    outlookStore = lookout.createOutlooks({
+      read: () => (file() ? JSON.parse(fs.readFileSync(file(), 'utf8')) : null),
+      write: (d) => file() && manager.writeJsonAtomic(file(), d),
+    });
+  }
+  return outlookStore;
+}
+function outlookAction(a) {
+  const v = lookout.cleanOutlook(a);
+  if (v.error) return { error: v.error };
+  if (!isDir(v.folder)) return { error: `not an existing directory: ${a.folder}` };
+  outlooks().set(v.folder, v.text);
+  pmoLog({ type: 'outlook', folder: v.folder, text: v.text });
+  scheduleProjects();
+  return { type: 'outlook', folder: v.folder, text: v.text };
+}
+// --- UX12 事後の確認 (src/main/reviews.js, docs/ux12-check.md) ---------------------------------------------------------
+// A routed item ended with 作業完了: its window sends the last reply (review:add); its 「仮説で決めたこと」 / 「事後の確認」
+// headings (Reassure.hypothesesOf) are kept in manager/reviews.json and shown on the home under 要対応. 「違う」
+// (review:answer) puts a request in the inbox: the ルーター reads it with the next prompt and stacks the fix.
+let postStore = null;
+function postChecks() {
+  if (!postStore) {
+    const file = () => (managerDir ? path.join(managerDir, 'reviews.json') : null);
+    postStore = reviewsMod.createReviews({
+      read: () => (file() ? JSON.parse(fs.readFileSync(file(), 'utf8')) : null),
+      write: (d) => file() && manager.writeJsonAtomic(file(), d),
+    });
+  }
+  return postStore;
+}
+function reviewsChanged() {
+  const payload = { items: postChecks().list() };
+  for (const s of windows.values()) if (s.role === 'manager') send(s, 'reviews:changed', payload);
+}
+ipcMain.handle('review:add', async (e, o) => {
+  const s = stateOf(e);
+  if (!s || !s.workDir || s.role === 'manager' || !managerDir) return false;
+  const id = o && typeof o.backlogId === 'string' ? o.backlogId.slice(0, 120) : '';
+  const text = o && typeof o.text === 'string' ? o.text.slice(-20000) : '';
+  if (!id || !text) return false;
+  const h = Reassure.hypothesesOf(text);
+  if (!h.hypotheses.length && !h.checks.length) return false;
+  let it = null;
+  try {
+    it = ((await backlog.getBacklog(userFile('backlog'), s.workDir)).items || []).find((x) => x && x.id === id) || null;
+  } catch {}
+  const r = postChecks().add({ folder: s.workDir, itemId: id, no: (it && it.no) || '', title: (it && (it.title || it.text)) || '', tabId: o.tabId || '', ...h });
+  if (!r) return false;
+  pmoLog({ type: 'review-add', folder: s.workDir, backlogId: id, no: r.no, title: r.title, count: r.hypotheses.length + r.checks.length });
+  reviewsChanged();
+  return true;
+});
+ipcMain.handle('reviews:list', (e) => (stateOf(e)?.role === 'manager' && managerDir ? { items: postChecks().list() } : null));
+// { id, key: 'h0'|'c0'…, choice: 'wrong'|'ok', note? } -> { ok, inboxId? } | { error }
+ipcMain.handle('review:answer', (e, o) => {
+  if (stateOf(e)?.role !== 'manager' || !managerDir) return { error: 'manager window only' };
+  const r = postChecks().answer(o);
+  if (r.error) return r;
+  let inboxId = null;
+  if (r.wrong && inbox) {
+    const item = inbox.add({ text: r.wrong });
+    inboxId = (item && item.id) || null;
+    pmoLog({ type: 'review-wrong', folder: r.review.folder || null, backlogId: r.review.itemId, no: r.review.no, title: r.review.title, inboxId, text: o.key });
+  }
+  reviewsChanged();
+  return { ok: true, inboxId };
+});
+ipcMain.handle('review:seen', (e, o) => {
+  if (stateOf(e)?.role !== 'manager' || !managerDir || !o || typeof o.id !== 'string') return false;
+  const r = postChecks().seen(o.id);
+  if (r) reviewsChanged();
+  return !!r;
+});
+
+// UX11 (§1.6 row 20): the ルーター's own outbox file moved to failed/ -> a line in its next prompt (wakes it)
+function outboxFailed(f) {
+  const line = lookout.outboxFailLine(f);
+  if (!line || !managerDir || !inbox) return;
+  pmoLog({ type: 'outbox-failed', name: f.name, error: (f.errors || []).join(' / ').slice(0, 300) });
+  manager
+    .notifyManager(userFile('backlog'), managerDir, { newItems: newForManager(), outboxFailed: line, wake: true })
+    .then((r) => r && backlogChanged(managerDir, 'main'))
+    .catch((err) => console.warn('[main] outbox failed -> manager failed', err));
+}
+
+// --- UX11 (§1.6 row 17): the ルーター's heartbeat ---------------------------------------------------------------------
+// Every HEART_EVERY_MS: manager/heartbeat.json { updatedAt, lastReceivedAt (an m- prompt last taken), pending (m- prompts
+// not taken), inboxNew, oldestPendingAt, status, woken } and, when a prompt waits HEART_STALE_MS without the ルーター taking
+// one (lookout.heartbeat stale), the ルーター is woken (lookout.wakeOf: Esc when its claude is stuck 実行中, else a restart
+// with --resume), at most Nonstop.WAKE_MAX times an hour, with an info notice app:pmo-heartbeat.
+const HEART_EVERY_MS = () => (require('./main/e2e').isE2E() && Number(process.env.AGENT_TERMINAL_HEART_EVERY_MS)) || 60_000;
+const heartStaleMs = () => (require('./main/e2e').isE2E() && Number(process.env.AGENT_TERMINAL_HEART_STALE_MS)) || lookout.HEART_STALE_MS;
+let heartWakes = [];
+let heartWritten = '';
+let heartWrittenAt = 0;
+let heartSent = '';
+let heartLast = null; // the last heartbeat (pmo:heartbeat)
+// UX12: the home reads the heartbeat (manager window only). E2E: AGENT_TERMINAL_E2E_HEARTBEAT (a file with a heartbeat
+// object) stands in while it exists, so the e2e can show the PMO-stopped line without waiting 20 minutes.
+ipcMain.handle('pmo:heartbeat', (e) => {
+  if (stateOf(e)?.role !== 'manager') return null;
+  const fake = require('./main/e2e').isE2E() && process.env.AGENT_TERMINAL_E2E_HEARTBEAT;
+  if (fake && fs.existsSync(fake)) {
+    try {
+      return JSON.parse(fs.readFileSync(fake, 'utf8'));
+    } catch {}
+  }
+  return heartLast;
+});
+async function checkHeartbeat() {
+  if (!managerDir || !inbox || quitting) return null;
+  try {
+    const now = Date.now();
+    const items = (await backlog.getBacklog(userFile('backlog'), managerDir)).items || [];
+    const pmoTabs = widget.sessionsSnapshot().filter((x) => x.role === 'manager');
+    const pmo = (pmoTabs.find((x) => !x.t.rest && x.t.status !== 'exited') || pmoTabs[0]) || null;
+    const hb = lookout.heartbeat({ items, inboxNew: inbox.get().items.filter((i) => i.status === 'new').length, pmo: pmo && pmo.t, now, staleMs: heartStaleMs() });
+    const quiet = !!(pmo && waits.runningOf(pmo.t, { now, runningSince: 0, quietMs: runQuietMs() }));
+    const allowed = Nonstop.wakeAllowed(heartWakes, now);
+    const gapOk = now - (heartWakes[heartWakes.length - 1] || 0) >= Math.min(5 * 60_000, heartStaleMs()); // not again the next minute
+    // not while the app is restarting or the usage limit holds (the ルーター's prompt waits for the time). PMO-SEND: a reserved
+    // update ('pending') no longer holds the ルーター's prompts (renderer.js queueHolds), so a stale heartbeat then is a real
+    // stop: woken as at any other time (before, the hold could last 30 min to a night and nothing woke it)
+    const restarting = !!(updater && (safeStatus() || {}).state === 'restarting');
+    const wake = lookout.wakeOf(hb, pmo && pmo.t, { quiet, allowed: allowed.ok && gapOk && !restarting && !schedLimitHold() });
+    if (wake && widget.sendAction(pmo.wcId, { tabId: String(pmo.t.id), type: 'pmo-wake', mode: wake.mode })) {
+      heartWakes = allowed.times;
+      hb.woken = { at: now, mode: wake.mode, why: wake.why };
+      checkHeartbeat.woken = hb.woken;
+      console.log(`[pmo] heartbeat stale (${hb.pending} waiting since ${new Date(hb.oldestPendingAt || now).toISOString()}): woken (${wake.mode})`);
+      pmoLog({ type: 'pmo-heartbeat-wake', mode: wake.mode, why: wake.why, pending: hb.pending });
+      if (notices) {
+        notices.add({
+          kind: 'info',
+          title: `ルーターが ${Math.round((now - Math.max(hb.oldestPendingAt || 0, hb.lastReceivedAt || 0)) / 60000)} 分 依頼を受け取っていないので、起こし直しました`,
+          text: `${wake.mode === 'esc' ? '実行中のまま止まっていたので Esc を送りました。' : 'タブの claude を再開しました（会話はそのまま）。'}1 時間に ${Nonstop.WAKE_MAX} 回まで自動で起こします（今回 ${heartWakes.length} 回目）。`,
+          key: 'app:pmo-heartbeat',
+          source: 'app',
+        });
+      }
+    } else if (checkHeartbeat.woken) hb.woken = checkHeartbeat.woken;
+    holdLogWrite(holdLog.onHeartbeat(hb, items, updater ? (safeStatus() || {}).state : 'none')); // HOLD-LOG
+    const sig = JSON.stringify({ ...hb, updatedAt: 0 });
+    if (sig !== heartWritten || now - heartWrittenAt >= 5 * 60_000) {
+      heartWritten = sig;
+      heartWrittenAt = now;
+      manager.writeJsonAtomic(path.join(managerDir, 'heartbeat.json'), hb);
+    }
+    // UX12: the home's 安心の 1 行 (pmo:heartbeat / pmo:heartbeat-changed), only when it changed
+    if (sig !== heartSent) {
+      heartSent = sig;
+      for (const s of windows.values()) if (s.role === 'manager') send(s, 'pmo:heartbeat-changed', hb);
+    }
+    heartLast = hb;
+    return hb;
+  } catch (err) {
+    console.warn('[main] heartbeat failed', err);
+    return null;
+  }
+}
+function startHeartbeat() {
+  const t = setInterval(checkHeartbeat, HEART_EVERY_MS());
+  t.unref?.();
+  setTimeout(checkHeartbeat, 5000).unref?.();
+}
+
 // --- 「あなたの番」 (UIUX U3, src/main/attention.js, CONTRACT.md "Inbox / manager") ---------------------------------------
-// One list of what only the user can decide: dialogs the PMO may not press / questions (stuck.userList), open QA tables,
+// One list of what only the user can decide: dialogs the ルーター may not press / questions (stuck.userList), open QA tables,
 // unanswered proposals, sessions nudged twice that still wait. Rebuilt on every change of its sources (debounced) and
 // every ATTN_EVERY_MS (grace / settle times pass); attention:changed { items, at, notified } to manager windows when it
 // changed. A new item raises one Windows notification (not while the dashboard has the focus; not for the list found at
@@ -3102,8 +3700,19 @@ async function buildAttention() {
     for (const g of nudgeList) if (g.folder) want.add(g.folder);
     const byFolder = new Map();
     for (const f of want) byFolder.set(norm(f), await attnBacklog(f));
-    // the PMO's own queue: its auto send stopped / a prompt not sent for long (autosend.js stalls)
-    const pmoStalls = AutoSend.stalls(await attnBacklogState(managerDir), now, attnPmoStallMs());
+    // the ルーター's own queue: its auto send stopped / a prompt not sent for long (autosend.js stalls)
+    // PMO-SEND (docs/pmo-send.md): with the ルーター tabs' state, a ルーター in a turn whose transcript moves is not a stall
+    const pmoTabs = {};
+    for (const x of snap) {
+      if (x.role !== 'manager' || !x.t || x.t.id == null) continue;
+      const st = x.t.rest ? 'rest' : String(x.t.status || '');
+      // no transcript event seen at all (a tab back from a restart, a screen frozen on the spinner): not known to move
+      const moved = Number(x.t.eventAt) > 0;
+      pmoTabs[String(x.t.id)] = { status: st, quiet: st === 'running' && (!moved || !!waits.runningOf(x.t, { now, runningSince: 0, quietMs: runQuietMs() })) };
+    }
+    const upNow = updater ? (safeStatus() || {}).state : '';
+    const pmoHold = schedLimitHold() ? 'limit' : upNow === 'restarting' ? 'restart' : '';
+    const pmoStalls = AutoSend.stalls(await attnBacklogState(managerDir), now, attnPmoStallMs(), { tabs: pmoTabs, hold: pmoHold });
     const items = attention.build({
       now,
       managerDir,
@@ -3139,8 +3748,9 @@ async function buildAttention() {
     }
   }
 }
+let attnDesktop = true; // UX16: the windows' デスクトップ通知 (notify:prefs)
 const attentionPayload = () => ({ items: attnItems, at: Date.now(), notified: attnNotified });
-const ATTN_JA = { confirm: '確認', question: '質問', qa: 'QA', proposal: '提案', nudge: '止まったまま', pmosend: 'PMO への自動送信' };
+const ATTN_JA = { confirm: '確認', question: '質問', qa: 'QA', proposal: '提案', nudge: '止まったまま', pmosend: 'ルーターへの自動送信' };
 function attentionToast(fresh) {
   const mgr = managerState;
   if (mgr && !mgr.win.isDestroyed() && mgr.win.isVisible() && mgr.win.isFocused()) return; // the user is looking at it
@@ -3148,7 +3758,7 @@ function attentionToast(fresh) {
   if (now - attnLastToast < 5000) return; // a burst: one notification
   attnLastToast = now;
   attnNotified++;
-  if (!Notification.isSupported()) return;
+  if (!attnDesktop || !Notification.isSupported()) return; // UX16: 設定 > 通知 > デスクトップ通知
   const first = fresh[0];
   const what = [first.task && (first.task.no || first.task.reqNo), first.task && first.task.title, !first.task && first.label].filter(Boolean).join(' ');
   const n = new Notification({
@@ -3217,8 +3827,10 @@ ipcMain.handle('attention:dismiss', (e, o) => {
 // with 「@<folder name> 」 written in it when it is empty (o.folder)
 ipcMain.on('dashboard:open', (_e, o) => {
   const s = startManager({ show: true });
-  // U4: Ctrl+Shift+E in a project window opens the dashboard on 「PMO の記録」 ({ tab: 'log' })
-  if (s && o && ['turn', 'proj', 'req', 'log'].includes(o.tab)) setTimeout(() => send(s, 'dashboard:showTab', { tab: o.tab }), 300);
+  // U4: Ctrl+Shift+E in a project window opens the dashboard on 「ルーターの記録」 ({ tab: 'log' })
+  // UX15: Ctrl+Shift+B (was the バックログ panel) opens the home on that folder ({ tab: 'proj', showFolder })
+  const showFolder = o && typeof o.showFolder === 'string' && path.isAbsolute(o.showFolder) ? o.showFolder.slice(0, 1000) : '';
+  if (s && o && ['turn', 'proj', 'req', 'log'].includes(o.tab)) setTimeout(() => send(s, 'dashboard:showTab', { tab: o.tab, ...(showFolder ? { folder: showFolder } : {}) }), 300);
   if (!s || !o || o.inbox !== true) return;
   revealWindow(s);
   const folder = typeof o.folder === 'string' ? o.folder.slice(0, 1000) : '';
@@ -3270,9 +3882,11 @@ ipcMain.handle('dashboard:snapshot', (e, o) => dashSnapshot.run(e, o));
 ipcMain.handle('dashboard:workRoot', (e) => (stateOf(e)?.role === 'manager' ? getWorkRoot() : null));
 // AT-6: the default model / effort of every claude start (manager-settings.json, src/main/models.js). Changed from the
 // manager window only.
-// -> { session: { model, effort }, pmo: { model, effort }, efforts, builtin: { model, effort } }
+// -> { session: { model, effort }, pmo: { model, effort }, kinds: { <kind>: { model, effort } }, efforts, builtin: { model, effort }, kindBuiltin }
 function modelSettingsView() {
-  return { ...models.fromSettings(loadManagerSettings()), efforts: models.EFFORTS, builtin: { model: models.DEFAULT_MODEL, effort: models.DEFAULT_EFFORT } };
+  const ms = loadManagerSettings();
+  // TK3: + lean { on, off } (the lean preamble switch, lean:set)
+  return { ...models.fromSettings(ms), efforts: models.EFFORTS, builtin: { model: models.DEFAULT_MODEL, effort: models.DEFAULT_EFFORT }, kindBuiltin: models.KIND_DEFAULTS, lean: leanPref.view(ms), codeMode: codeMode.modeOf(ms), codeModeModes: codeMode.MODES };
 }
 ipcMain.handle('models:get', (e) => (stateOf(e) ? modelSettingsView() : null)); // read: every window (the marks on the items)
 // o = { claudeModel?, claudeEffort?, pmoModel?, pmoEffort? } ('' = built-in default) -> the view, or { error }
@@ -3293,9 +3907,66 @@ ipcMain.handle('models:set', (e, o) => {
   }
   return modelSettingsView();
 });
+// 依頼-535: code mode on / off / auto: o = { codeMode } -> the models view, or { error }. Applies from the next claude start.
+ipcMain.handle('codemode:set', (e, o) => {
+  if (stateOf(e)?.role !== 'manager') return { error: 'manager window only' };
+  const p = codeMode.patch(loadManagerSettings(), o);
+  if (p.error) return { error: p.error };
+  try {
+    manager.writeJsonAtomic(managerSettingsFile(), p.next);
+  } catch (err) {
+    console.warn('[main] saving code mode failed', err);
+    return { error: 'not saved' };
+  }
+  return modelSettingsView();
+});
+// TK3: the lean preamble (TK2) from the settings: o = { on?: boolean } (app-wide) | { folder, keep: boolean }
+// (このフォルダでは削らない) -> the models view (with lean), or { error }. Applies from the next claude start.
+ipcMain.handle('lean:set', (e, o) => {
+  if (stateOf(e)?.role !== 'manager') return { error: 'manager window only' };
+  const p = leanPref.patch(loadManagerSettings(), o);
+  if (p.error) return { error: p.error };
+  try {
+    manager.writeJsonAtomic(managerSettingsFile(), p.next);
+  } catch (err) {
+    console.warn('[main] saving lean settings failed', err);
+    return { error: 'not saved' };
+  }
+  return modelSettingsView();
+});
 // A folder's PROGRESS.md as a table (src/main/progress.js, cached by mtime). Manager windows only.
 ipcMain.handle('dashboard:progress', (e, o) => (stateOf(e)?.role === 'manager' ? progressFile.readProgress(o && o.folder) : null));
-// Stale items for the dashboard's quiet "放置 N日" marks (same rules as the PMO patrol, computed on demand).
+// 全体図 (roadmap 14, src/main/overview.js): the dashboard's sessions, inbox, backlogs and PROGRESS.md rows regrouped by purpose.
+// Only the records the app already holds (no process / network reading). Manager windows only; the dashboard asks while the
+// 全体図 tab is open (about once a second, on dashboard:sessions changes).
+ipcMain.handle('overview:get', async (e) => {
+  if (stateOf(e)?.role !== 'manager') return null;
+  try {
+    const folders = progressFolders().slice(0, 40);
+    const backlogs = {};
+    const progressByFolder = {};
+    for (const f of folders) {
+      try {
+        backlogs[f] = (await backlog.getBacklog(userFile('backlog'), f)).items;
+      } catch {}
+      const p = progressFile.readProgress(f);
+      if (p) progressByFolder[f] = p;
+    }
+    return require('./main/overview').buildOverview({
+      sessions: widget.currentSessions(),
+      inbox: inbox ? inbox.get().items : [],
+      backlogs,
+      projects: folders.map((f) => ({ folder: f, name: path.basename(f) || f })),
+      progressByFolder,
+      log: pmoLogEntries(),
+      now: Date.now(),
+    });
+  } catch (err) {
+    console.warn('[main] overview:get failed', err);
+    return null;
+  }
+});
+// Stale items for the dashboard's quiet "放置 N日" marks (same rules as the ルーター patrol, computed on demand).
 ipcMain.handle('dashboard:stale', async (e) => {
   if (stateOf(e)?.role !== 'manager') return [];
   try {
@@ -3335,6 +4006,16 @@ ipcMain.handle('git:diff', async (e, o) => {
   } catch (err) {
     return { ok: false, isGit: true, diff: '', untracked: false, error: String(err && err.message) };
   }
+});
+// UX15 「この作業」 フォルダを開く: Finder / Explorer on a folder the app knows (a window's folder or one under it, a recent
+// folder); nothing else is opened (the path comes from a renderer).
+ipcMain.on('shell:openFolder', (e, p) => {
+  if (typeof p !== 'string' || !p || !path.isAbsolute(p) || !isDir(p)) return;
+  const abs = path.resolve(p);
+  const inside = (dir) => typeof dir === 'string' && !!dir && isInside(abs, dir);
+  const known = [...windows.values()].some((s) => inside(s.workDir)) || loadRecent().some(inside);
+  if (!known) return;
+  shell.openPath(abs).catch(() => {});
 });
 ipcMain.on('shell:openFile', (e, p) => {
   const s = stateOf(e);
@@ -3404,6 +4085,64 @@ function updatePowerBlock() {
 }
 setInterval(updatePowerBlock, 30_000).unref?.(); // reservations expire with time
 ipcMain.handle('power:state', () => keepAwakeCtl().snapshot()); // { busy, why, blocker, request, requestHelper, lid, lidWanted }
+// UX18 (docs/ux-journey.md §5.7): the zoom of every window (80〜150%, app-settings.json zoom) and the first ground of a
+// new window (app-settings.json theme = the renderer's localStorage 'theme', copied by theme.js; 'os' -> nativeTheme).
+// The ground values are tokens.css --bg of the two grounds.
+const FIRST_GROUND = { dark: '#141519', light: '#f4f5f7' };
+let zoomNow = null;
+function zoomFactor() {
+  if (zoomNow === null) zoomNow = appSettings.read(app.getPath('userData')).zoom;
+  return zoomNow;
+}
+function themeNow() {
+  const t = appSettings.read(app.getPath('userData')).theme;
+  if (t !== 'os') return t;
+  try {
+    return require('electron').nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+  } catch {
+    return 'dark';
+  }
+}
+function firstGround() {
+  return FIRST_GROUND[themeNow()] || FIRST_GROUND.dark;
+}
+// the window's own buttons follow the zoom and the ground: the 40px bar is 40 × zoom on the screen, so the traffic lights
+// (macOS, ~14px high) move to its middle and the Windows overlay (3 buttons) takes its height and the ground's colours
+const OVERLAY_SYMBOL = { dark: '#a0a4ad', light: '#50565f' }; // tokens.css --muted
+function fitWindowButtons(w) {
+  const z = zoomFactor();
+  try {
+    if (process.platform === 'darwin') w.setWindowButtonPosition?.({ x: 14, y: Math.max(4, Math.round(20 * z - 7)) });
+    else if (process.platform === 'win32') {
+      const t = themeNow();
+      w.setTitleBarOverlay?.({ color: FIRST_GROUND[t] || FIRST_GROUND.dark, symbolColor: OVERLAY_SYMBOL[t] || OVERLAY_SYMBOL.dark, height: Math.round(40 * z) });
+    }
+  } catch {}
+}
+// apply the saved zoom / ground to every open window (the windows of the app's folders and the dashboard)
+function applyLook() {
+  const z = zoomFactor();
+  const bg = firstGround();
+  for (const st of windows.values()) {
+    const w = st.win;
+    if (!w || w.isDestroyed()) continue;
+    try { w.webContents.setZoomFactor(z); } catch {}
+    try { w.setBackgroundColor(bg); } catch {}
+    fitWindowButtons(w);
+    try { w.webContents.send('zoom:changed', z); } catch {}
+  }
+}
+function saveZoom(z) {
+  const s = appSettings.patch(app.getPath('userData'), { zoom: z });
+  zoomNow = s.zoom;
+  applyLook();
+  return zoomNow;
+}
+// ⌘+ / ⌘- / ⌘0 (the 表示 menu on macOS) and Ctrl+ on Windows (renderer.js): +1 / -1 / 0 = 実際のサイズ
+function stepZoom(dir) {
+  return saveZoom(appSettings.stepZoom(zoomFactor(), dir));
+}
+ipcMain.handle('zoom:step', (e, dir) => (stateOf(e) ? stepZoom(Number(dir) || 0) : null));
 // PROGRESS 32: app-settings.json (applied before 'ready'). -> { disableGpu (saved), atStart: { disableGpu }, gpu: feature status }
 function appSettingsView() {
   let gpu = null;
@@ -3416,7 +4155,10 @@ ipcMain.handle('appSettings:get', (e) => (stateOf(e) ? appSettingsView() : null)
 ipcMain.handle('appSettings:set', (e, o) => {
   if (!stateOf(e)) return null;
   try {
-    appSettings.patch(app.getPath('userData'), o);
+    const before = appSettings.read(app.getPath('userData'));
+    const after = appSettings.patch(app.getPath('userData'), o);
+    zoomNow = after.zoom;
+    if (after.zoom !== before.zoom || after.theme !== before.theme) applyLook(); // UX18
   } catch (err) {
     console.warn('[main] saving app-settings.json failed', err);
     return { error: 'not saved' };
@@ -3600,34 +4342,32 @@ function openExternalUrl(url) {
 ipcMain.on('shell:openExternal', (_e, url) => openExternalUrl(url));
 
 // --- notifications ------------------------------------------------------------
-// { tabId, title, body, kind?: 'done'|'input'|'error', silent?: boolean }. The renderer plays its own
-// sounds and then sends silent: true so the OS toast does not add a second sound.
+// { tabId, title, body, kind?: 'done'|'input'|'error' } from a window's raise() (renderer.js).
+// UX16 (docs/ux-journey.md §5.4): the OS notification is A only (attentionToast: あなたの番 grew). This one (was B, a
+// toast per session for 確認待ち・エラー・完了) no longer shows an OS notification, so one confirm rings once: the
+// window flashes in the taskbar, and 完了 / エラー go to 「ルーターの記録」 (pmo-actions.jsonl type 'session'). 確認待ち is
+// in あなたの番 (A) already. The same notice within 60 s is written once.
 const NOTIFY_KINDS = new Set(['done', 'input', 'error']);
 const notifications = new Set();
+const sessionNoticeAt = new Map(); // tabId|kind -> ms
+ipcMain.on('notify:prefs', (_e, o) => {
+  if (o && typeof o.desktop === 'boolean') attnDesktop = o.desktop;
+});
 ipcMain.on('notify', (e, o) => {
   const s = stateOf(e);
   if (!s || !o || typeof o !== 'object') return;
   const { win } = s;
-  const tabId = typeof o.tabId === 'string' ? o.tabId : null;
+  const tabId = typeof o.tabId === 'string' ? o.tabId.slice(0, 100) : null;
   const kind = NOTIFY_KINDS.has(o.kind) ? o.kind : null;
   // UA3 (docs/usage-analytics.md §4 の 8): a window opened hidden for routed work does not call for attention by itself
   if (!win.isFocused() && !s.hidden) win.flashFrame(true);
-  if (!Notification.isSupported()) return;
-  const n = new Notification({
-    title: String(o.title ?? 'BantoDesk').slice(0, 200),
-    body: String(o.body ?? '').slice(0, 500),
-    silent: o.silent === true,
-  });
-  n.on('click', () => {
-    if (win.isDestroyed()) return;
-    revealWindow(s); // also shows a window opened hidden (routed work, the manager)
-    win.flashFrame(false);
-    send(s, 'notify:click', { tabId, kind, from: 'notif' }); // from: UA1 usage record open.from.notif
-  });
-  notifications.add(n); // keep a reference so the click handler survives GC
-  n.on('close', () => notifications.delete(n));
-  setTimeout(() => notifications.delete(n), 10 * 60 * 1000);
-  n.show();
+  if (kind !== 'done' && kind !== 'error') return;
+  const k = `${tabId}|${kind}`;
+  const now = Date.now();
+  if (now - (sessionNoticeAt.get(k) || 0) < 60_000) return;
+  sessionNoticeAt.set(k, now);
+  if (sessionNoticeAt.size > 500) for (const key of [...sessionNoticeAt.keys()].slice(0, 250)) sessionNoticeAt.delete(key);
+  pmoLog({ type: 'session', kind, folder: s.workDir || null, label: String(o.title ?? '').slice(0, 120), text: String(o.body ?? '').slice(0, 300), tabKey: tabId });
 });
 
 // --- snippets -----------------------------------------------------------------
@@ -3898,6 +4638,9 @@ if (process.platform === 'darwin') {
 }
 
 app.on('will-quit', (e) => {
+  try { simview.stopAll(); } catch {}
+  try { present.stopAll(); } catch {}
+  try { browserview.stopAll(); } catch {}
   reopenLater.arm(); // AT-199: the quit goes on now; opens kept while quitting start the app again after the exit
   try {
     if (usageRec) usageRec.flushSync(); // UA1: the last batch of usage lines (before writeq: daily.json goes through it)
@@ -4087,10 +4830,13 @@ if (!app.requestSingleInstanceLock()) {
         const w = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows().find((x) => x.isVisible());
         if (w && !w.isDestroyed()) w.webContents.send('menu:command', 'settings');
       },
+      onZoom: (dir) => stepZoom(dir), // UX18: the 表示 menu changes the one zoom of every window and saves it
     });
+    try { require('electron').nativeTheme.on('updated', () => applyLook()); } catch {} // UX18: OS dark / light -> first ground
     // DOCKID: the Dock's right-click menu starts with 「ダッシュボードを開く」 (macOS only)
     require('./main/appmenu').installDock(app, Menu, { onDashboard: () => !quitting && openStart() });
     claudeSettingsPaths = claudeCmd.writeAllClaudeSettings(app.getPath('userData')); // before the first tab starts (UX9: base / routed / manager)
+    claudeLeanSettingsPaths = claudeCmd.writeAllClaudeSettings(app.getPath('userData'), true); // TK2
     startMcpServer(); // PROGRESS 4 (listens in a few ms, before a window's first tab asks for its claude)
     leftoverTrackerInit(); // 51c: tabs' leftovers counted every minute (first look after 20 s, off the startup path)
     initTempSessions(); // ledger + removal of temp folders left by a crash (before any window opens)
@@ -4117,12 +4863,12 @@ if (!app.requestSingleInstanceLock()) {
       getNotices: () => (notices ? notices.list() : []),
       openDashboard: () => startManager({ show: true }),
       // member { agentId, name } (validated by widget.js): the dashboard's 「会話を見る」 also opens that member view
-      focusTab: (wcId, tabId, kind, member, from) => {
+      focusTab: (wcId, tabId, kind, member, from, mode) => {
         const s = windows.get(wcId);
         if (!s || s.win.isDestroyed()) return;
-        revealWindow(s);
+        revealWindow(s); // UX14: the workbench shows (作業台で開く / ターミナル)
         s.win.flashFrame(false);
-        send(s, 'notify:click', { tabId, kind: NOTIFY_KINDS.has(kind) ? kind : null, from: from || 'project', ...(member ? { member } : {}) });
+        send(s, 'notify:click', { tabId, kind: NOTIFY_KINDS.has(kind) ? kind : null, from: from || 'project', ...(member ? { member } : {}), ...(mode ? { mode } : {}) });
       },
       isQuitting: () => quitting,
     });
@@ -4138,7 +4884,9 @@ if (!app.requestSingleInstanceLock()) {
     widget.start(); // U5: the tray (menu bar on macOS) from the start; the dashboard is the first window (AGENT_TERMINAL_NO_WIDGET=1: no tray)
     // After an automatic restart (new release): reopen every folder that was open, hidden ones hidden.
     const reopen = autorestart.takeReopen(app.getPath('userData'));
-    for (const r of reopen) if (isDir(r.folder)) openWindow(path.resolve(r.folder), { hidden: r.hidden, launch: true });
+    // UX14: folder windows come back hidden while the main window can show (the home is opened below)
+    for (const r of reopen) if (isDir(r.folder)) openWindow(path.resolve(r.folder), { hidden: !workbench.showOnOpen('restore', { main: mainOn(), wasHidden: !!r.hidden }), launch: true });
+    if (reopen.length && mainOn() && !hasArgFolder(process.argv, process.cwd()) && !reopen.some((r) => r.folder && isManagerDir(r.folder) && !r.hidden)) openStart();
     if (!reopen.length || hasArgFolder(process.argv, process.cwd())) launch(process.argv, process.cwd());
     // A new release copied into this app's folder (scripts/release.js): restart once sessions are idle.
     updater = autorestart.init({
@@ -4151,7 +4899,21 @@ if (!app.requestSingleInstanceLock()) {
       send: (win, ch, payload) => !win.isDestroyed() && win.webContents.send(ch, payload),
       log: (...a) => console.log(...a),
       onRestart: () => usageAuto('auto.restart'),
+      // UPD-MISS: what the update hold did, in <userData>/logs/update.jsonl (this PC only; main's console goes nowhere
+      // in agent-terminal.sh). reserve also counts as auto.update-reserve (usage).
+      record: (ev) => {
+        try {
+          fs.mkdirSync(userFile('logs'), { recursive: true });
+          fs.appendFileSync(userFile(path.join('logs', 'update.jsonl')), JSON.stringify({ at: new Date().toISOString(), pid: process.pid, ...ev }) + '\n');
+        } catch {}
+        if (ev && ev.ev === 'reserve') usageAuto('auto.update-reserve');
+        holdLogWrite(holdLog.onEvent(ev)); // HOLD-LOG
+      },
     });
+    simview.init();
+    browserview.init();
+    pincomment.init();
+    present.init();
     viewer.init({ ipcMain, protocol, dialog, shell, session, chokidar, stateOf, windowState: (wcId) => windows.get(wcId) || null });
     transcript.startWatcher(emit, { chokidar });
     teams.startWatcher(emit, { chokidar });

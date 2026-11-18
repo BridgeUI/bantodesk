@@ -15,10 +15,13 @@ const VALUES = Object.freeze([...STATES, 'stable', 'dev']);
 const RESULTS = Object.freeze(['resolved', 'still', 'none']);
 
 // where a session was opened from (§2.3)
-const OPEN_FROM = Object.freeze(['turn', 'project', 'request', 'log', 'notif', 'tray', 'tab', 'palette', 'agents']);
+const OPEN_FROM = Object.freeze(['turn', 'project', 'request', 'log', 'notif', 'tray', 'tab', 'palette', 'agents', 'nav', 'home']);
 
-// the shortcut ids of src/renderer/labels.js SHORTCUTS, as key.<kebab-case> (the action, never the key pressed)
-const SHORTCUT_IDS = Object.freeze(['newTab', 'closeTab', 'folder', 'autoYes', 'layout', 'history', 'cheatsheet', 'viewMode', 'backlog', 'viewer', 'pmoLog', 'tempSession', 'cycleTab']);
+// the shortcut ids of src/renderer/labels.js SHORTCUTS (the commands with keys), as key.<kebab-case> (the action, never
+// the key pressed). UX16: autoYes is gone (設定 only); its old key.auto-yes stays listed below for older records.
+const SHORTCUT_IDS = Object.freeze(['palette', 'newTab', 'closeTab', 'cycleTab', 'layout', 'viewer', 'backlog', 'history', 'tempSession', 'folder', 'pmoLog', 'cheatsheet']);
+// UX16: every command of labels.js COMMANDS, as palette.cmd.<kebab-case> (run from the command palette)
+const COMMAND_IDS = Object.freeze(['palette', 'newTab', 'closeTab', 'cycleTab', 'layout', 'terminal', 'detail', 'viewer', 'editFile', 'backlog', 'history', 'newSession', 'tempSession', 'folder', 'home', 'pmoLog', 'remote', 'settings', 'cheatsheet']);
 const kebab = (s) => String(s).replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
 
 const IDS = Object.freeze([
@@ -29,6 +32,7 @@ const IDS = Object.freeze([
   'view.dash.projects',
   'view.dash.requests',
   'view.dash.log',
+  'view.dash.map',
   'view.session.conversation',
   'view.session.terminal',
   'view.session.split',
@@ -38,6 +42,7 @@ const IDS = Object.freeze([
   'dash.tab.projects',
   'dash.tab.requests',
   'dash.tab.log',
+  'dash.tab.map',
   'dash.turn.open-session',
   'dash.turn.watch',
   'dash.turn.pmo-resume',
@@ -51,10 +56,39 @@ const IDS = Object.freeze([
   'dash.card.output',
   'dash.card.ask-order',
   'dash.card.move',
+  'dash.card.lean-keep', // TK3
+  'dash.settings.code-mode', // 依頼-535
   'dash.card.drop',
+  // UX15: the card row's ⋯ (was the バックログ panel): 完了にする / 戻す
+  'dash.card.menu',
+  'dash.card.done',
+  'dash.card.reopen',
+  'dash.card.title',
   'dash.inbox.send',
   'dash.notice.go',
   'dash.notice.reject',
+  // UX14: the main window's left nav, the breadcrumb, the session view's ターミナル
+  'dash.nav.home',
+  'dash.nav.folder',
+  'dash.nav.session',
+  'dash.nav.new',
+  'dash.nav.settings',
+  'dash.crumb.home',
+  'dash.crumb.folder',
+  'dash.view.terminal',
+  'dash.view.workbench',
+  // UX15: 「この作業」 in the main window's view
+  'dash.view.restart',
+  'dash.view.handoff',
+  'dash.view.folder',
+  'dash.view.auto',
+  'dash.pmo.drawer',
+  // HOME-ROLES (docs/ux-journey.md §8): ホームの「いま」, a project's own page, the ルーター pane's head
+  'dash.home.session',
+  'dash.home.log',
+  'dash.home.project',
+  'dash.project.open',
+  'dash.pmo.hide',
   // a session window
   'session.mode.toggle',
   'session.menu.wait',
@@ -63,6 +97,10 @@ const IDS = Object.freeze([
   'session.menu.handoff',
   'session.menu.rename',
   'session.menu.close',
+  // UX15: one section 「この作業」 (the six before it stay listed for older records)
+  'session.panel.work',
+  'session.panel.folder',
+  'session.panel.auto',
   'session.panel.overview',
   'session.panel.tasks',
   'session.panel.team',
@@ -85,7 +123,16 @@ const IDS = Object.freeze([
   'topbar.dashboard',
   'topbar.settings',
   'topbar.panel',
-  'topbar.more',
+  'topbar.more', // UX16: the ⋯ menu is gone; topbar.more.* stay for the records before it
+  'topbar.palette',
+  'dash.nav.palette',
+  'palette.task',
+  'palette.request',
+  'palette.session',
+  'palette.folder',
+  'palette.file',
+  ...COMMAND_IDS.map((c) => 'palette.cmd.' + kebab(c)),
+  'key.auto-yes',
   'topbar.more.session',
   'topbar.more.viewer',
   'topbar.more.queue',
@@ -99,11 +146,15 @@ const IDS = Object.freeze([
   // sessions opened / closed (§2.3)
   ...OPEN_FROM.map((f) => 'open.from.' + f),
   'close',
-  // what the app / PMO did instead of the user
+  // what the app / ルーター did instead of the user
   'auto.answer',
   'auto.handoff',
   'auto.restart',
   'auto.nudge',
+  // UPD-MISS: the update hold (src/main/autorestart.js): reserved by the app, 今すぐ更新 / 後で in the dashboard line
+  'auto.update-reserve',
+  'dash.update.now',
+  'dash.update.later',
 ]);
 
 const ID_RE = /^[a-z0-9][a-z0-9.-]{0,63}$/;
@@ -122,6 +173,7 @@ module.exports = {
   RESULTS,
   OPEN_FROM,
   SHORTCUT_IDS,
+  COMMAND_IDS,
   IDS,
   ID_RE,
   isId: (x) => typeof x === 'string' && ID_SET.has(x),

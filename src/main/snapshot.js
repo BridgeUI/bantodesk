@@ -27,6 +27,10 @@ const CHANNELS = Object.freeze({
   dashboardProgress: 'dashboard:progress',
   queueOrder: 'queue:order',
   attentionList: 'attention:list',
+  // UX12 added these two to the renderer's refresh (dashboard.js SNAP_VIA) but not here, so every refresh got
+  // 「not allowed」 for them, read them again one by one, and warned once (SNAP-ALLOW, the maintainers' test notes)
+  pmoHeartbeat: 'pmo:heartbeat',
+  reviewsList: 'reviews:list',
 });
 const ALLOWED = new Set(Object.values(CHANNELS));
 const MAX_CALLS = 80;

@@ -64,7 +64,45 @@ async function main() {
   ok('G8b no-check: --only <name> in 次の一手 / the # without its suffix count as listed (real run 2026-11-14)', gW.length === 1 && gW[0].row === 'R-1', gW.map((g) => g.row));
   const progOk = table(['| A-1 | x | 完了 | — | 2026-11-14 |', '| A-2 | y | 進行中 | z | 2026-11-14 |']);
   ok('G9 a folder that agrees -> no gap', PC.collectGaps({ progress: progOk, items: [{ id: 'r-1', no: 'A-1', status: 'done', doneAt: now }, { id: 'r-2', no: 'A-2', status: 'active' }], now }).length === 0);
-  ok('G10 refersTo word bounds', PC.refersTo({ title: 'AT-143 の続き' }, 'AT-143') && !PC.refersTo({ title: 'AT-1430' }, 'AT-143') && !PC.refersTo({ title: 'AT-14' }, 'AT-143') && !PC.refersTo({ title: 'PM1-2' }, 'PM1') && PC.refersTo({ title: '(PM1)' }, 'PM1'));
+  ok('G10 refersTo word bounds', PC.refersTo({ title: 'AT-143: 続き' }, 'AT-143') && !PC.refersTo({ title: 'AT-1430: x' }, 'AT-143') && !PC.refersTo({ title: 'AT-14: x' }, 'AT-143') && !PC.refersTo({ title: 'PM1-2: x' }, 'PM1') && PC.refersTo({ title: '[PM1] x' }, 'PM1'));
+  // G11-G13: only explicit links (2026-11-17 patrol false alarms: U9 ← AT-34, UX18 ← AT-163; both rows really 未着手)
+  const progFP = table([
+    '| U2 | UIUX ダッシュボードを 4 タブに組み直す | 完了 | — | 2026-11-13 |',
+    '| U9 | UIUX スマホのダッシュボード | 未着手 | 待ち: U3 の後に ルーターが振り分ける | 2026-11-05 |',
+    '| UX10 | UX 止まらない B: アプリがその場で直す | 完了 | — | 2026-11-16 |',
+    '| UX18 | UX 拡大率と狭い幅の仕上げ（80〜150%、720〜1440px） | 未着手 | UX17 の後 | 2026-11-16 |',
+  ]);
+  const itemsFP = [
+    { id: 'r-imwfp034aaaaaaa-11111111', no: 'AT-34', title: 'U2 の続き 申し送りの残り', status: 'done', doneAt: now - DAY,
+      text: 'U2 の申し送りの残りを片づける。U9（スマホのダッシュボード）は保留中の機能の依頼なので触らない。PROGRESS.md の U2 の行は完了のまま。' },
+    { id: 'r-imwfp163bbbbbbb-22222222', no: 'AT-163', title: 'UX10 止まらない B（その場で直す）', status: 'done', doneAt: now - DAY,
+      text: 'UX10 の B。拡大率と狭い幅は UX18 で UX17 の後にやるので、ここでは触らない。UX18 の行は変えない。' },
+  ];
+  const gFP = PC.collectGaps({ progress: progFP, items: itemsFP, now });
+  ok('G11 the 2026-11-17 false alarms: no gap for U9 ← AT-34 nor UX18 ← AT-163', !gFP.some((g) => g.row === 'U9' || g.row === 'UX18'), gFP);
+  ok('G11b refersTo: a row # only mentioned in the title / text is not a link', !PC.refersTo(itemsFP[0], progFP.rows[1]) && !PC.refersTo(itemsFP[1], progFP.rows[3]) && !PC.refersTo(itemsFP[0], progFP.rows[0]) && !PC.refersTo(itemsFP[1], progFP.rows[2]));
+  const rowU9 = progFP.rows[1];
+  ok('G12 explicit links: no, title label, 「PROGRESS.md の <行> を」',
+    PC.refersTo({ id: 'r-x-1', no: 'U9' }, rowU9) &&
+    PC.refersTo({ id: 'r-x-2', title: 'U9: スマホ' }, rowU9) && PC.refersTo({ id: 'r-x-3', title: '[U9] スマホ' }, rowU9) &&
+    PC.refersTo({ id: 'r-x-4', title: 'x', text: '終えたら PROGRESS.md の U9 を確認待ちにする' }, rowU9) &&
+    PC.refersTo({ id: 'r-x-5', title: 'x', text: 'PROGRESS.md の行 U9 を完了に' }, rowU9) &&
+    PC.refersTo({ id: 'r-x-6', title: 'x', text: 'PROGRESS.md の「U9」の行を直す' }, rowU9) &&
+    !PC.refersTo({ id: 'r-x-7', title: 'x', text: 'PROGRESS.md の U99 を直す' }, rowU9) &&
+    !PC.refersTo({ id: 'r-x-8', title: 'x', text: 'PROGRESS.md の U9-2 を直す' }, rowU9));
+  const progId = table(['| UX18 | 拡大率（r-imwfp777ccccccc-33333333） | 進行中 | 続き | 2026-11-16 |']);
+  const itId = { id: 'r-imwfp777ccccccc-33333333', no: 'AT-190', title: '拡大率', status: 'done', doneAt: now - DAY, text: '' };
+  ok('G13 the row carries the item work id -> linked (done-open)', PC.refersTo(itId, progId.rows[0]) && PC.collectGaps({ progress: progId, items: [itId], now }).some((g) => g.row === 'UX18' && g.kind === 'done-open'));
+  // G15: C3O (2026-11-17) — a 完了 row whose 次の一手 names the pending follow-up work is no gap; the 項目 work id still links
+  const progC3O = table(['| C3O | 停止条件の選択肢の調べもの（作業 r-imwjtw8d3d5a6dc-9c960338） | 完了 | 実装は SSA-263（r-imwk1lg0tfe5ede-5b12b41a、SSA-258 の実測の後） | 2026-11-17 |']);
+  const itNext = { id: 'r-imwk1lg0tfe5ede-5b12b41a', no: 'SSA-263', title: '停止条件 3 を E＋F で実装', status: 'pending', text: '' };
+  const itOwn = { id: 'r-imwjtw8d3d5a6dc-9c960338', no: 'SSA-250', title: '停止条件の選択肢', status: 'pending', text: '' };
+  ok('G15 a pending follow-up in 次の一手 -> no pending-done', !PC.refersTo(itNext, progC3O.rows[0]) && !PC.collectGaps({ progress: progC3O, items: [itNext], now }).some((g) => g.row === 'C3O'));
+  ok('G15b the 項目 work id pending -> pending-done as before', PC.collectGaps({ progress: progC3O, items: [itOwn], now }).some((g) => g.row === 'C3O' && g.kind === 'pending-done'));
+  // G14: the old Windows rows renamed W-AT-N (2026-11-17: 「行 AT-192 は完了だが、バックログの AT-192 は pending」)
+  const progWin = table(['| W-AT-192 | SEC3b の e2e（Windows の AT-192 を Mac で） | 完了 | — | 2026-11-17 |']);
+  const itWin = { id: 'r-imwk0000aaaaaaa-11111111', no: 'AT-192', title: 'AT-192: モデルの既定', status: 'pending', text: 'PROGRESS.md の AT-192 を確認待ちにする' };
+  ok('G14 a W-AT-N row is not linked to the backlog AT-N (no pending-done)', !PC.refersTo(itWin, progWin.rows[0]) && !PC.collectGaps({ progress: progWin, items: [itWin], now }).some((g) => g.row === 'W-AT-192'));
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'at-progress-check-'));
   try {
     fs.mkdirSync(path.join(work, 'f', 'tmp', 'stable-check'), { recursive: true });
@@ -146,12 +184,12 @@ async function main() {
     const r7 = await pc.runOnce(now + 6000);
     ok('C11 gaps gone -> no call, the infos resolved', r7.called === false && r7.resolved === 2 && notices.list().length === 0, r7);
     ok('C12 a manager notice is left alone', (() => {
-      notices.add({ kind: 'info', title: 'PMO の知らせ', key: 'app:pmo-x', source: 'manager' });
+      notices.add({ kind: 'info', title: 'ルーターの知らせ', key: 'app:pmo-x', source: 'manager' });
       return true;
     })() && (await pc.runOnce(now + 7000)) && notices.findKey('app:pmo-x') !== null);
 
     // ---- A: the gaps to act on -> the patrol block (依頼-188) ----------------------------------
-    const PMO = require(path.join(root, 'src', 'main', 'pmo.js'));
+    const ルーター = require(path.join(root, 'src', 'main', 'pmo.js'));
     let aData = [
       { folder: fA, progress: progA, items: itemsA, checkList: new Set(['UX6']) },
       { folder: fB, progress: table(['| B-1 | b | 未着手 | — | 2026-11-14 |']), items: [{ id: 'r-b', no: 'B-1', status: 'done', doneAt: now - DAY }] },
@@ -185,16 +223,16 @@ async function main() {
     // the patrol: one line each in the block, once per key (reported), again in the stocktake
     const stale = [{ key: 'b:x:r-1:failed', kind: 'backlog', id: 'r-1', status: 'failed', since: now - 2 * DAY, age: 2 * DAY, text: '落ちた作業', folder: fA, name: 'agent_terminal', inboxId: null, detail: '' }];
     const fs1 = stale.concat(pf);
-    const d1 = PMO.patrolDecision(fs1, [], { lastStocktake: now - 3600e3, now });
-    const block = PMO.formatPatrol(fs1, d1.fresh, { stocktake: d1.stocktake });
+    const d1 = ルーター.patrolDecision(fs1, [], { lastStocktake: now - 3600e3, now });
+    const block = ルーター.formatPatrol(fs1, d1.fresh, { stocktake: d1.stocktake });
     const gapLines = block.split('\n').filter((l) => /進み具合のずれ/.test(l));
     ok('A4 the block has one line per gap ([新] [<folder> 進み具合のずれ] 行 <#>: <fact>（直す所）)', d1.report && !d1.stocktake && gapLines.length === 3 && gapLines.every((l) => /^\[新\] \[(agent_terminal|other) 進み具合のずれ\] 行 \S+: .+（.+を直す）$/.test(l)), gapLines);
-    const d2 = PMO.patrolDecision(fs1, d1.keys, { lastStocktake: now - 3600e3, now: now + 300e3 });
+    const d2 = ルーター.patrolDecision(fs1, d1.keys, { lastStocktake: now - 3600e3, now: now + 300e3 });
     ok('A5 the same gaps next round -> not reported again (pmo.json reported)', d2.report === false && d2.fresh.size === 0, d2);
-    const d3 = PMO.patrolDecision(fs1, d1.keys, { lastStocktake: now - 2 * DAY, now });
-    const block3 = PMO.formatPatrol(fs1, d3.fresh, { stocktake: d3.stocktake });
+    const d3 = ルーター.patrolDecision(fs1, d1.keys, { lastStocktake: now - 2 * DAY, now });
+    const block3 = ルーター.formatPatrol(fs1, d3.fresh, { stocktake: d3.stocktake });
     ok('A6 the stocktake lists them again (no [新])', d3.report && d3.stocktake && /^棚卸し:/.test(block3) && block3.split('\n').filter((l) => /^\[(agent_terminal|other) 進み具合のずれ\]/.test(l)).length === 3, block3);
-    ok('A7 stocktakeDue: never / ≥ 24 h -> yes, 1 h -> no', PMO.stocktakeDue(0, now) && PMO.stocktakeDue(now - DAY, now) && !PMO.stocktakeDue(now - 3600e3, now));
+    ok('A7 stocktakeDue: never / ≥ 24 h -> yes, 1 h -> no', ルーター.stocktakeDue(0, now) && ルーター.stocktakeDue(now - DAY, now) && !ルーター.stocktakeDue(now - 3600e3, now));
     // haiku leaves a row out -> no action for it; haiku fails -> the last actions stay; gaps gone -> none
     aAnswer = 'noB';
     aData = [aData[0], { ...aData[1], items: [{ id: 'r-b2', no: 'B-1', status: 'done', doneAt: now - DAY }] }]; // a new ref -> asked again

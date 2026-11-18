@@ -14,22 +14,25 @@
 // Session memory (roadmap 22): each session line shows its memory (TabState.memMb via dashboard:sessions);
 // over the mark it offers 再起動 (dashboard:restart). The manager agent's own session is in the header.
 //
-// UIUX U2: 4 tabs あなたの番 / プロジェクト / 依頼 / PMO の記録 under a top band (動いている N / 上限 M, PMO, スマホ, ⚙) and
+// UIUX U2: 4 tabs あなたの番 / プロジェクト / 依頼 / ルーターの記録 under a top band (動いている N / 上限 M, ルーター, スマホ, ⚙) and
 // the request box. Words come from labels.js (index.html loads it first; docs/ui-copy.md): short state words, the full
 // reason in the tooltip.
 //
 // UIUX U3: あなたの番 is main's attention list (attention:list / attention:changed, docs/concept-uiux.md §2.2 §4):
-// one card per item in seq order (確認 the PMO may not press, AskUserQuestion, unanswered QA, unanswered proposals,
+// one card per item in seq order (確認 the ルーター may not press, AskUserQuestion, unanswered QA, unanswered proposals,
 // sessions that did not move after two nudges). Answered through the existing parts (dashboard:answer, qa:answer,
-// notices:answer, attention:dismiss). 指摘 (warn) go to PMO の記録 only.
+// notices:answer, attention:dismiss). 指摘 (warn) go to ルーターの記録 only.
 //
-// UIUX U4: PMO の記録 is main's merged log (pmo:log / pmo:logChanged: logs/pmo-actions.jsonl, info and warn notices live and
+// UIUX U4: ルーターの記録 is main's merged log (pmo:log / pmo:logChanged: logs/pmo-actions.jsonl, info and warn notices live and
 // resolved, the patrol, answered proposals; newest first): one row per entry (time | kind | folder + one-line title, a click
 // unfolds the detail), kind chips to filter (dashLogKinds), the folder / text filters apply. Without pmoLog (older main) the
 // notices stand in. No read / unread any more (no 既読, no count on the tab, notices:read is never called) and no desktop
 // notification from here: main's attention raises it when あなたの番 grows. ⚙ opens the settings modal (settings.js,
 // window.Settings) where this page registers its own section ('dashboard'); the old inline panel only when it is missing.
-// The update bar is hidden unless the setting showUpdateBar is on (or while restarting): the release is in the record.
+// UX12 (docs/ux12-check.md, src/renderer/reassure.js): under the band one 安心の 1 行 (止まりなし / 止まりかけ / ルーターが止まった,
+// then 動作中・順番待ち・ルーター応答・更新待ち). It replaces the update bar (今すぐ更新 / 後で sit in the line). あなたの番 adds
+// 留守の間 (since the page was last left), 事後の確認 (reviews:list; 「違う」 -> review:answer -> a request to the ルーター) and the
+// 「Windows の PC が要るもの」「手で見てほしいもの」 cards (dashboard:progress cards). Task rows: 最後の動き and この後.
 // Top text: short words, the explanations in tooltips (docs/ui-copy.md).
 (() => {
   let api = null;
@@ -41,7 +44,7 @@
   // queue order (docs/queue-order.md, main's queue:order = src/main/queueorder.js): { limit, running, free, hold, next,
   // line, folders: [{ folder, items, tabbed, lastReorder, orderLock }] }; the cards draw their waiting tasks from it
   let queue = null;
-  const qAsk = new Map(); // key(folder) -> draft of 「PMO に順番を見直してもらう」 (open while present)
+  const qAsk = new Map(); // key(folder) -> draft of 「ルーターに順番を見直してもらう」 (open while present)
   const qNotes = new Map(); // key(folder) -> { text, bad, until }
   let workRoot = ''; // setting "新しい作業の置き場所" (dashboard:workRoot)
   // 新しいセッション (UIUX U5; the picker window's parts): opened by the band's button / the tray (dashboard:newSession), and
@@ -68,7 +71,7 @@
   let modelErr = '';
   // core hooks for the manager agent's own session: own() -> { memMb, heavy, status } | null, restart()
   let ownHooks = {};
-  let stale = []; // PMO findings (dashboard:stale): [{ kind, id, status, folder, since }] -> quiet "放置 N日" marks
+  let stale = []; // ルーター findings (dashboard:stale): [{ kind, id, status, folder, since }] -> quiet "放置 N日" marks
   // Pre-answered QA (qa:list, src/main/qa.js): [{ key, folder, itemId, inboxId, rows, status, … }]. A pending
   // backlog item / an inbox item not routed yet with an entry gets a "QA 3問" mark; clicking it opens the table
   // under the row. Open tables and typed answers live here (render() replaces the DOM on every session update).
@@ -76,16 +79,16 @@
   const qaOpen = new Set(); // entry keys
   const qaDrafts = new Map(); // entry key -> { sig, answers: string[] }
   const qaNotes = new Map(); // entry key -> short note under the table ("保存しました", errors)
-  // 「PMO から」 notices (notices:list / notices:changed, src/main/notices.js): the proposals are answered on あなたの番;
-  // without pmo:log (older main) the notices are also what PMO の記録 shows.
+  // 「ルーターから」 notices (notices:list / notices:changed, src/main/notices.js): the proposals are answered on あなたの番;
+  // without pmo:log (older main) the notices are also what ルーターの記録 shows.
   let notices = [];
   const noticeDrafts = new Map(); // proposal id -> comment typed so far (render() replaces the box)
   const noticeNotes = new Map(); // proposal id -> error note
-  // PMO の記録 (U4): LogEntry[] from main (pmoLog / onPmoLogChanged), newest first; null = not given (fall back to notices)
+  // ルーターの記録 (U4): LogEntry[] from main (pmoLog / onPmoLogChanged), newest first; null = not given (fall back to notices)
   let pmoLog = null;
   const logOpen = new Set(); // entry ids unfolded
   let logShowAll = false;
-  let logKinds = new Set(); // kinds chosen on PMO の記録 ([] = すべて); read from 'dashLogKinds' once store is there
+  let logKinds = new Set(); // kinds chosen on ルーターの記録 ([] = すべて); read from 'dashLogKinds' once store is there
   const INBOX_JA = { new: '受付', asking: '質問中', hold: '保留', routed: '振り分け済み', done: '完了', failed: '失敗', dropped: '取り下げ' };
   const HISTORY_JA = { add: '追加', edit: '書き直し', merge: '統合', link: '結び付け' };
   // あなたの番 (U3): main's attention list (api.attentionList / onAttentionChanged). AttnItem: { id, kind confirm |
@@ -95,7 +98,7 @@
   // session's screen. The widget's 確認待ち count opens this tab (openWaiting).
   let attn = []; // AttnItem[] (seq ascending)
   const attnSent = new Map(); // item id -> at (answered here: hidden until main drops it, or 20 s passed)
-  const waitOpen = () => tab === 'turn';
+  const waitOpen = () => tab === 'turn' || vtab() === 'home'; // HOME-ROLES: the home's いま has the 要対応 cards
   // sched:state (src/main/sched.js): { limit, resources: { freeMB, cpuPct, lagMs, over }, running, waiting: { [folder]: { [id]: { code, text } } } }
   let sched = null;
   // proc:leftovers (src/main/leftovers.js, 51c): { mode, count, mb, suspended, tasklist, ended, stoppedTotal }
@@ -103,6 +106,15 @@
   const LEFTOVER_MODES = { ended: '終わったセッションの分を止める（既定）', all: 'すべて止める（動いているセッションの分も）', off: '数えるだけ（止めない）' };
   // update hold after a release (app:update, src/main/autorestart.js): { state, force, busy, blocked, deadline }
   let update = { state: 'none' };
+  // UX12: the ルーター's heartbeat (pmo:heartbeat; manager/heartbeat.json), the 事後の確認 (reviews:list), 留守の間 (awayFrom = the
+  // last time the page was left, localStorage dashSeenAt; the card shows while set)
+  let heartbeat = null;
+  let reviewItems = [];
+  let reviewVer = 0;
+  const reviewNotes = new Map(); // `${id}:${key}` -> the 「違う」 box's draft (open while present)
+  const reviewErr = new Map(); // `${id}:${key}` -> error text
+  const heldOpen = new Set(); // 'windows' | 'manual': the card shows all its rows
+  let awayFrom = 0;
   const waitDrafts = new Map(); // `${tabId}:${promptKey}` -> { want: Set<n>, text } (multi-select boxes, free text)
   const waitCtxOpen = new Set(); // entry keys whose context (screen lines above the dialog) is unfolded
   const waitNotes = new Map(); // entry key or tabId -> { text, bad } (「質問が変わりました」, errors)
@@ -119,10 +131,10 @@
   const waitCfgNote = { text: '', bad: false };
   // ---- page tabs (UIUX U2, docs/concept-uiux.md §2.2, docs/plan-dashboard.md) ------------------------------
   // 'turn' あなたの番 (main's attention list, U3) | 'proj' プロジェクト (folder cards; 関係図 = agents-view.js
-  // as a switch inside) | 'req' 依頼 (inbox: 対応中 / 対応履歴) | 'log' PMO の記録 (「PMO から」 notices). Only the shown tab is
+  // as a switch inside) | 'req' 依頼 (inbox: 対応中 / 対応履歴) | 'log' ルーターの記録 (「ルーターから」 notices). Only the shown tab is
   // drawn. Remembered; at start-up the tab is あなたの番 when it has anything, else the last one (あなたの番 -> プロジェクト).
-  const TABS = ['turn', 'proj', 'req', 'log'];
-  const USAGE_TAB = { turn: 'turn', proj: 'projects', req: 'requests', log: 'log' }; // UA1 ids (src/main/usage-ids.js)
+  const TABS = ['turn', 'proj', 'req', 'map', 'log']; // 'map' 全体図 (roadmap 14): the home only
+  const USAGE_TAB = { turn: 'turn', proj: 'projects', req: 'requests', map: 'map', log: 'log' }; // UA1 ids (src/main/usage-ids.js)
   const store = {
     get(k, d) {
       try {
@@ -153,7 +165,13 @@
     store.set('dashProjMode', 'agents');
   }
   // the 'view' of older code: the folder rows' data signature still asks for agents fields on the 関係図
-  const agentsShown = () => tab === 'proj' && projMode === 'agents' && !!window.AgentsView;
+  const agentsShown = () => vtab() === 'proj' && projMode === 'agents' && !!window.AgentsView;
+  // HOME-ROLES (依頼-477・479, docs/ux-journey.md §8): the page has two modes. ホーム (no folder chosen in the nav) =
+  // 「いま」 (what is going on and what is yours to do: 要対応 → 動いている作業 → ルーターからの知らせ → the projects' small
+  // table) | 依頼 | ルーターの記録. A folder chosen = that one project's own page (このプロジェクト | 要対応 | 依頼 | 記録 of it).
+  // The tab ids stay ('turn' / 'proj' / 'req' / 'log'); vtab() is what is drawn: 'home' = ホームの「いま」.
+  const oneFolder = () => (folderSel.size === 1 && !folderSel.has(NOFOLDER) ? [...folderSel][0] : '');
+  const vtab = () => (oneFolder() ? (tab === 'map' ? 'proj' : tab) : tab === 'turn' || tab === 'proj' ? 'home' : tab);
   // folder filter (all tabs): keys of the chosen folders; [] = すべて. NOFOLDER = requests / notices without a folder.
   const NOFOLDER = '-';
   let folderSel = new Set((store.get('dashFolders', []) || []).filter((x) => typeof x === 'string'));
@@ -181,12 +199,13 @@
   const CARD_SHOWN = 5;
   const CARD_STEP = 20;
   const cardMore = new Map();
-  // PMO の記録: runs of automatic rows (振り分け・順番) as one row; open ones by the run's oldest entry id
+  // ルーターの記録: runs of automatic rows (振り分け・順番) as one row; open ones by the run's oldest entry id
   const LOG_AUTO = new Set(['route', 'order']);
   const LOG_RUN_MIN = 3;
   const LOG_RUN_GAP = 30 * 60e3;
   const logRunOpen = new Set();
   let reqMenu = ''; // inbox id whose row menu (⋯) is open
+  let rowMenu = ''; // UX15: "<folder key>|<backlog id>" whose card row menu (⋯: 戻す / 完了にする) is open
   let remote = null; // remote:getStatus { running, … }
 
   function h(tag, cls, text) {
@@ -273,6 +292,8 @@
     rel: (ts) => rel(ts),
     wait: (ts) => `${Date.now() - ts < 60e3 ? '1分未満' : ago(ts)}待ち`,
     stale: (ts) => `${W('stalled', '止まって')} ${ago(ts)}`,
+    // UX12: a proposal's deadline (ts = the deadline)
+    due: (ts) => (window.Reassure ? window.Reassure.dueText(ts) : ''),
   };
   function agoSpan(el, ts, fmt = 'rel') {
     if (!ts) return el;
@@ -289,13 +310,25 @@
       if (el.textContent !== t) el.textContent = t;
     }
   }
-  // J8: the Markdown of the notices / PMO の記録 (marked + DOMPurify) by its text, once
+  // J8: the Markdown of the notices / ルーターの記録 (marked + DOMPurify) by its text, once
   const mdCache = new Map();
   const MD_KEEP = 300;
   // J7: the big sources are compared by their version (bumped when new data came), not by their JSON on every redraw
   const ver = { inbox: 0, folders: 0, folderNames: 0, notices: 0, qa: 0, log: 0, queue: 0 };
   const key = (p) => String(p || '').replace(/[\\/]+$/, '').toLowerCase();
   const baseName = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || String(p || '');
+  // UX13 (docs/ux13-check.md): 「会話を開く」 opens the conversation in this window (session-view.js, ← ホーム comes
+  // back); the folder window (作業台) only through the view's 「作業台で開く」. Without the view, the folder window as before.
+  function openConv(o) {
+    const live = o.wcId != null ? o : sessions.find((x) => x.tabId === o.tabId);
+    const to = { wcId: live ? live.wcId : null, tabId: o.tabId, folder: o.folder || (live && live.folder) || '', title: o.title || (live && live.label) || '', from: o.from || 'project' };
+    if (window.SessionView?.ready?.()) {
+      window.SessionView.open(to);
+      return;
+    }
+    if (to.wcId != null) api.dashboardFocus?.({ wcId: to.wcId, tabId: to.tabId, from: to.from });
+    else if (to.folder) api.dashboardOpenSession?.({ folder: to.folder, tabId: to.tabId });
+  }
   function rel(ts) {
     if (!ts) return '';
     const d = Date.now() - ts;
@@ -328,7 +361,7 @@
     return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   };
 
-  // Stale marks (same rules as the PMO patrol, src/main/pmo.js). Only on the rows; no count in the header.
+  // Stale marks (same rules as the ルーター patrol, src/main/pmo.js). Only on the rows; no count in the header.
   function staleOf(kind, id, folder) {
     return stale.find((f) => f.kind === kind && f.id === id && (kind === 'inbox' || key(f.folder) === key(folder))) || null;
   }
@@ -336,7 +369,7 @@
     const d = Math.max(0, Date.now() - (f.since || Date.now()));
     const age = d >= 86400e3 ? `${Math.floor(d / 86400e3)}日` : d >= 3600e3 ? `${Math.floor(d / 3600e3)}時間` : `${Math.max(1, Math.floor(d / 60e3))}分`;
     const el = agoSpan(h('span', 'dbx-stale', `${W('stalled', '止まって')} ${age}`), f.since, 'stale');
-    el.title = `${f.status} のまま。PMO の 1 日 1 回の棚卸しでも挙がります`;
+    el.title = `${f.status} のまま。ルーターの 1 日 1 回の棚卸しでも挙がります`;
     return el;
   }
 
@@ -358,7 +391,7 @@
     const b = h('button', `dbx-qamark ${open ? 'open' : 'answered'}${qaOpen.has(e.key) ? ' on' : ''}`, open ? `QA ${e.rows.length}問` : 'QA 回答済み');
     b.type = 'button';
     b.title = open
-      ? 'PMO が用意した事前の確認です。先に答えておくと、作業が始まったときに止まらずに進みます'
+      ? 'ルーターが用意した事前の確認です。先に答えておくと、作業が始まったときに止まらずに進みます'
       : '回答済み。作業を始めるときに回答が指示に添えられます（クリックで見直し）';
     b.addEventListener('click', () => {
       if (qaOpen.has(e.key)) qaOpen.delete(e.key);
@@ -458,7 +491,7 @@
     if (s.attention === 'error') return s.attention;
     if (s.rest === 'done') return 'fin';
     if (s.rest === 'idle') return 'rest';
-    if (s.status === 'running' || s.status === 'starting') return 'busy';
+    if (s.status === 'running' || s.status === 'starting' || s.working) return 'busy'; // working: 裏のコマンドを待っている (依頼-524)
     if (s.attention === 'done') return 'done';
     if (s.status === 'exited') return 'off';
     return 'idle';
@@ -477,7 +510,7 @@
     };
     for (const f of folders) {
       const r = add(f.folder);
-      if (r) Object.assign(r, { open: f.open, backlog: f.backlog, progress: f.progress || null, outlook: f.outlook || '', review: f.review || null });
+      if (r) Object.assign(r, { open: f.open, backlog: f.backlog, progress: f.progress || null, outlook: f.outlook || '', outlookAt: f.outlookAt || 0, review: f.review || null });
     }
     for (const s of sessions) {
       const r = add(s.folder);
@@ -494,6 +527,7 @@
       r.pending = b.filter((i) => i.status === 'pending');
       r.failed = b.filter((i) => i.status === 'failed');
       r.done = b.filter((i) => i.status === 'done');
+      r.dropped = b.filter((i) => i.status === 'dropped'); // UX15: recent ones on the card (戻す in the row menu)
       const first = [...r.sessions].sort((a, b) => RANK[a.kind] - RANK[b.kind])[0];
       r.kind = first ? first.kind : r.failed.length ? 'error' : 'off';
       if (r.kind === 'fin' || r.kind === 'rest') r.kind = r.failed.length ? 'error' : 'idle'; // only stopped sessions left
@@ -553,7 +587,7 @@
         for (const [id, x] of Object.entries(m || {})) waiting[f][id] = x && typeof x === 'object' ? [x.code, sigText(x.text)] : x;
       }
     }
-    return [Array.isArray(st.running) ? st.running.length : 0, st.limit, over, waiting];
+    return [Array.isArray(st.running) ? st.running.length : 0, st.limit, over, waiting, st.hold ? st.hold.text : null];
   }
   function schedTip() {
     const r = sched.resources || {};
@@ -590,13 +624,18 @@
     // compared in a fixed wcId / tabId order: widget.js orders by `at`, and every push stamps the pushing
     // window's tabs with Date.now(), so two windows pushing in turn swap the order with nothing else changed
     // (stable check NG 1). The drawn order follows `at` per folder, which is compared per minute above.
+    const vt = vtab();
     const ss = sessions
-      .map(({ agents, doing, model, contextPct, costUsd, ...s }) => {
+      .map(({ agents, doing, model, contextPct, costUsd, cmds, ...s }) => {
         // wait: only what is drawn (its items carry member / output times that move with every tool call)
-        const o = { ...s, memMb: s.memMb == null ? s.memMb : memText(s.memMb), at: 0, wait: s.wait ? [s.wait.kind, s.wait.level, s.wait.text] : null };
-        if (agentsShown()) return { ...o, agents, doing, contextPct, costUsd };
+        // UX12: the last move is drawn per minute (agoSpan) on プロジェクト; by the minute here
+        const o = { ...s, memMb: s.memMb == null ? s.memMb : memText(s.memMb), at: 0, eventAt: s.eventAt ? Math.floor(s.eventAt / 60e3) : 0, wait: s.wait ? [s.wait.kind, s.wait.level, s.wait.text, (s.wait.alerts || []).map((a) => a && a.code)] : null };
+        // 関係図: the command boxes (依頼-481) and, while one runs, the minute (its 「開始から N 分」)
+        if (agentsShown()) return { ...o, agents, doing, contextPct, costUsd, cmds, cmdMin: (cmds || []).some((c) => c.status === 'running') ? Math.floor(Date.now() / 60e3) : 0, wait: s.wait ? [o.wait, (s.wait.items || []).filter((i) => i && i.type === 'command').map((i) => i.id)] : null };
         // tabs other than プロジェクト draw sessions only as counts (band, tab badges; あなたの番 cards come from attn)
-        if (tab !== 'proj') return [o.wcId, o.tabId, kindOf(s), o.folder, o.promptKey];
+        // HOME-ROLES: ホームの「いま」 draws the live sessions (動いている作業: name, state, last move)
+        if (vt === 'home') return [o.wcId, o.tabId, kindOf(s), o.folder, o.promptKey, o.status, o.label, o.eventAt];
+        if (vt !== 'proj') return [o.wcId, o.tabId, kindOf(s), o.folder, o.promptKey];
         return o;
       })
       .sort((a, b) => (a.wcId ?? a[0] ?? 0) - (b.wcId ?? b[0] ?? 0) || String(a.tabId ?? a[1]).localeCompare(String(b.tabId ?? b[1])));
@@ -608,21 +647,22 @@
       : [attn.map((x) => [x.id, x.folder, x.own]), hid];
     // folders / progress only matter to the プロジェクト tab (and the filter chips: their names)
     // 依頼 draws the routed tasks of a request (「→ C AT-3」 and its flow) from the backlogs: their number / state / tab only
-    const fs = tab === 'proj' ? ver.folders : tab === 'req' ? [ver.folderNames, folders.map((f) => (f.backlog || []).map((i) => [i.id, i.no, i.status, i.tabId]))] : ver.folderNames;
-    const view = [tab, projMode, [...folderSel], folderOrder, reqView, textFilter, groupOpen, [...groupMore], pastOpen, pastFold, [...pastMore], [...cardMore], window.ProgressView && ProgressView.sig ? ProgressView.sig() : '', reqMenu, titleEdit, remote && remote.running, startShown() ? [startBig(), startList, startNote.text] : null];
+    const fs = vt === 'proj' || vt === 'home' ? ver.folders : tab === 'req' ? [ver.folderNames, folders.map((f) => (f.backlog || []).map((i) => [i.id, i.no, i.status, i.tabId]))] : ver.folderNames;
+    const view = [tab, homeAttnAll, projMode, [...folderSel], folderOrder, reqView, textFilter, groupOpen, [...groupMore], pastOpen, pastFold, [...pastMore], [...cardMore], window.ProgressView && ProgressView.sig ? ProgressView.sig() : '', vt === 'map' && window.OverviewView ? window.OverviewView.sig() : '', reqMenu, titleEdit, remote && remote.running, startShown() ? [startBig(), startList, startNote.text] : null];
     // sched: what is drawn (the band, 待ち（上限） marks), not the resource figures that move every few seconds
-    const sc = schedSig(sched, tab);
-    // PMO の記録 (U4): drawn only on its tab (no count on the tab); the update bar only with the setting on
-    const lg = tab === 'log' ? [ver.log, [...logKinds], [...logOpen], [...logRunOpen], logShowAll] : null;
-    const upd = updateShown() ? update : null;
-    const qs = tab === 'proj' ? [ver.queue, [...qAsk.keys()], [...qNotes.values()].map((n) => n.text)] : null;
+    const sc = schedSig(sched, vt === 'proj' ? 'proj' : tab);
+    // ルーターの記録 (U4): drawn only on its tab (no count on the tab); the update bar only with the setting on
+    // HOME-ROLES: ホームの「いま」 shows the last few entries (ルーターからの知らせ)
+    const lg = agentsShown() ? [ver.log, Math.floor(Date.now() / 60e3)] : tab === 'log' ? [ver.log, [...logKinds], [...logOpen], [...logRunOpen], logShowAll] : vt === 'home' ? [ver.log, [...logOpen]] : null;
+    const upd = update; // UX12: the update hold is in the 安心の 1 行 (always drawn)
+    const qs = vt === 'proj' ? [ver.queue, [...qAsk.keys()], [...qNotes.values()].map((n) => n.text)] : vt === 'home' ? [ver.queue] : null;
     // UX6: no clock in the signature (the 「N分前」 words follow tickAgo); the big sources by their version (J7)
-    const parts = [view, ver.inbox, ss, fs, workRoot, modelCfg, modelErr, stale, ver.qa, ver.notices, own, ws, upd, waitCfg, sc, lg, qs, leftover && [leftover.count, leftover.mb, leftover.mode, leftover.error, leftover.suspended, leftover.tasklist, leftover.ended, leftover.stoppedTotal], flashSel && Date.now() < flashUntil ? flashSel : ''].map((x) => JSON.stringify(x));
+    const parts = [view, ver.inbox, ss, fs, workRoot, modelCfg, modelErr, stale, ver.qa, ver.notices, own, ws, upd, waitCfg, sc, lg, qs, leftover && [leftover.count, leftover.mb, leftover.mode, leftover.error, leftover.suspended, leftover.tasklist, leftover.ended, leftover.stoppedTotal], flashSel && Date.now() < flashUntil ? flashSel : '', reassureSig()].map((x) => JSON.stringify(x));
     sigParts = parts;
     return parts.join('\u0001');
   }
   // which parts of the signature moved for the last draws (tests, tmp/ux6: Dashboard._stats().why)
-  const SIG_NAMES = ['view', 'inbox', 'sessions', 'folders', 'workRoot', 'models', 'modelErr', 'stale', 'qa', 'notices', 'own', 'attention', 'update', 'waitCfg', 'sched', 'log', 'queue', 'leftover', 'flash'];
+  const SIG_NAMES = ['view', 'inbox', 'sessions', 'folders', 'workRoot', 'models', 'modelErr', 'stale', 'qa', 'notices', 'own', 'attention', 'update', 'waitCfg', 'sched', 'log', 'queue', 'leftover', 'flash', 'reassure'];
   let sigParts = [];
   let drawnParts = [];
   function renderSoon() {
@@ -647,7 +687,8 @@
   let hiddenDirty = false;
   const pageHidden = () => {
     try {
-      return document.visibilityState === 'hidden';
+      // SCH-FR2: the window is not throttled (visibilityState stays visible); main's win:seen marks <html data-unseen>
+      return document.visibilityState === 'hidden' || document.documentElement.hasAttribute('data-unseen');
     } catch {
       return false;
     }
@@ -706,6 +747,8 @@
     tickAgo(root); // the words on the page are the clock's of now, as the new ones: no swap for the time alone
     refreshTips(); // and the tooltips with figures (the band's 動いている chip) the ones of now
     patchKids(root, next);
+    paintNav(list); // UX14
+    paintCrumb();
     // the body's scroll position per tab (a switch puts the other tab's back)
     const bd = root.querySelector('.dbx-body');
     if (bd.dataset.tab === drawnTab) {
@@ -729,63 +772,11 @@
     if (cfgFocus) root.querySelector(`.dbx-wcfg-input[data-k="${CSS.escape(cfgFocus)}"]`)?.focus({ preventScroll: true });
   }
 
-  // 更新待ち (src/main/autorestart.js): a new release is reserved, the queues hold until the restart. 「今すぐ更新」 restarts
-  // at the next turn gap (running items continue in the same conversation), 「後で」 drops the reservation.
-  // U4: not shown by default (the release is in PMO の記録; the forced restart comes anyway): only with the setting
-  // showUpdateBar (Notify.settings) on, or while restarting.
-  function updateShown() {
-    const st = update && update.state;
-    if (st === 'restarting') return true;
-    if (st !== 'pending' && st !== 'postponed') return false;
-    let s = null;
-    try {
-      s = window.Notify?.settings?.() || null;
-    } catch {}
-    return !!(s && s.showUpdateBar === true);
-  }
-  function updateBar() {
-    const st = update && update.state;
-    if (!updateShown()) return null;
-    const bar = h('div', `dbx-update${st === 'postponed' ? ' postponed' : ''}`);
-    const hm = (ms) => {
-      const d = new Date(ms);
-      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    };
-    // short words on the bar, the whole sentence in the tooltip (docs/ui-copy.md)
-    let text;
-    let full;
-    if (st === 'restarting') text = full = '新しい版で再起動しています…';
-    else if (st === 'postponed') {
-      text = '新しい版あり（更新は後で）';
-      full = '新しい版があります（更新は後で）。待ちのタスクは動いています';
-    } else if (update.force) {
-      text = `更新待ち（ターンの合間で再起動）`;
-      full = `更新待ち: ターンの合間で再起動します${update.blocked ? `（応答中・${W('yourTurn', '要対応')}のウィンドウ ${update.blocked}）` : ''}。実行中の作業は再起動の後、同じ会話の続きで再開します`;
-    } else {
-      text = `更新待ち${update.deadline ? `（${hm(update.deadline)} まで）` : ''}`;
-      full = `更新待ち: 新しい作業は再起動の後に始めます${update.busy ? `（実行中のウィンドウ ${update.busy} の終わりを待っています${update.deadline ? `、${hm(update.deadline)} を過ぎたらターンの合間で再起動` : ''}）` : ''}`;
-    }
-    const tx = h('span', 'dbx-upd-text', text);
-    tx.title = full;
-    bar.append(tx);
-    const btn = (label, title, action) => {
-      const b = h('button', `dbx-upd-${action}`, label);
-      b.type = 'button';
-      b.title = title;
-      b.addEventListener('click', () => {
-        b.disabled = true;
-        Promise.resolve(api.updateAction?.(action)).catch(() => {}).finally(() => (b.disabled = false));
-      });
-      bar.append(b);
-    };
-    if (st === 'restarting') return bar;
-    if (!update.force) btn('今すぐ更新', '実行中の作業の終わりを待たずに、全部のセッションがターンの合間になったところで再起動します（実行中の作業は同じ会話の続きで再開します）', 'now');
-    if (st === 'pending') btn('後で', '更新の予約を取り消し、待ちの作業を再開します（あとで「今すぐ更新」を押すと更新します）', 'later');
-    return bar;
-  }
+  // 更新待ち (src/main/autorestart.js): UX12 draws it in the 安心の 1 行 (reassureLine / updatePart) whatever the setting
+  // showUpdateBar (that one is the project windows' bar now).
 
   // ---- counts for the band and the tab badges ---------------------------------------------------
-  // あなたの番 (U3) = main's attention list, under the folder filter (the PMO's own session only with すべて), less the
+  // あなたの番 (U3) = main's attention list, under the folder filter (the ルーター's own session only with すべて), less the
   // cards answered here and not dropped by main yet.
   const passAttn = (it) => (it.own || (exclude && it.folder && key(it.folder) === key(exclude)) ? folderSel.size === 0 : passFolder(it.folder));
   // since: the same dialog asked again after it left the screen (same promptKey, new since) is a new dialog, shown at
@@ -832,7 +823,7 @@
   // 対応中 under the folder filter: the 依頼 tab's count and its 対応中 chip both come from here (UX5: they disagreed on hold)
   const isOpenReq = (it) => OPEN_REQ.includes(it.status);
   const openReqs = () => inbox.filter((it) => isOpenReq(it) && passFolder(it.folder));
-  // PMO の記録 (U4): main's LogEntry[] { id, at, kind, type, title, text, folder, bad, itemId? }; with an older main the
+  // ルーターの記録 (U4): main's LogEntry[] { id, at, kind, type, title, text, folder, bad, itemId? }; with an older main the
   // notices stand in (every notice but the unanswered proposals: those are あなたの番). Under the folder filter.
   function logEntries() {
     if (Array.isArray(pmoLog)) return pmoLog.filter((e) => e && typeof e === 'object' && e.id != null);
@@ -891,21 +882,18 @@
     render();
   }
 
-  // the top: band (動いている / PMO / スマホ / ⚙) + the request box, then the tabs and the folder filter
+  // the top: band (動いている / ルーター / スマホ / ⚙) + the request box, then the tabs and the folder filter
   function header(list, draftVal) {
     const head = P(h('header', 'dbx-head'));
-    const top = P(h('div', 'dbx-top'));
-    top.append(h('span', 'dbx-title', W('dashboard', 'ダッシュボード')));
-    top.append(band());
-    head.append(top);
-    const upd = updateBar();
-    if (upd) head.append(upd);
+    head.append(reassureLine()); // UX12: 安心の 1 行 (the update hold is in it); UX14: the band's parts at its end
     const row = P(h('div', 'dbx-newrow'));
     const box = h('textarea', 'dbx-new');
     box.rows = 1;
     box.value = draftVal;
-    box.placeholder = `依頼を書いて ${window.Labels.key('mod+Enter')}`;
-    box.title = 'どのフォルダで進めるかは PMO が決めて振り分けます。「@フォルダ名」を書くとそのフォルダを指定できます（例 @agent_terminal）。新しいフォルダが要るときは PMO が作ります';
+    const pageFolder = oneFolder();
+    const pageRow = pageFolder ? list.find((r) => key(r.folder) === pageFolder) : null;
+    box.placeholder = pageRow ? `${baseName(pageRow.folder)} への依頼を書いて ${window.Labels.key('mod+Enter')}` : `依頼を書いて ${window.Labels.key('mod+Enter')}`;
+    box.title = 'どのフォルダで進めるかは ルーターが決めて振り分けます。「@フォルダ名」を書くとそのフォルダを指定できます（例 @agent_terminal）。新しいフォルダが要るときは ルーターが作ります';
     // UX6: the box on the page (the patch may keep the button of an older draw and this box, or the other way round);
     // emptied at once and keeps the caret, the request goes out in the background (no full refresh to wait for)
     const send = async () => {
@@ -920,9 +908,11 @@
       } catch (err) {
         console.error(err);
       }
-      // 「@フォルダ名」: a known folder's name in the text = where it should go (the PMO still routes it)
+      // 「@フォルダ名」: a known folder's name in the text = where it should go (the ルーター still routes it)
       const at = /(?:^|\s)@([^\s@]+)/.exec(text);
-      const hit = at && item && item.id ? folders.find((f) => baseName(f.folder).toLowerCase() === at[1].toLowerCase()) : null;
+      // HOME-ROLES: written on a project's page = for that project (unless 「@フォルダ名」 says another)
+      const here = !at && item && item.id && pageFolder ? folders.find((f) => key(f.folder) === pageFolder) : null;
+      const hit = here || (at && item && item.id ? folders.find((f) => baseName(f.folder).toLowerCase() === at[1].toLowerCase()) : null);
       if (hit) {
         try {
           await api.inboxUpdate?.({ id: item.id, patch: { folder: hit.folder } });
@@ -950,9 +940,224 @@
     return head;
   }
 
-  // 「動いている 2 / 上限 3」 · PMO (memory, 再起動 when heavy) · スマホ. Quiet; coloured only when something is off.
-  function band() {
-    const b = P(h('div', 'dbx-band'));
+
+  // ---- UX14 the left nav and the breadcrumb (docs/ux-journey.md §5.1・§5.2, docs/ux14-check.md) ------------------------
+  // The main window's frame: ホーム (あなたの番 count) / プロジェクト (each folder -> its live sessions) / ＋ 新しいセッション /
+  // ⚙ 設定 on the left; the top bar's breadcrumb ホーム / フォルダ / 見出し. A folder in the nav narrows the home to it (the
+  // folder chips are gone); ホーム in the nav or the breadcrumb goes back to すべて. A session opens its conversation in place
+  // (session-view.js). Drawn with the page (render) and when the session view opens / closes (Dashboard.viewChanged).
+  let nav = null; // <nav id="side-nav"> (renderer.js, dash-mode)
+  let crumbEl = null; // #crumb in the top bar
+  const NAV_SESS_MAX = 6;
+  const svCur = () => (window.SessionView?.isOpen?.() ? window.SessionView.current() : null);
+  function selectFolder(folder) {
+    window.SessionView?.isOpen?.() && window.SessionView.close();
+    folderSel.clear();
+    if (folder) folderSel.add(key(folder));
+    store.set('dashFolders', [...folderSel]);
+    // HOME-ROLES: a project in the nav opens its own page (このプロジェクト); none = ホームの「いま」
+    tab = folder ? 'proj' : tab === 'proj' ? 'turn' : tab;
+    tabChosen = true;
+    store.set('dashTab', tab);
+    render();
+  }
+  function goHome() {
+    window.SessionView?.isOpen?.() && window.SessionView.close();
+    if (folderSel.size) {
+      folderSel.clear();
+      store.set('dashFolders', [...folderSel]);
+    }
+    if (tab === 'proj') {
+      tab = 'turn';
+      store.set('dashTab', tab);
+    }
+    render();
+  }
+  // a live session's name in the nav: its task (AT-53 見出し), else the tab's name
+  function sessName(r, s) {
+    const it = (r.backlog || []).find((i) => i.tabId === s.tabId && i.status === 'active');
+    if (it) return [taskNo(it), taskTitle(it)].filter(Boolean).join(' ');
+    return s.label || 'セッション';
+  }
+  // the folder's short state for the nav (the card's head says the rest)
+  function folderWord(r) {
+    const busy = r.sessions.filter((s) => s.kind === 'busy').length;
+    if (r.sessions.some((s) => s.kind === 'input')) return W('yourTurn', '要対応');
+    if (busy) return `${busy} ${W('running', '動作中')}`;
+    if (r.failed.length) return `失敗 ${r.failed.length}`;
+    if (r.pending.length) return `${r.pending.length} 待ち`;
+    return '';
+  }
+  function navNode(list) {
+    const el = P(document.createElement('div'));
+    const cur = svCur();
+    const one = folderSel.size === 1 ? [...folderSel][0] : '';
+    const item = (cls, ic, label, n, title, usage, fn, k) => {
+      const b = h('button', `snav-item ${cls}`);
+      b.type = 'button';
+      if (k) b.dataset.k = k;
+      b.dataset.usage = usage;
+      b.title = title || label;
+      b.append(ic, h('span', 'snav-label', label));
+      if (n) b.append(n);
+      b.addEventListener('click', fn);
+      return b;
+    };
+    const ic = (t) => h('span', 'snav-ic', t);
+    const nTurn = attnShown().length;
+    const home = item(`snav-home${!cur && !folderSel.size ? ' on' : ''}`, ic('⌂'), W('home', 'ホーム'), nTurn ? h('span', 'snav-n hot', String(nTurn)) : null,
+      `${W('home', 'ホーム')}（すべてのフォルダ）${nTurn ? `。${W('yourTurn', '要対応')} ${nTurn} 件` : ''}`, 'dash.nav.home', goHome, 'home');
+    el.append(home);
+    const box = P(h('div', 'snav-list'), 'list');
+    box.append(h('div', 'snav-h', W('projects', 'プロジェクト')));
+    for (const r of list) {
+      const k = key(r.folder);
+      const word = folderWord(r);
+      const f = item(`snav-folder k-${r.kind}${!cur && one === k ? ' on' : ''}`, h('span', 'dbx-dot snav-dot'), baseName(r.folder), word ? h('span', 'snav-n', word) : null,
+        `${r.folder}\nクリックでこのプロジェクトの画面を開く`, 'dash.nav.folder', () => selectFolder(r.folder), 'f:' + k);
+      f.dataset.folder = k;
+      box.append(f);
+      const live = r.sessions.filter((s) => !['fin', 'off', 'rest'].includes(s.kind));
+      for (const s of live.slice(0, NAV_SESS_MAX)) {
+        const name = sessName(r, s);
+        const b = item(`snav-sess k-${s.kind}${cur && cur.tabId === s.tabId ? ' on' : ''}`, h('span', 'dbx-dot snav-dot'), name, null,
+          `${name}\n${baseName(r.folder)} · ${SESSION_JA[s.status] || s.status || ''}\nクリックで会話を開く`, 'dash.nav.session',
+          () => openConv({ wcId: s.wcId, tabId: s.tabId, folder: s.folder, title: name, from: 'nav' }), 's:' + s.tabId);
+        b.dataset.tab = s.tabId;
+        box.append(b);
+      }
+      if (live.length > NAV_SESS_MAX) box.append(h('div', 'snav-more', `ほか ${live.length - NAV_SESS_MAX} 件`));
+    }
+    if (!list.length) box.append(h('div', 'snav-empty', 'まだフォルダはありません'));
+    el.append(box);
+    const ns = item(`snav-new dbx-newsess${startShown() ? ' on' : ''}`, ic('＋'), W('newSession', '新しいセッション'), null,
+      'フォルダを開く・新しい作業・一時セッション・ファイルの編集', 'dash.nav.new', () => toggleStart(), 'new');
+    ns.setAttribute('aria-expanded', String(startShown()));
+    el.append(ns);
+    // UX16: the command palette (operations, task numbers, folders, files; ⌘K)
+    const pk = window.Labels?.shortcutKey?.('palette') || '';
+    el.append(item('snav-find', ic('⌕'), W('palette', 'コマンドパレット'), pk ? h('span', 'snav-key', pk) : null, `操作・タスクの番号・フォルダ・ファイルを探す${pk ? `（${pk}）` : ''}`, 'dash.nav.palette', () => window.Palette?.open?.(), 'find'));
+    el.append(item('snav-set', ic('⚙'), W('settings', '設定'), null, W('settings', '設定'), 'dash.nav.settings', () => {
+      if (window.Settings?.open) window.Settings.open();
+    }, 'set'));
+    return el;
+  }
+  // UX16: what the command palette (palette.js) finds in the home: every folder's tasks (number / title), the requests,
+  // the live sessions and the folders. Each row says what it opens.
+  function paletteItems() {
+    const out = [];
+    const live = new Map(sessions.filter((s) => s && s.tabId).map((s) => [s.tabId, s]));
+    for (const r of folders) {
+      const fname = baseName(r.folder);
+      for (const it of r.backlog || []) {
+        const s = it.tabId && it.status === 'active' ? live.get(it.tabId) : null;
+        const st = window.Labels?.status?.('backlog', it.status)?.short || it.status || '';
+        out.push({
+          kind: 'task', label: taskName(it) || it.id, hint: [fname, st].filter(Boolean).join(' · '), usage: 'palette.task',
+          words: [taskNo(it), it.reqNo, it.id, fname, String(it.text || '').slice(0, 200)].filter(Boolean).join(' '),
+          run: () => (s ? openConv({ wcId: s.wcId, tabId: s.tabId, folder: s.folder, title: taskName(it), from: 'palette' }) : selectFolder(r.folder)),
+        });
+      }
+      out.push({ kind: 'folder', label: fname || r.folder, hint: r.folder, words: r.folder, usage: 'palette.folder', run: () => selectFolder(r.folder) });
+    }
+    for (const it of inbox.slice(0, 300)) {
+      if (!it) continue;
+      const st = window.Labels?.status?.('inbox', it.status)?.short || it.status || '';
+      out.push({
+        kind: 'request', label: taskName(it) || it.id, hint: st, usage: 'palette.request',
+        words: [it.no, it.reqNo, it.id, String(it.text || '').slice(0, 200)].filter(Boolean).join(' '),
+        run: () => switchTab('req'),
+      });
+    }
+    for (const s of sessions) {
+      if (!s || !s.tabId || !s.folder) continue;
+      const r = folders.find((x) => key(x.folder) === key(s.folder)) || { backlog: [] };
+      const name = sessName(r, s);
+      out.push({ kind: 'session', label: name, hint: [baseName(s.folder), SESSION_JA[s.status] || ''].filter(Boolean).join(' · '), words: s.label || '', usage: 'palette.session',
+        run: () => openConv({ wcId: s.wcId, tabId: s.tabId, folder: s.folder, title: name, from: 'palette' }) });
+    }
+    return out;
+  }
+  // the folder the palette's file search looks in when no session is open: the one folder chosen in the nav
+  function paletteFolder() {
+    if (folderSel.size !== 1) return '';
+    const k = [...folderSel][0];
+    const r = folders.find((x) => key(x.folder) === k);
+    return r ? r.folder : '';
+  }
+  // ＋ 新しいセッション: the panel on top of the home (the session view closes so it shows)
+  function toggleStart() {
+    if (startShown()) {
+      startOpen = false;
+      startClosed = true;
+    } else {
+      window.SessionView?.isOpen?.() && window.SessionView.close();
+      startOpen = true;
+      startClosed = false;
+      loadFolders().then(renderSoon).catch(() => {});
+    }
+    render();
+  }
+  function paintNav(list) {
+    if (!nav) return;
+    const next = document.createElement('div');
+    next.append(navNode(list || rows()));
+    patchKids(nav, next);
+  }
+  // ホーム / フォルダ / 見出し (the session view), ホーム / フォルダ (narrowed), ホーム
+  function paintCrumb() {
+    if (!crumbEl) return;
+    const cur = svCur();
+    const one = folderSel.size === 1 ? [...folderSel][0] : '';
+    const folder = cur ? cur.folder : one ? (rows().find((r) => key(r.folder) === one) || {}).folder || one : '';
+    const parts = [];
+    const link = (cls, text, title, usage, fn) => {
+      const b = h('button', `crumb-link ${cls}`, text);
+      b.type = 'button';
+      b.title = title;
+      b.dataset.usage = usage;
+      b.addEventListener('click', fn);
+      return b;
+    };
+    const last = !folder && !cur;
+    parts.push(last ? h('b', 'crumb-here crumb-home', W('home', 'ホーム')) : link('crumb-home', W('home', 'ホーム'), `${W('home', 'ホーム')}に戻る（すべてのフォルダ）`, 'dash.crumb.home', goHome));
+    if (folder) {
+      parts.push(h('span', 'crumb-sep', '/'));
+      parts.push(cur ? link('crumb-folder', baseName(folder), `${folder}\nこのプロジェクトの画面を開く`, 'dash.crumb.folder', () => selectFolder(folder)) : h('b', 'crumb-here crumb-folder', baseName(folder)));
+    }
+    if (cur) {
+      parts.push(h('span', 'crumb-sep', '/'));
+      const t = h('b', 'crumb-here crumb-title', cur.title || String(cur.tabId || '').slice(0, 8));
+      t.title = cur.title || '';
+      parts.push(t);
+    }
+    const sig = parts.map((p) => p.className + ':' + p.textContent).join('|');
+    if (crumbEl.dataset.sig === sig) return;
+    crumbEl.dataset.sig = sig;
+    crumbEl.replaceChildren(...parts);
+  }
+  // a new session from ＋ (a folder opened hidden: the workbench): its first new session opens in the home
+  let startWant = null; // { folder, known: Set<tabId>, until }
+  function wantSession(folder) {
+    startWant = { folder: folder ? key(folder) : '', known: new Set(sessions.map((s) => s.tabId)), until: Date.now() + 30e3 };
+    if (folder) selectFolder(folder);
+  }
+  function takeWanted() {
+    const w = startWant;
+    if (!w) return;
+    if (Date.now() > w.until) {
+      startWant = null;
+      return;
+    }
+    const s = sessions.find((x) => !w.known.has(x.tabId) && (!w.folder || key(x.folder) === w.folder) && !(exclude && key(x.folder) === key(exclude)));
+    if (!s) return;
+    startWant = null;
+    openConv({ wcId: s.wcId, tabId: s.tabId, folder: s.folder, title: s.label || '', from: 'nav' });
+  }
+
+  // UX14: what was the band (動いている · ＋ 新しいセッション · ルーター · スマホ) — ＋ is in the left nav; 残ったプロセス, the ルーター's
+  // memory and スマホ ON go at the end of the 安心の 1 行 (bandParts). Quiet; coloured only when something is off.
+  function bandParts(b) {
     const chip = (cls, text, title, onClick) => {
       const el = h(onClick ? 'button' : 'span', `dbx-chip ${cls}`, text);
       if (onClick) {
@@ -963,24 +1168,7 @@
       b.append(el);
       return el;
     };
-    // U5: ＋ 新しいセッション (the picker's parts, on this page): opens / closes the panel on top of the tab
-    const ns = chip(`dbx-newsess${startShown() ? ' on' : ''}`, `＋ ${W('newSession', '新しいセッション')}`, 'フォルダを開く・新しい作業・一時セッション・ファイルの編集', () => {
-      if (startShown()) {
-        startOpen = false;
-        startClosed = true;
-      } else {
-        startOpen = true;
-        startClosed = false;
-        loadFolders().then(renderSoon).catch(() => {});
-      }
-      render();
-    });
-    ns.setAttribute('aria-expanded', String(startShown()));
-    if (sched && Array.isArray(sched.running)) {
-      const r = sched.resources || {};
-      const over = Array.isArray(r.over) ? r.over : [];
-      chip(`dbx-sched${over.length ? ' over' : ''}`, `動いている ${sched.running.length} / 上限 ${sched.limit}${over.length ? '（資源）' : ''}`, schedTip());
-    }
+    // UX12: 動作中 N / 上限 M is in the 安心の 1 行 (reassureLine)
     // 51c: processes the tabs left behind (src/main/leftovers.js): count + private MB, next to the resources chip.
     // U4: only when there are some (or counting failed); 「残ったプロセス 0」 said nothing
     if (leftover && Number.isFinite(leftover.count) && (leftover.count > 0 || leftover.error)) {
@@ -1001,6 +1189,354 @@
     // UX5: a mark only while ON; the switch is in 設定 > スマホ (remote-ui.js)
     if (remote && remote.running) chip('dbx-remote on', `${W('phone', 'スマホ')} ON`, `${W('phone', 'スマホ')}から操作できます（切り替えは ${W('settings', '設定')} > ${W('phone', 'スマホ')}）`);
     return b;
+  }
+
+  // ---- UX12 安心の 1 行 (src/renderer/reassure.js line) --------------------------------------------------------------
+  // Whole-app (not under the folder filter): what waits flags (alerts), the after-failed / usage reasons of the scheduler,
+  // the ルーター's heartbeat and the update hold. The ルーター応答 time follows the clock (agoSpan), not the signature.
+  const itemOfFolder = (folder, pred) => {
+    const r = folders.find((x) => key(x.folder) === key(folder));
+    return r ? (r.backlog || []).find(pred) || null : null;
+  };
+  function reassureState() {
+    const R = window.Reassure;
+    if (!R) return null;
+    const stalls = [];
+    for (const s of sessions) {
+      if (!s || s.folderName === 'ダッシュボード' || (exclude && key(s.folder) === key(exclude))) continue;
+      const al = s.wait && Array.isArray(s.wait.alerts) ? s.wait.alerts.filter((a) => a && a.code) : [];
+      if (!al.length || s.rest || kindOf(s) === 'fin') continue;
+      const it = itemOfFolder(s.folder, (i) => i.tabId === s.tabId && i.status === 'active');
+      stalls.push({ name: it ? taskNo(it) || taskTitle(it) : s.label || 'セッション', folderName: s.folderName, code: al[0].code, text: al[0].text });
+    }
+    const failed = [];
+    let usage = null;
+    let queued = 0;
+    for (const [folder, m] of Object.entries((sched && sched.waiting) || {})) {
+      for (const [id, x] of Object.entries(m || {})) {
+        if (!x || typeof x !== 'object') continue;
+        queued++;
+        if (x.code === 'after-failed') {
+          const it = itemOfFolder(folder, (i) => i.id === id);
+          failed.push({ name: it ? taskNo(it) || taskTitle(it) : id, folderName: baseName(folder), text: x.text });
+        } else if (x.code === 'usage' && !usage) usage = { text: x.text };
+      }
+    }
+    // the account-wide hold (sched:state hold), also when no item waits for it
+    if (!usage && sched && sched.hold && sched.hold.code === 'usage' && sched.hold.text) usage = { text: sched.hold.text };
+    const running = sched && Array.isArray(sched.running) ? sched.running.length : NaN;
+    return R.line({ heartbeat, stalls, afterFailed: failed, usage, update, running, limit: sched ? Number(sched.limit) : NaN, queued, noAgo: true });
+  }
+  function reassureLine() {
+    const st = reassureState();
+    const el = P(h('div', `dbx-reassure lv-${st ? st.level : 'ok'}`), 'reassure');
+    if (!st) return el;
+    el.dataset.level = st.level;
+    el.append(h('span', 'dbx-rs-dot'));
+    const t = h('span', 'dbx-rs-text', st.text);
+    t.title = st.full;
+    el.append(t);
+    const sep = () => el.append(h('span', 'dbx-rs-sep', '·'));
+    for (const p of st.parts) {
+      if (/^(更新を待って|新しい版)/.test(p)) continue; // drawn below with its buttons
+      sep();
+      const sc = /^動作中/.test(p);
+      const over = sc && sched && sched.resources && Array.isArray(sched.resources.over) && sched.resources.over.length;
+      const x = h('span', `dbx-rs-part${sc ? ' dbx-sched' : ''}${over ? ' over' : ''}`, over ? `${p}（資源）` : p);
+      if (sc && sched && Array.isArray(sched.running)) x.title = schedTip();
+      el.append(x);
+    }
+    if (heartbeat && st.level !== 'stop' && heartbeat.lastReceivedAt) {
+      sep();
+      const x = h('span', 'dbx-rs-part dbx-rs-pmo');
+      x.append(document.createTextNode('ルーター応答 '), agoSpan(h('span', 'dbx-rs-ago', ''), heartbeat.lastReceivedAt));
+      x.title = `ルーターが最後に知らせを受け取った時刻: ${md(heartbeat.lastReceivedAt)}${heartbeat.pending ? `（受け取っていない知らせ ${heartbeat.pending} 件）` : ''}`;
+      el.append(x);
+    }
+    const up = window.Reassure.updateText(update);
+    if (up) {
+      sep();
+      el.append(updatePart(up));
+    }
+    const extra = h('span', 'dbx-rs-extra');
+    bandParts(extra);
+    if (extra.childNodes.length) el.append(extra);
+    return el;
+  }
+  // 更新待ち in the line (was the update bar): the words, 今すぐ更新 / 後で as links (src/main/autorestart.js)
+  function updatePart(up) {
+    const st = update && update.state;
+    const bar = h('span', `dbx-update${st === 'postponed' ? ' postponed' : ''}`);
+    const tx = h('span', 'dbx-upd-text', up.short);
+    tx.title = up.full;
+    bar.append(tx);
+    const btn = (label, title, action) => {
+      const b = h('button', `dbx-link dbx-upd-${action}`, label);
+      b.type = 'button';
+      b.title = title;
+      b.dataset.usage = action === 'now' ? 'dash.update.now' : 'dash.update.later'; // UPD-MISS
+      b.addEventListener('click', () => {
+        b.disabled = true;
+        Promise.resolve(api.updateAction?.(action)).catch(() => {}).finally(() => (b.disabled = false));
+      });
+      bar.append(b);
+    };
+    if (st === 'restarting') return bar;
+    if (st === 'pending' && !update.force) btn('今すぐ更新', '実行中の作業の終わりを待たずに、全部のセッションがターンの合間になったところで再起動します（実行中の作業は同じ会話の続きで再開します）', 'now');
+    if (st === 'postponed') btn('今すぐ更新', '全部のセッションがターンの合間になったところで再起動します', 'now');
+    if (st === 'pending') btn('後で', '更新の予約を取り消し、待ちの作業を再開します（あとで「今すぐ更新」を押すと更新します）', 'later');
+    return bar;
+  }
+  // what the line and the あなたの番 extras draw (the signature; the clock words follow tickAgo)
+  function reassureSig() {
+    const st = reassureState();
+    const R = window.Reassure;
+    const away = awayFrom && R ? R.awayCounts(logEntries(), awayFrom, reviewItems) : null;
+    const extras = tab === 'turn' ? [reviewVer, [...reviewNotes], [...reviewErr], [...heldOpen], heldSig()] : null;
+    return [st && [st.level, st.text, st.parts], heartbeat && heartbeat.lastReceivedAt, away, extras];
+  }
+
+  // ---- UX12 留守の間 -----------------------------------------------------------------------------------------------
+  // The page was left (hidden / the window lost focus) -> dashSeenAt; shown again after Reassure.AWAY_MIN -> the card
+  // counts the ルーターの記録 entries and the 事後の確認 since then. 閉じる folds it until the next time away.
+  function markSeen() {
+    store.set('dashSeenAt', Date.now());
+  }
+  function backFromAway() {
+    const R = window.Reassure;
+    if (!R) return;
+    const since = R.awaySince(Number(store.get('dashSeenAt', 0)) || 0);
+    if (since && since !== awayFrom) {
+      awayFrom = since;
+      loadPmoLog().then(renderSoon);
+      loadReviews().then(renderSoon);
+    }
+  }
+  function awayCard() {
+    const R = window.Reassure;
+    if (!R || !awayFrom) return null;
+    const c = R.awayCounts(logEntries(), awayFrom, reviewItems);
+    const el = P(h('div', 'dbx-away'), 'away');
+    const t = h('span', 'dbx-away-t', `${W('away', '留守の間')}（${md(awayFrom)} から）`);
+    t.title = '最後にこの画面を離れてから起きたこと（ルーターの記録と事後の確認から数えます）';
+    el.append(t);
+    const n = (count, word, title, cls = '') => {
+      const x = h('span', `dbx-away-n${cls ? ` ${cls}` : ''}`);
+      x.append(h('b', '', String(count)), document.createTextNode(` ${word}`));
+      x.title = title;
+      el.append(x);
+    };
+    n(c.done, '終わった', '完了したタスク・見直し');
+    n(c.fixed, '立て直した', 'ルーターとアプリが直した止まり（後押し・振り直し・解けた指摘）');
+    n(c.hypo, '仮説', '仮説で進めた作業（下の事後の確認）');
+    n(c.stops, '止まり', '指摘・失敗したタスク（ルーターの記録）', c.stops ? 'warn' : '');
+    const log = h('button', 'dbx-link dim dbx-away-log', W('pmoLog', 'ルーターの記録'));
+    log.type = 'button';
+    log.addEventListener('click', () => switchTab('log'));
+    const close = h('button', 'dbx-link dim dbx-away-close', '閉じる');
+    close.type = 'button';
+    close.addEventListener('click', () => {
+      awayFrom = 0;
+      render();
+    });
+    el.append(log, close);
+    return el;
+  }
+
+  // ---- UX12 事後の確認 ---------------------------------------------------------------------------------------------
+  async function loadReviews() {
+    if (!api.reviewsList) return;
+    try {
+      const r = await api.reviewsList();
+      if (r && Array.isArray(r.items)) setReviews(r);
+    } catch {}
+  }
+  function setReviews(r) {
+    reviewItems = r.items.filter((x) => x && typeof x.id === 'string');
+    reviewVer++;
+  }
+  function reviewsBlock() {
+    const list = reviewItems.filter((r) => !r.seenAt && passFolder(r.folder));
+    if (!list.length) return null;
+    const sec = P(h('section', 'dbx-sec dbx-reviews'), 'reviews');
+    const head = h('div', 'dbx-later-t', `${W('postCheck', '事後の確認')} ${list.length}`);
+    head.title = '仮説で進めた作業の、仮説と後で見てほしいもの。答えなくても進みます。違うものだけ「違う」を押すと ルーターに届き、直しの作業が積まれます';
+    sec.append(head);
+    for (const r of list) sec.append(reviewCard(r));
+    return sec;
+  }
+  function reviewCard(r) {
+    const c = h('div', 'dbx-attn k-review');
+    c.dataset.id = r.id;
+    const head = h('div', 'dbx-attn-head');
+    const tag = h('span', 'dbx-attn-why', '仮説');
+    tag.title = 'ユーザーに聞かずに仮説で決めて進めました';
+    head.append(tag, h('span', 'dbx-attn-name', [r.no, r.title].filter(Boolean).join(' ') || r.itemId));
+    if (r.folder) {
+      const f = h('span', 'dbx-attn-folder', baseName(r.folder));
+      f.title = r.folder;
+      head.append(f);
+    }
+    const age = agoSpan(h('span', 'dbx-time dbx-attn-age', ''), r.at);
+    age.title = md(r.at);
+    head.append(age);
+    c.append(head);
+    const rows = (arr, prefix, label) => {
+      if (!arr || !arr.length) return;
+      if (label) c.append(h('div', 'dbx-rv-sub', label));
+      arr.forEach((text, i) => c.append(reviewRow(r, `${prefix}${i}`, text)));
+    };
+    rows(r.hypotheses, 'h', '');
+    rows(r.checks, 'c', '後で見てほしいもの');
+    const bar = h('div', 'dbx-attn-bar');
+    if (r.tabId && r.folder) {
+      const op = h('button', 'dbx-link dbx-rv-open', '会話を開く');
+      op.type = 'button';
+      op.title = 'この窓の中でその作業の会話を開きます（← ホームで戻る）';
+      op.addEventListener('click', () => openConv({ folder: r.folder, tabId: r.tabId, title: [r.no, r.title].filter(Boolean).join(' '), from: 'turn' })); // UX13
+      bar.append(op);
+    }
+    const seen = h('button', 'dbx-attn-dismiss dbx-rv-seen', '見た');
+    seen.type = 'button';
+    seen.title = 'このカードを畳みます（記録には残ります）';
+    seen.addEventListener('click', async () => {
+      seen.disabled = true;
+      try {
+        await api.reviewSeen?.({ id: r.id });
+      } catch {}
+      const x = reviewItems.find((y) => y.id === r.id);
+      if (x) x.seenAt = Date.now();
+      reviewVer++;
+      render();
+    });
+    bar.append(seen);
+    c.append(bar);
+    return c;
+  }
+  function reviewRow(r, k, text) {
+    const nk = `${r.id}:${k}`;
+    const row = h('div', 'dbx-rv-row');
+    row.dataset.k = k;
+    row.append(h('span', 'dbx-rv-text', text));
+    const a = r.answers && r.answers[k];
+    if (a && a.choice === 'wrong') {
+      const d = h('span', 'dbx-rv-done', '「違う」を ルーターに伝えました');
+      if (a.note) d.title = a.note;
+      row.append(d);
+      return row;
+    }
+    if (!reviewNotes.has(nk)) {
+      const b = h('button', 'dbx-link dbx-rv-wrong', W('wrongHypo', '違う'));
+      b.type = 'button';
+      b.title = 'この仮説は違う、と ルーターに伝えます（一言を添えられます）。ルーターが直しの作業を積みます';
+      b.addEventListener('click', () => {
+        reviewNotes.set(nk, '');
+        render();
+        root.querySelector(`.dbx-rv-note[data-k="${CSS.escape(nk)}"]`)?.focus();
+      });
+      row.append(b);
+      return row;
+    }
+    const box = h('div', 'dbx-rv-box');
+    const ta = h('textarea', 'dbx-rv-note');
+    ta.rows = 2;
+    ta.dataset.k = nk;
+    ta.value = reviewNotes.get(nk) || '';
+    ta.placeholder = 'どう違うか（なくてもよい）';
+    ta.addEventListener('input', () => reviewNotes.set(nk, ta.value));
+    const send = h('button', 'dbx-attn-dismiss dbx-rv-send', 'ルーターに伝える');
+    send.type = 'button';
+    send.addEventListener('click', async () => {
+      send.disabled = true;
+      let res = null;
+      try {
+        res = await api.reviewAnswer?.({ id: r.id, key: k, choice: 'wrong', note: reviewNotes.get(nk) || '' });
+      } catch (err) {
+        res = { error: String(err && err.message ? err.message : err) };
+      }
+      if (res && res.ok) {
+        reviewNotes.delete(nk);
+        reviewErr.delete(nk);
+        const x = reviewItems.find((y) => y.id === r.id);
+        if (x) x.answers = { ...(x.answers || {}), [k]: { choice: 'wrong', note: '', at: Date.now() } };
+        reviewVer++;
+        inboxSoon();
+      } else reviewErr.set(nk, (res && res.error) || '伝えられませんでした');
+      render();
+    });
+    const cancel = h('button', 'dbx-link dim dbx-rv-cancel', 'やめる');
+    cancel.type = 'button';
+    cancel.addEventListener('click', () => {
+      reviewNotes.delete(nk);
+      reviewErr.delete(nk);
+      render();
+    });
+    box.append(ta, send, cancel);
+    if (reviewErr.has(nk)) box.append(h('span', 'dbx-rv-err', reviewErr.get(nk)));
+    row.append(box);
+    return row;
+  }
+
+  // ---- UX12 「Windows の PC が要るもの」「手で見てほしいもの」 (PROGRESS の保留, src/main/progress.js heldCards) -----------
+  const HELD = [
+    ['windows', W('needWindows', 'Windows の PC が要るもの'), 'PROGRESS の保留のうち、次の一手が Windows の PC でしか確かめられないもの（Mac の分は済み）'],
+    ['manual', W('needHands', '手で見てほしいもの'), 'PROGRESS の保留のうち、次の一手が人の目や手での確認のもの'],
+  ];
+  const HELD_SHOWN = 3;
+  function heldRows() {
+    const out = { windows: [], manual: [], windowsCount: 0, manualCount: 0 };
+    for (const f of folders) {
+      if (!passFolder(f.folder) || (exclude && key(f.folder) === key(exclude))) continue;
+      const c = f.progress && f.progress.cards;
+      if (!c) continue;
+      for (const [k] of HELD) {
+        for (const r of Array.isArray(c[k]) ? c[k] : []) out[k].push({ ...r, folder: f.folder });
+        out[`${k}Count`] += Number(c[`${k}Count`]) || 0;
+      }
+    }
+    return out;
+  }
+  const heldSig = () => {
+    const x = heldRows();
+    return HELD.map(([k]) => [x[`${k}Count`], x[k].map((r) => [r.folder, r.n, r.item, r.next])]);
+  };
+  function heldBlock() {
+    const x = heldRows();
+    if (!x.windowsCount && !x.manualCount) return null;
+    const sec = P(h('section', 'dbx-sec dbx-helds'), 'helds');
+    for (const [k, title, tip] of HELD) {
+      const n = x[`${k}Count`];
+      if (!n) continue;
+      const card = h('div', `dbx-held k-${k}`);
+      card.dataset.k = k;
+      const head = h('div', 'dbx-held-head');
+      const t = h('span', 'dbx-held-t', `${title} ${n} 件`);
+      t.title = tip;
+      const later = h('span', 'dbx-held-later', W('notUrgent', '急ぎでない'));
+      later.title = '答えなくても作業は止まりません';
+      head.append(t, later);
+      card.append(head);
+      const rows = heldOpen.has(k) ? x[k] : x[k].slice(0, HELD_SHOWN);
+      for (const r of rows) {
+        const row = h('div', 'dbx-held-row');
+        row.append(h('span', 'dbx-held-f', baseName(r.folder)), h('span', 'dbx-held-n', r.n), h('span', 'dbx-held-item', r.item));
+        row.title = `${r.item}\n\n次の一手: ${r.next}${r.updated ? `\n更新日: ${r.updated}` : ''}`;
+        card.append(row);
+      }
+      const rest = x[k].length - rows.length + Math.max(0, n - x[k].length);
+      if (rest > 0 || heldOpen.has(k)) {
+        const b = h('button', 'dbx-link dim dbx-held-more', heldOpen.has(k) ? '畳む' : `ほか ${rest} 件`);
+        b.type = 'button';
+        b.addEventListener('click', () => {
+          if (heldOpen.has(k)) heldOpen.delete(k);
+          else heldOpen.add(k);
+          render();
+        });
+        card.append(b);
+      }
+      sec.append(card);
+    }
+    return sec;
   }
 
   // ---- ⚙ settings (U4) -------------------------------------------------------------------------
@@ -1057,20 +1593,21 @@
     drawSettings(settingsHost);
   }
 
-  // AT-6: the default model / effort of the claude starts (作業のセッション・タブ / PMO), manager-settings.json.
-  // A routed item's own (the PMO's route / create) wins over it. Applies from the next start of each claude.
+  // AT-6: the default model / effort of the claude starts (作業のセッション・タブ / ルーター), manager-settings.json.
+  // A routed item's own (the ルーター's route / create) wins over it. Applies from the next start of each claude.
   function modelLines() {
     if (!modelCfg || !api.modelsSet) return null;
     const wrap = h('div', 'dbx-models');
-    const row = (label, key, cur, tip) => {
+    // key: 'session' (claudeModel) / 'pmo' / a kind (MODEL-KIND: implementModel …); builtin = what '' goes back to
+    const row = (label, key, cur, tip, builtin = modelCfg.builtin) => {
       const r = h('div', 'dbx-workroot dbx-modelrow');
       r.dataset.key = key;
       r.append(h('span', 'dbx-wrlabel', label));
       const inp = h('input', 'dbx-modelin');
       inp.value = cur.model;
-      inp.placeholder = modelCfg.builtin.model;
+      inp.placeholder = builtin.model;
       inp.spellcheck = false;
-      inp.title = `${tip}\nモデル名（例 ${modelCfg.builtin.model}）か別名（opus / sonnet / haiku）。空にすると ${modelCfg.builtin.model}`;
+      inp.title = `${tip}\nモデル名（例 ${modelCfg.builtin.model}）か別名（opus / sonnet / haiku）。空にすると ${builtin.model}`;
       const sel = h('select', 'dbx-effortsel');
       for (const v of modelCfg.efforts) {
         const o = h('option', null, v);
@@ -1078,9 +1615,10 @@
         if (v === cur.effort) o.selected = true;
         sel.append(o);
       }
-      sel.title = `${tip}\neffort（既定 ${modelCfg.builtin.effort}）`;
+      sel.title = `${tip}\neffort（既定 ${builtin.effort}）`;
       const save = async () => {
-        const o = key === 'pmo' ? { pmoModel: inp.value.trim(), pmoEffort: sel.value } : { claudeModel: inp.value.trim(), claudeEffort: sel.value };
+        const pre = key === 'session' ? 'claude' : key;
+        const o = { [pre + 'Model']: inp.value.trim(), [pre + 'Effort']: sel.value };
         try {
           const r2 = await api.modelsSet(o);
           if (r2 && r2.session) {
@@ -1098,11 +1636,90 @@
       return r;
     };
     wrap.append(
-      row('モデル（作業・タブ）', 'session', modelCfg.session, '振り分けた作業のセッションとタブの claude の既定（PMO が作業ごとに変えたものはそちらが優先）。次に起動する claude から効きます'),
-      row('モデル（PMO）', 'pmo', modelCfg.pmo, 'PMO 自身の claude。次に PMO の claude を起動したときから効きます'),
+      row('モデル（作業・タブ）', 'session', modelCfg.session, '振り分けた作業のセッションとタブの claude の既定（ルーターが作業ごとに変えたものはそちらが優先）。次に起動する claude から効きます'),
+      row('モデル（ルーター）', 'pmo', modelCfg.pmo, 'ルーター自身の claude。次に ルーターの claude を起動したときから効きます'),
     );
+    // MODEL-KIND: the default by the routed item's kind (the ルーター's kind on route / create; its own model / effort wins)
+    const KIND_LABEL = { implement: '実装', verify: '確認・機械的な直し', research: '調べもの・設計' };
+    if (modelCfg.kinds && modelCfg.kindBuiltin) {
+      for (const k of Object.keys(KIND_LABEL)) {
+        if (!modelCfg.kinds[k]) continue;
+        wrap.append(row(`モデル（${KIND_LABEL[k]}）`, k, modelCfg.kinds[k], `振り分けた作業のうち kind が ${k} のもの（kind が無い作業は「作業・タブ」）。ルーターが作業ごとに指定したものが優先。次に起動する claude から効きます`, modelCfg.kindBuiltin[k]));
+      }
+    }
     if (modelErr) wrap.append(h('div', 'dbx-modelerr', modelErr));
     return wrap;
+  }
+
+  // TK3: 前置きを削る (TK2's leanPreamble, app-wide) — a switch with the 1 line of what it turns off (lean:set)
+  async function leanSave(o) {
+    try {
+      const r2 = await api.leanSet(o);
+      if (r2 && r2.session) {
+        modelCfg = r2;
+        modelErr = '';
+      } else modelErr = `保存できませんでした: ${(r2 && r2.error) || '不明'}`;
+    } catch (err) {
+      modelErr = `保存できませんでした: ${err && err.message}`;
+    }
+    settingsChanged();
+  }
+  function leanLine() {
+    if (!modelCfg || !modelCfg.lean || !api.leanSet) return null;
+    const wrap = h('div', 'dbx-lean');
+    const r = h('label', 'dbx-workroot dbx-leanrow');
+    const cb = h('input', 'dbx-leancb');
+    cb.type = 'checkbox';
+    cb.checked = !!modelCfg.lean.on;
+    cb.addEventListener('change', () => leanSave({ on: cb.checked }));
+    r.append(cb, h('span', 'dbx-wrlabel', ` ${W('leanPreamble', '前置きを削る')}（claude.ai のコネクタ・アカウントの skill を読み込まない）`));
+    const tip = W('leanPreambleTip', '');
+    wrap.append(r, h('div', 'dbx-leantip', tip));
+    const off = modelCfg.lean.off || [];
+    if (modelCfg.lean.on && off.length) wrap.append(h('div', 'dbx-leantip', `削らないフォルダ: ${off.map(baseName).join('・')}（カードで外せます）`));
+    return wrap;
+  }
+  // 依頼-535: code mode (experimental) — オン / オフ / 自動 (codemode:set). Applies from the next claude start.
+  async function codeModeSave(v) {
+    try {
+      const r2 = await api.codeModeSet({ codeMode: v });
+      if (r2 && r2.session) {
+        modelCfg = r2;
+        modelErr = '';
+      } else modelErr = `保存できませんでした: ${(r2 && r2.error) || '不明'}`;
+    } catch (err) {
+      modelErr = `保存できませんでした: ${err && err.message}`;
+    }
+    settingsChanged();
+  }
+  function codeModeLine() {
+    if (!modelCfg || !modelCfg.codeMode || !api.codeModeSet) return null;
+    const wrap = h('div', 'dbx-lean');
+    const r = h('label', 'dbx-workroot dbx-leanrow');
+    const sel = h('select', 'dbx-codemode');
+    for (const [v, t] of [['auto', '自動'], ['on', 'オン'], ['off', 'オフ']]) {
+      const o = h('option', null, t);
+      o.value = v;
+      sel.append(o);
+    }
+    sel.value = modelCfg.codeMode;
+    sel.dataset.usage = 'dash.settings.code-mode';
+    sel.addEventListener('change', () => codeModeSave(sel.value));
+    r.append(h('span', 'dbx-wrlabel', 'code mode（実験の機能） '), sel);
+    wrap.append(r, h('div', 'dbx-leantip', '自動: 振り分けた作業のうち、実装・調べものだけオン（確認・ルーター・手で開いたタブはオフ）。次に起動する claude から効きます'));
+    return wrap;
+  }
+  // TK3: the card's このフォルダでは削らない (leanPreambleOff), shown while the app-wide switch is on
+  function leanKeepButton(folder) {
+    const lean = modelCfg && modelCfg.lean;
+    if (!lean || !lean.on || !api.leanSet) return null;
+    const on = (lean.off || []).some((f) => key(f) === key(folder));
+    const b = h('button', `dbx-link dim dbx-leankeep${on ? ' on' : ''}`, on ? W('leanKeepOn', 'このフォルダは削らない') : W('leanKeep', 'このフォルダでは削らない'));
+    b.type = 'button';
+    b.dataset.usage = 'dash.card.lean-keep';
+    b.title = on ? '押すと前置きを削るに戻します。次に起動する claude から効きます' : `このフォルダのタブでは前置きを削りません（claude.ai のコネクタ・アカウントの skill が使えます）。次に起動する claude から効きます`;
+    b.addEventListener('click', () => leanSave({ folder, keep: !on }));
+    return b;
   }
 
   // ⚙: the settings that sat at the top of the page before (置き場所, モデル, 待ちの見張り, 残ったプロセス). U4: drawn into
@@ -1130,6 +1747,10 @@
     }
     const ml = modelLines();
     if (ml) p.append(ml);
+    const ln = leanLine();
+    if (ln) p.append(ln);
+    const cm = codeModeLine();
+    if (cm) p.append(cm);
     const wc = waitCfgLine();
     if (wc) p.append(wc);
     if (leftover && api.procLeftoversMode) {
@@ -1162,23 +1783,36 @@
   function tabBar(list) {
     const bar = P(h('div', 'dbx-tabs'));
     bar.setAttribute('role', 'tablist');
+    void list;
     const nTurn = attnShown().length;
     const reqOpen = openReqs().length;
-    const shownFolders = list.filter((r) => passFolder(r.folder)).length;
-    // PMO の記録: no count (U4: 読まなくてよい場所, no read / unread)
-    const defs = [
-      ['turn', W('yourTurn', '要対応'), nTurn, nTurn ? 'hot' : '', 'あなたにしか決められないもの（確認・質問・QA・提案・動かないセッション）'],
-      ['proj', W('projects', 'プロジェクト'), shownFolders, '', 'フォルダごとの進み具合とタスク'],
-      ['req', W('inbox', '依頼'), reqOpen, '', '依頼の受付 → 振り分け → 進み具合（数は対応中）'],
-      ['log', W('pmoLog', 'PMO の記録'), 0, '', 'PMO とアプリが自分で行ったこと（後押し・振り分け・順番・立て直し・片付け・更新・引き継ぎ）。読まなくても大丈夫です。取り消したいものは PMO に相談してください'],
-    ];
+    const logTitle = 'ルーターとアプリが自分で行ったこと（後押し・振り分け・順番・立て直し・片付け・更新・引き継ぎ）。読まなくても大丈夫です。取り消したいものは ルーターに相談してください';
+    // ルーターの記録: no count (U4: 読まなくてよい場所, no read / unread)
+    // HOME-ROLES: ホーム = いま | 依頼 | ルーターの記録 (no プロジェクト tab: the projects are the nav and the いま's table);
+    // a project's page = このプロジェクト | 要対応 | 依頼 | 記録 (all of that one project)
+    const one = !!oneFolder();
+    const defs = one
+      ? [
+        ['proj', 'このプロジェクト', 0, '', 'このプロジェクトの動いているセッション・送る順・終わったもの・進み具合（PROGRESS.md）'],
+        ['turn', W('yourTurn', '要対応'), nTurn, nTurn ? 'hot' : '', 'このプロジェクトの、あなたにしか決められないもの'],
+        ['req', W('inbox', '依頼'), reqOpen, '', 'このプロジェクトへの依頼（数は対応中）'],
+        ['log', '記録', 0, '', `このプロジェクトについての記録。${logTitle}`],
+      ]
+      : [
+        ['turn', 'いま', nTurn, nTurn ? 'hot' : '', `いま何が起きていて、あなたは何をすればよいか（${W('yourTurn', '要対応')}・動いている作業・ルーターからの知らせ・プロジェクトの一覧）`],
+        ['req', W('inbox', '依頼'), reqOpen, '', '依頼の受付 → 振り分け → 進み具合（数は対応中）'],
+        ['map', '全体図', 0, '', '何のために誰が何をしているか（ルーター → プロジェクト → 項目 → 作業 → 担当）を 1 枚で'],
+        ['log', W('pmoLog', 'ルーターの記録'), 0, '', logTitle],
+      ];
+    const vt = vtab();
     for (const [id, label, n, cls, title] of defs) {
-      const b = h('button', `dbx-tab${tab === id ? ' on' : ''}`);
+      const on = vt === id || (vt === 'home' && id === 'turn');
+      const b = h('button', `dbx-tab${on ? ' on' : ''}`);
       b.type = 'button';
       b.dataset.tab = id;
       b.dataset.usage = 'dash.tab.' + USAGE_TAB[id]; // UA1
       b.setAttribute('role', 'tab');
-      b.setAttribute('aria-selected', String(tab === id));
+      b.setAttribute('aria-selected', String(on));
       b.title = title;
       b.append(document.createTextNode(label));
       if (n) b.append(h('span', `dbx-badge ${cls}`, String(n)));
@@ -1200,28 +1834,16 @@
       return c;
     };
     const save = () => store.set('dashFolders', [...folderSel]);
-    chip('すべて', !folderSel.size, 'フォルダで絞らない', () => {
-      folderSel.clear();
-      save();
-      render();
-    });
-    for (const r of list) {
-      const k = key(r.folder);
-      const c = chip(baseName(r.folder), folderSel.has(k), `${r.folder}\nクリックで絞り込みに足す / 外す`, () => {
-        if (folderSel.has(k)) folderSel.delete(k);
-        else folderSel.add(k);
-        save();
-        render();
-      });
-      c.dataset.folder = k;
-    }
-    if (tab === 'req' || tab === 'log') {
+    void list; // UX14: the folders are chosen in the left nav (navNode); 振り分け前 stays here
+    if ((tab === 'req' || tab === 'log') && !oneFolder()) {
       chip('振り分け前', folderSel.has(NOFOLDER), 'フォルダが決まっていない依頼・お知らせ', () => {
         if (folderSel.has(NOFOLDER)) folderSel.delete(NOFOLDER);
         else folderSel.add(NOFOLDER);
         save();
         render();
       }).dataset.folder = NOFOLDER;
+    }
+    if (tab === 'req' || tab === 'log') {
       const f = h('input', 'dbx-filter');
       f.type = 'search';
       f.placeholder = '文字で絞る';
@@ -1242,9 +1864,9 @@
       });
       bar.append(f);
     }
-    if (tab === 'proj' && window.AgentsView) {
+    if (vtab() === 'proj' && window.AgentsView) {
       const sw = h('span', 'dbx-views');
-      for (const [m, label, title] of [['cards', 'カード', 'フォルダごとのカード'], ['agents', '関係図', 'セッション・チーム・サブエージェントの関係図（エージェント）']]) {
+      for (const [m, label, title] of [['cards', 'タスク', 'このプロジェクトのタスクとセッション'], ['agents', '関係図', 'セッション・チーム・サブエージェントの関係図（エージェント）']]) {
         const b = h('button', projMode === m ? 'on' : '', label);
         b.type = 'button';
         b.title = title;
@@ -1304,8 +1926,8 @@
       return lab;
     };
     el.append(
-      field('silentMin', '出力が止まって ', ' 分で知らせる', '待っているコマンドの出力がこの分数だけ増えないと、目立つ色にして PMO に知らせます'),
-      field('longMin', '開始から ', ' 分で知らせる', '待ち始めてからこの分数たっても終わらないと、目立つ色にして PMO に知らせます'),
+      field('silentMin', '出力が止まって ', ' 分で知らせる', '待っているコマンドの出力がこの分数だけ増えないと、目立つ色にして ルーターに知らせます'),
+      field('longMin', '開始から ', ' 分で知らせる', '待ち始めてからこの分数たっても終わらないと、目立つ色にして ルーターに知らせます'),
     );
     if (waitCfgNote.text) el.append(h('span', `dbx-wcfg-note${waitCfgNote.bad ? ' bad' : ''}`, waitCfgNote.text));
     return el;
@@ -1325,7 +1947,7 @@
         Object.assign(waitCfgNote, { text: '保存しました', bad: false });
       } else {
         // main refuses outside the manager window (null)
-        Object.assign(waitCfgNote, { text: 'ここでは変えられません（PMO のウィンドウのダッシュボードで変えてください）', bad: true });
+        Object.assign(waitCfgNote, { text: 'ここでは変えられません（ルーターのウィンドウのダッシュボードで変えてください）', bad: true });
       }
     } catch (err) {
       console.error(err);
@@ -1341,8 +1963,9 @@
 
   // Only the shown tab is built (U2): a switch draws the other one then.
   function body(list) {
-    const b = P(h('div', 'dbx-body'), `body-${tab}`);
-    b.dataset.tab = tab;
+    const vt = vtab();
+    const b = P(h('div', 'dbx-body'), `body-${vt}`);
+    b.dataset.tab = vt;
     b.setAttribute('role', 'tabpanel');
     try {
       if (startShown()) b.append(startPanel());
@@ -1350,8 +1973,10 @@
       console.error('new session panel failed', err);
     }
     try {
-      if (tab === 'turn') turnBody(b);
-      else if (tab === 'proj') projBody(b, list);
+      if (vt === 'home') homeBody(b, list);
+      else if (vt === 'turn') turnBody(b);
+      else if (vt === 'proj') projBody(b, list);
+      else if (vt === 'map') mapBody(b);
       else if (tab === 'req') reqBody(b);
       else logBody(b);
     } catch (err) {
@@ -1361,10 +1986,30 @@
     return b;
   }
 
+  // 全体図 (roadmap 14, overview-view.js): the view keeps main's overview:get result and asks again (about once a second)
+  // while it is drawn; a changed result redraws through renderSoon (its signature is in `view`).
+  function mapBody(b) {
+    if (!window.OverviewView) return b.append(h('div', 'dbx-empty', '全体図を表示できません'));
+    b.append(
+      window.OverviewView.body({
+        api,
+        rerender: renderSoon,
+        openGraph: (folder) => {
+          // 作業の札: that folder's own page on the 関係図
+          projMode = 'agents';
+          store.set('dashProjMode', 'agents');
+          selectFolder(folder);
+        },
+        openFolder: (folder) => selectFolder(folder), // 島の見出し: that project's page
+        openRequests: () => switchTab('req'),
+      }),
+    );
+  }
+
   // ---- 新しいセッション (UIUX U5) -----------------------------------------------------------------
   // The picker window's parts on the dashboard: フォルダを選ぶ… (folder dialog), 新しい作業 (a new folder under the work root,
   // dashboard:newWork), 一時セッション, ファイルを編集…, 最近のフォルダ (click = its window), 編集中のファイル（残したもの）.
-  // Large (.big) while no session other than the PMO's is open; the user may close it (startClosed) until one opens.
+  // Large (.big) while no session other than the ルーター's is open; the user may close it (startClosed) until one opens.
   const otherSessions = () => sessions.filter((s) => s && s.folder && key(s.folder) !== key(exclude)).length;
   const startBig = () => sessionsSeen && !otherSessions();
   let startBusy = false; // 新しい作業 in flight (Enter and a click must not make 「x」 and 「x (2)」)
@@ -1384,10 +2029,10 @@
     const p = h('section', `dbx-sec dbx-start${big ? ' big' : ''}`);
     const head = h('div', 'dbx-start-head');
     head.append(h('span', 'dbx-start-title', W('newSession', '新しいセッション')));
-    if (big) head.append(h('span', 'dbx-start-lead', 'まだセッションがありません。フォルダを開くか、上の欄に依頼を書くと PMO が振り分けます'));
+    if (big) head.append(h('span', 'dbx-start-lead', 'まだセッションがありません。フォルダを開くか、上の欄に依頼を書くと ルーターが振り分けます'));
     const x = h('button', 'dbx-start-close', '×');
     x.type = 'button';
-    x.title = '閉じる（上の帯の「＋ 新しいセッション」で開き直せます）';
+    x.title = '閉じる（左の「＋ 新しいセッション」で開き直せます）';
     x.addEventListener('click', () => {
       startOpen = false;
       startClosed = true;
@@ -1407,10 +2052,12 @@
     };
     act('is-primary k-browse', W('pickFolder', 'フォルダを選ぶ…'), 'フォルダごとに窓が開き、その中のタブで claude が動きます', async () => {
       let ok = false;
+      wantSession(''); // UX14: the folder opens hidden; its first session shows here
       try {
         ok = await api.pickerBrowse?.();
       } catch {}
       if (ok) startDone();
+      else startWant = null;
     });
     act('k-temp', W('tempSession', '一時セッション'), `空の一時フォルダで始め、閉じると消します（${window.Labels.shortcutKey('tempSession')}）`, () => {
       api.tempOpen?.();
@@ -1453,6 +2100,7 @@
       }
       if (r && r.ok) {
         startName = '';
+        wantSession(r.folder || ''); // UX14
         startDone();
         loadFolders().then(renderSoon).catch(() => {});
       } else {
@@ -1502,7 +2150,7 @@
       name: k.name || '(名前なし)', path: k.original || '', open: !!k.open, title: `${k.original || ''}\nクリックで続きを開く`, go: () => api.editOpen?.({ path: k.dir }),
     })));
     const recent = (startList.recent || []).filter((d) => key(d) !== key(exclude)).slice(0, 10);
-    listOf(W('recentFolders', '最近のフォルダ'), 'k-recent', recent.map((d) => ({ name: baseName(d) || d, path: d, open: openSet.has(key(d)), title: d, go: () => api.pickerOpen?.(d) })));
+    listOf(W('recentFolders', '最近のフォルダ'), 'k-recent', recent.map((d) => ({ name: baseName(d) || d, path: d, open: openSet.has(key(d)), title: d, go: () => (wantSession(d), api.pickerOpen?.(d)) })));
     if (!recent.length) p.append(h('div', 'dbx-start-empty', 'まだ開いたフォルダはありません。「フォルダを選ぶ…」で開けます'));
     return p;
   }
@@ -1511,9 +2159,24 @@
   // U3: main's attention list, one card per item in seq order (oldest first; a new one goes to the end, an answered
   // one closes up). Card: why (short word, full reason in the tooltip) · AT-12 見出し (or the tab name) · folder ·
   // elapsed, then the kind's answer part. Answered cards stay hidden here until main drops them (≤ 20 s).
-  const ATTN_WORD = { confirm: '確認', question: '質問', qa: 'QA', proposal: '提案', nudge: '動かない', pmosend: 'PMO' };
-  function turnBody(b) {
-    const items = attnShown();
+  const ATTN_WORD = { confirm: '確認', question: '質問', qa: 'QA', proposal: '提案', nudge: '動かない', pmosend: 'ルーター' };
+  // max: ホームの「いま」 shows the first HOME_ATTN_MAX cards (the rest behind 「ほか N 件」, homeAttnAll) so the other
+  // sections stay on the first screen; the project's 要対応 tab shows all
+  function turnBody(b, max = Infinity) {
+    const all = attnShown();
+    // capped: what holds a session up (確認・質問・動かない・ルーターに送れない) comes first, so a new one is never behind
+    // 「ほか N 件」; the order within each kind stays (seq)
+    const BLOCK = { confirm: 0, question: 0, nudge: 1, pmosend: 1 };
+    const capped = all.length > max && !homeAttnAll;
+    const items = capped ? all.map((it, i) => [it, i]).sort((a, b) => (BLOCK[a[0].kind] ?? 2) - (BLOCK[b[0].kind] ?? 2) || a[1] - b[1]).slice(0, max).map(([it]) => it) : all;
+    const away = awayCard(); // UX12
+    if (away) b.append(away);
+    const extras = () => {
+      const rv = reviewsBlock();
+      if (rv) b.append(rv);
+      const hd = heldBlock();
+      if (hd) b.append(hd);
+    };
     const done = waitDone.filter((d) => Date.now() - d.at <= 10 * 60e3);
     if (done.length) {
       const p = h('div', 'dbx-attn-done');
@@ -1526,6 +2189,7 @@
     }
     if (!items.length) {
       b.append(h('div', 'dbx-empty', folderSel.size && attn.length ? `絞り込みに合う${W('yourTurn', '要対応')}はありません` : `${W('yourTurn', '要対応')}はありません`));
+      extras();
       return;
     }
     const sec = P(h('section', 'dbx-sec dbx-attns'));
@@ -1536,7 +2200,17 @@
         console.error('attention card failed', it && it.id, err);
       }
     }
+    if (all.length > max) {
+      const more = h('button', 'dbx-link hm-attn-more', homeAttnAll ? '少なく表示' : `ほか ${all.length - items.length} 件の${W('yourTurn', '要対応')}を表示`);
+      more.type = 'button';
+      more.addEventListener('click', () => {
+        homeAttnAll = !homeAttnAll;
+        render();
+      });
+      sec.append(more);
+    }
     b.append(sec);
+    extras();
   }
 
   function attnCard(it) {
@@ -1557,7 +2231,17 @@
       if (it.folder) f.title = it.folder;
       head.append(f);
     }
-    // the PMO's own session lives in the window that shows this dashboard: not a 振り分け window (AT-159)
+    // UX12: a proposal's deadline (「**期限**: …」 of its text, ルーター template v28)
+    if (it.kind === 'proposal' && window.Reassure) {
+      const due = window.Reassure.proposalDue(it.text || (notices.find((x) => x.id === it.noticeId) || {}).text || '');
+      if (due && (due.short || due.none)) {
+        const d = h('span', `dbx-attn-due${due.at && due.at <= Date.now() ? ' late' : ''}${due.none ? ' none' : ''}`, due.none ? '期限なし' : '');
+        if (due.at) agoSpan(d, due.at, 'due');
+        d.title = due.full;
+        head.append(d);
+      }
+    }
+    // the ルーター's own session lives in the window that shows this dashboard: not a 振り分け window (AT-159)
     if (e && e.hidden && !it.own) {
       const hid = h('span', 'dbx-wait-hidden', '見えないウィンドウ');
       hid.title = '振り分けで動いている、画面に出ていないウィンドウのセッションです。ここから答えられます';
@@ -1576,8 +2260,8 @@
       const open = h('button', 'dbx-link dbx-attn-open', '会話を開く');
       open.type = 'button';
       open.dataset.usage = 'dash.turn.open-session'; // UA1
-      open.title = 'そのセッションのタブを開きます';
-      open.addEventListener('click', () => api.dashboardFocus?.({ wcId, tabId, from: 'turn' })); // from: UA1 open.from.turn
+      open.title = 'この窓の中でそのセッションの会話を開きます（← ホームで戻る）';
+      open.addEventListener('click', () => openConv({ wcId, tabId, from: 'turn', title: [it.no, it.title].filter(Boolean).join(' ') })); // UX13
       head.append(open);
     }
     c.append(head);
@@ -1601,7 +2285,7 @@
       const watch = h('button', 'dbx-attn-dismiss', '様子を見る');
       watch.dataset.usage = 'dash.turn.watch'; // UA1
       watch.type = 'button';
-      watch.title = 'もう少し待ちます（PMO の後押しを数え直します）';
+      watch.title = 'もう少し待ちます（ルーターの後押しを数え直します）';
       watch.addEventListener('click', async () => {
         watch.disabled = true;
         let ok = false;
@@ -1620,15 +2304,15 @@
       bar.append(watch);
       c.append(bar);
     } else if (it.kind === 'pmosend') {
-      // the PMO's queue (src/renderer/autosend.js): this window holds the PMO's session and its backlog
-      c.append(h('div', 'dbx-attn-text', it.off ? '新しい依頼や完了の知らせが PMO に届かず、振り分けが止まっています。API エラーが続いたときは、時間をおいて「再開」してください' : 'PMO の会話が応答の途中のままか、送れる状態になっていません。会話を開いて確かめるか、「今すぐ送る」で待ちを解きます'));
+      // the ルーター's queue (src/renderer/autosend.js): this window holds the ルーター's session and its backlog
+      c.append(h('div', 'dbx-attn-text', it.off ? '新しい依頼や完了の知らせが ルーターに届かず、振り分けが止まっています。API エラーが続いたときは、時間をおいて「再開」してください' : 'ルーターの会話が応答の途中のままか、送れる状態になっていません。会話を開いて確かめるか、「今すぐ送る」で待ちを解きます'));
       const bar = h('div', 'dbx-attn-bar');
       const B = window.Backlog;
       if (it.tabId && B && B.resumeAuto) {
         const go = h('button', 'dbx-attn-dismiss', it.off ? '再開' : '今すぐ送る');
         go.dataset.usage = 'dash.turn.pmo-resume'; // UA1
         go.type = 'button';
-        go.title = it.off ? 'PMO への自動送信を戻します（待っている知らせが送られます）' : '送り直しの待ちを解きます（PMO が応答を終えたら送ります）';
+        go.title = it.off ? 'ルーターへの自動送信を戻します（待っている知らせが送られます）' : '送り直しの待ちを解きます（ルーターが応答を終えたら送ります）';
         go.addEventListener('click', () => {
           go.disabled = true;
           try {
@@ -1650,11 +2334,130 @@
   }
 
   // ---- プロジェクト -------------------------------------------------------------------------------
-  function projBody(b, list) {
+  // ---- HOME-ROLES ホームの「いま」 (依頼-477, docs/ux-journey.md §8) ------------------------------------------------
+  // One screen for 「いま何が起きていて、自分は何をすればよいか」: 要対応 (the cards, answered here) → 動いている作業 (every
+  // live session, click = its conversation) → ルーターからの知らせ (the last few entries of the record) → the projects as a
+  // small table (click = that project's page). No folder cards here: a project has its own page (projBody).
+  const HOME_RUN_MAX = 8;
+  const HOME_ATTN_MAX = 4;
+  let homeAttnAll = false;
+  const HOME_LOG_MAX = 5;
+  function homeSec(id, label, n, hot, more) {
+    const s = P(h('section', `hm-sec hm-${id}`), 'hm-' + id);
+    s.dataset.sec = id;
+    const hd = h('div', 'hm-sec-h');
+    hd.append(h('span', 'hm-sec-t', label));
+    if (n) hd.append(h('span', `dbx-badge${hot ? ' hot' : ''}`, String(n)));
+    if (more) hd.append(more);
+    s.append(hd);
+    return s;
+  }
+  function homeBody(b, list) {
     const shown = list.filter((r) => passFolder(r.folder));
+    // 1. 要対応 (the former あなたの番 tab, as it was: 留守の間, the answered ones, the cards, 事後の確認)
+    const nTurn = attnShown().length;
+    const a = homeSec('attn', W('yourTurn', '要対応'), nTurn, true);
+    turnBody(a, HOME_ATTN_MAX);
+    b.append(a);
+    // 2. 動いている作業: the live sessions of every project (the ones that need you first), and what starts next
+    const live = [];
+    for (const r of shown) for (const s of r.sessions) if (!['fin', 'off', 'rest'].includes(s.kind)) live.push([r, s]);
+    live.sort((x, y) => RANK[x[1].kind] - RANK[y[1].kind]);
+    const busy = live.filter(([, s]) => s.kind === 'busy').length;
+    const run = homeSec('running', '動いている作業', live.length, false, busy ? h('span', 'hm-sec-note', `${busy} ${W('running', '動作中')}`) : null);
+    const runList = P(h('div', 'hm-runs'), 'runs');
+    for (const [r, s] of live.slice(0, HOME_RUN_MAX)) {
+      const name = sessName(r, s);
+      const row = h('button', `hm-run dbx-sess k-${s.kind}`);
+      row.type = 'button';
+      row.dataset.k = `${s.wcId}:${s.tabId}`;
+      row.dataset.usage = 'dash.home.session';
+      row.title = `${name}\n${r.folder}\nクリックで会話を開く`;
+      const word = s.kind === 'input' ? W('yourTurn', '要対応') : s.kind === 'error' ? 'エラー' : SESSION_JA[s.status] || s.status || '';
+      row.append(h('span', 'dbx-dot'), h('span', 'hm-run-folder', baseName(r.folder)), h('span', 'hm-run-name', name), h('span', `hm-run-st k-${s.kind}`, word));
+      const t = s.eventAt ? agoSpan(h('span', 'dbx-time hm-run-at', ''), s.eventAt) : h('span', 'dbx-time hm-run-at', '');
+      row.append(t);
+      row.addEventListener('click', () => openConv({ wcId: s.wcId, tabId: s.tabId, folder: s.folder, title: name, from: 'home' }));
+      runList.append(row);
+    }
+    if (live.length > HOME_RUN_MAX) runList.append(h('div', 'dbx-none hm-more', `ほか ${live.length - HOME_RUN_MAX} 件（左のプロジェクトから開けます）`));
+    if (!live.length) runList.append(h('div', 'dbx-empty hm-empty', 'いま動いている作業はありません'));
+    run.append(runList);
+    if (queue && queue.line) {
+      const nx = h('div', `dbx-qnext${queue.next ? '' : ' none'}`, queue.line);
+      nx.title = '全部のフォルダの待ちのうち、空きが出たら最初に始めるタスク。ウィンドウが開いているフォルダから順に見ます。空きの数は上の「動作中 N/上限 M」';
+      run.append(nx);
+    }
+    b.append(run);
+    // 3. ルーターからの知らせ: the newest entries of ルーターの記録 (the whole record is its tab)
+    const all = logList().sort((x, y) => (y.at || 0) - (x.at || 0));
+    const toLog = h('button', 'dbx-link hm-sec-more', `${W('pmoLog', 'ルーターの記録')}をすべて見る`);
+    toLog.type = 'button';
+    toLog.dataset.usage = 'dash.home.log';
+    toLog.addEventListener('click', () => switchTab('log'));
+    const pm = homeSec('pmo', 'ルーターからの知らせ', 0, false, all.length > HOME_LOG_MAX ? toLog : null);
+    const pmList = P(h('div', 'hm-log dbx-log'), 'log');
+    for (const e of all.slice(0, HOME_LOG_MAX)) {
+      try {
+        pmList.append(logRow(e));
+      } catch (err) {
+        console.error('log row failed', err);
+      }
+    }
+    if (!all.length) pmList.append(h('div', 'dbx-empty hm-empty', 'まだ知らせはありません'));
+    pm.append(pmList);
+    b.append(pm);
+    // 4. プロジェクト: one line each (the nav has them too); a click opens the project's own page
+    const pj = homeSec('projects', W('projects', 'プロジェクト'), shown.length, false);
+    const table = P(h('div', 'hm-ptable'), 'ptable');
+    if (shown.length) {
+      const head = h('div', 'hm-phead');
+      for (const t of [W('projects', 'プロジェクト'), '状態', W('running', '動作中'), W('queue', '待ち'), W('done', '完了'), '進み具合', '最後の動き']) head.append(h('span', '', t));
+      table.append(head);
+    }
+    for (const r of shown) {
+      const row = h('button', `hm-prow k-${r.kind}${r.open ? '' : ' closed'}`);
+      row.type = 'button';
+      row.dataset.k = 'p:' + key(r.folder);
+      row.dataset.usage = 'dash.home.project';
+      row.title = `${r.folder}\nクリックでこのプロジェクトの画面を開く。ドラッグで並べ替え（左のナビも同じ順）`;
+      // the projects' order (dashFolderOrder: this table and the nav): drag a row onto another (the cards' drag before)
+      const fk = key(r.folder);
+      row.draggable = true;
+      row.addEventListener('dragstart', (e) => {
+        dragKey = fk;
+        e.dataTransfer.effectAllowed = 'move';
+        try {
+          e.dataTransfer.setData('text/plain', fk);
+        } catch {}
+      });
+      row.addEventListener('dragend', () => {
+        dragKey = '';
+        root.querySelectorAll('.hm-prow.drop').forEach((x) => x.classList.remove('drop'));
+      });
+      dragTarget(row, fk);
+      const nm = h('span', 'hm-pname');
+      nm.append(h('span', 'dbx-dot'), h('span', 'hm-pname-t', baseName(r.folder)));
+      const pg = r.progress && r.progress.total ? `${r.progress.done}/${r.progress.total}` : '—';
+      row.append(nm, h('span', 'hm-pstate', folderWord(r) || (r.open ? '待機中' : '閉じている')), h('span', 'hm-pn', String(r.active.length)), h('span', 'hm-pn', String(r.pending.length)), h('span', 'hm-pn', String(r.done.length)), h('span', 'hm-pn', pg));
+      row.append(r.last ? agoSpan(h('span', 'dbx-time hm-plast', ''), r.last) : h('span', 'dbx-time hm-plast', '—'));
+      row.addEventListener('click', () => selectFolder(r.folder));
+      table.append(row);
+    }
+    if (!shown.length) table.append(h('div', 'dbx-empty hm-empty', list.length ? '絞り込みに合うプロジェクトがありません' : 'まだプロジェクトがありません（左の「＋ 新しいセッション」から始めます）'));
+    pj.append(table);
+    b.append(pj);
+  }
+
+  // HOME-ROLES (依頼-477): a project's own page — one folder, not a list of cards: the head (name, place, 作業台, counts,
+  // 進捗), then its tasks and sessions (動作中 · 送る順 · 失敗 · 完了, the rows as on the card before), the ルーター's outlook,
+  // PROGRESS.md and the open QA tables. Built from folderRow's parts (the rows keep their classes and menus).
+  function projBody(b, list) {
+    const one = oneFolder();
+    const shown = list.filter((r) => key(r.folder) === one);
     if (projMode === 'agents' && window.AgentsView) {
       try {
-        b.append(window.AgentsView.body(shown, { api, rerender: render }));
+        b.append(window.AgentsView.body(shown, { api, rerender: render, log: logEntries() }));
       } catch (err) {
         console.error('agents view failed', err);
         b.append(h('div', 'dbx-empty', '関係図の表示に失敗しました'));
@@ -1662,17 +2465,44 @@
       return;
     }
     if (!shown.length) {
-      b.append(h('div', 'dbx-empty', list.length ? '絞り込みに合うフォルダがありません' : 'まだフォルダがありません'));
+      b.append(h('div', 'dbx-empty', 'このプロジェクトはまだ読み込めていません'));
       return;
     }
-    if (queue && queue.line) {
-      const nx = h('div', `dbx-qnext${queue.next ? '' : ' none'}`, queue.line);
-      nx.title = '全部のフォルダの待ちのうち、空きが出たら最初に始めるタスク。ウィンドウが開いているフォルダから順に見ます。空きの数は上の「動いている N / 上限 M」';
-      b.append(nx);
-    }
-    const sec = P(h('section', 'dbx-sec dbx-cards'));
-    for (const r of shown) sec.append(folderRow(r));
-    b.append(sec);
+    b.append(projectPage(shown[0]));
+  }
+  function projectPage(r) {
+    const page = folderRow(r); // [.dbx-fcell, .dbx-qcell, .dbx-outlook, (PROGRESS table), (QA tables)…]
+    const [fc, tc, ol, ...rest] = [...page.children];
+    page.className = `dbx-folder pj-page k-${r.kind}${r.open ? '' : ' closed'}${page.classList.contains('dbx-flash') ? ' dbx-flash' : ''}`;
+    page.replaceChildren();
+    // the head: ● name · the place · 作業台で開く, then the band, the counts, 進捗 and the folder's buttons
+    const head = P(h('div', 'pj-head'), 'head');
+    const top = h('div', 'pj-top');
+    const title = h('h2', 'pj-title', baseName(r.folder));
+    title.title = r.folder;
+    const where = h('span', 'pj-path', r.folder);
+    where.title = r.folder;
+    const open = h('button', 'dbx-link pj-open', '作業台で開く');
+    open.type = 'button';
+    open.dataset.usage = 'dash.project.open';
+    open.title = 'このフォルダの窓（作業台: ターミナル・並べる・ビューア）を出す';
+    open.addEventListener('click', () => api.pickerOpen?.(r.folder));
+    top.append(h('span', 'dbx-dot'), title, where, open);
+    const facts = h('div', 'pj-facts');
+    for (const el of [...fc.children]) if (!el.classList.contains('dbx-fname')) facts.append(el);
+    head.append(top, facts);
+    page.append(head);
+    const sec = (id, label, ...kids) => {
+      const s = P(h('section', 'pj-sec'), 'pj-' + id);
+      s.dataset.sec = 'pj-' + id;
+      if (label) s.append(h('div', 'hm-sec-h', label));
+      s.append(...kids);
+      return s;
+    };
+    page.append(sec('tasks', 'タスクとセッション', tc));
+    if (r.outlook) page.append(sec('outlook', '', ol));
+    for (const el of rest) page.append(el); // the open PROGRESS.md table, the open QA tables
+    return page;
   }
 
   // ---- 依頼 ---------------------------------------------------------------------------------------
@@ -1819,7 +2649,7 @@
   }
 
   // backlog items routed for an inbox item (r-<inboxId>-<hex>, manager.js route), any folder: [{ folder, it }]
-  // + the ones tied by the PMO's link action (inbox item links: [{ folder, backlogId }]; requests routed before U1 have
+  // + the ones tied by the ルーター's link action (inbox item links: [{ folder, backlogId }]; requests routed before U1 have
   // only 依頼-N, their task numbers come from here). inbox.json is not rewritten.
   function routedTasks(inboxId, links = []) {
     const pre = `r-${inboxId}-`;
@@ -1836,7 +2666,7 @@
   // the task numbers (AT-n) of the backlog items a request was routed to (same rule as the row's 「→ folder AT-n」)
   const reqNos = (it) => (it.status === 'new' ? [] : routedTasks(it.id, Array.isArray(it.links) ? it.links : []).map((x) => taskNo(x.it)).filter(Boolean));
 
-  // ---- PMO の記録 ---------------------------------------------------------------------------------
+  // ---- ルーターの記録 ---------------------------------------------------------------------------------
   // U4: main's merged log (pmoLog), newest first: time | kind | folder + one-line title; a click unfolds the detail
   // (Markdown, same sanitizer as the notices). Kind chips (すべて + the kinds present, several can be chosen, saved in
   // dashLogKinds) above the rows; the folder and text filters apply too. No read / unread.
@@ -2029,7 +2859,7 @@
   // 取り下げ / 受付に戻す / 元に戻す are in the row menu (⋯).
   function inboxRow(it) {
     const r = h('div', `dbx-inbox st-${it.status}`);
-    r.dataset.id = it.id; // 「PMO の記録」 links scroll here
+    r.dataset.id = it.id; // 「ルーターの記録」 links scroll here
     if (flashing(`.dbx-inbox[data-id="${CSS.escape(it.id)}"]`)) r.classList.add('dbx-flash');
     const word = stWord('inbox', it.status, INBOX_JA[it.status]);
     const stEl = h('span', 'dbx-ist', word.short);
@@ -2085,13 +2915,13 @@
     // the row menu: what the user can still do with this request
     const acts = [];
     if (it.status === 'new' || it.status === 'asking') acts.push(['取り下げる', '依頼をやめる（取り下げ）', { status: 'dropped' }]);
-    if (it.status === 'hold') acts.push(['受付に戻す', '保留をやめ、PMO に振り分けてもらう', { status: 'new' }]);
+    if (it.status === 'hold') acts.push(['受付に戻す', '保留をやめ、ルーターに振り分けてもらう', { status: 'new' }]);
     if (OPEN_REQ.includes(it.status)) acts.push(['見出しを直す', '一覧に出す短い見出しを直す（空なら本文の先頭から）', 'title']);
     // once the work is routed / finished, only a rewrite can be undone (undoing the add / link would part the
     // inbox item from its backlog work)
     const undoable = (it.history || []).filter((e) => e.undo).pop();
     if (undoable && (['new', 'asking', 'hold', 'dropped'].includes(it.status) || undoable.action === 'edit')) {
-      acts.push(['元に戻す', `PMO の「${HISTORY_JA[undoable.action] || undoable.action}」を取り消す${undoable.note ? `（${undoable.note}）` : ''}`, 'undo']);
+      acts.push(['元に戻す', `ルーターの「${HISTORY_JA[undoable.action] || undoable.action}」を取り消す${undoable.note ? `（${undoable.note}）` : ''}`, 'undo']);
     }
     if (acts.length) {
       const m = h('button', `dbx-link dim dbx-imenu${reqMenu === it.id ? ' on' : ''}`, '⋯');
@@ -2136,31 +2966,34 @@
   // the heading of a request (Enter saves, Esc cancels; empty = made from the text again). Same as the backlog panel's field.
   let titleEdit = '';
   const titleDrafts = new Map();
-  function titleBox(it) {
+  // o (the card's task row): { key: the edit key, save: (value) => Promise } — default the request (inbox) heading
+  function titleBox(it, o = {}) {
+    const ek = o.key || it.id;
     const row = h('div', 'dbx-imenu-list dbx-ititle-edit');
     const box = h('input', 'dbx-ititle-input');
     box.type = 'text';
     box.dataset.id = it.id;
     box.maxLength = 60;
-    box.value = titleDrafts.has(it.id) ? titleDrafts.get(it.id) : it.title || '';
+    box.value = titleDrafts.has(ek) ? titleDrafts.get(ek) : it.title || '';
     box.placeholder = (L() && L().provisionalTitle ? L().provisionalTitle(it.text) : firstLine(it.text).slice(0, 20)) || '見出し';
     const close = () => {
       titleEdit = '';
-      titleDrafts.delete(it.id);
+      titleDrafts.delete(ek);
       render();
     };
     const save = async () => {
       const v = box.value.trim();
       titleEdit = '';
-      titleDrafts.delete(it.id);
+      titleDrafts.delete(ek);
       try {
-        await api.inboxUpdate?.({ id: it.id, patch: { title: v } });
+        if (o.save) await o.save(v);
+        else await api.inboxUpdate?.({ id: it.id, patch: { title: v } });
       } catch (err) {
         console.error(err);
       }
       refresh();
     };
-    box.addEventListener('input', () => titleDrafts.set(it.id, box.value));
+    box.addEventListener('input', () => titleDrafts.set(ek, box.value));
     box.addEventListener('keydown', (e) => {
       if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter') {
@@ -2178,16 +3011,16 @@
     return row;
   }
 
-  // 「PMO」 mark on an inbox item the manager added or changed; the tooltip is its change history (+ the original text).
-  // An item the app added (source 'app', e.g. the AT-carryover import) gets 「アプリ」 instead, so it does not read as the PMO's.
+  // 「ルーター」 mark on an inbox item the manager added or changed; the tooltip is its change history (+ the original text).
+  // An item the app added (source 'app', e.g. the AT-carryover import) gets 「アプリ」 instead, so it does not read as the ルーター's.
   function pmoMarkOf(it) {
     const hist = it.history || [];
     const byApp = it.source === 'app';
     if (it.source !== 'manager' && !byApp && !hist.length) return null;
-    const el = h('span', byApp ? 'dbx-pmo dbx-app' : 'dbx-pmo', byApp ? 'アプリ' : 'PMO');
+    const el = h('span', byApp ? 'dbx-pmo dbx-app' : 'dbx-pmo', byApp ? 'アプリ' : 'ルーター');
     const lines = hist.map((e) => `${e.at ? new Date(e.at).toLocaleString('ja-JP') : ''} ${HISTORY_JA[e.action] || e.action}${e.note ? `: ${e.note}` : ''}`);
     if (byApp) lines.unshift('アプリが追加（積み残しの取り込みなど）');
-    else if (it.source === 'manager' && !hist.some((e) => e.action === 'add')) lines.unshift('PMO が追加');
+    else if (it.source === 'manager' && !hist.some((e) => e.action === 'add')) lines.unshift('ルーターが追加');
     if (it.originalText) lines.push('', '書き直す前の本文:', it.originalText.slice(0, 600));
     el.title = lines.join('\n');
     return el;
@@ -2206,13 +3039,13 @@
       ev.stopPropagation();
       const folder = o.folder || it.folder;
       if (!folder) return;
-      if (o.tabId) api.dashboardOpenSession?.({ folder, tabId: o.tabId });
+      if (o.tabId) openConv({ folder, tabId: o.tabId, from: 'project' }); // UX13
       else api.pickerOpen?.(folder);
     });
     return el;
   }
 
-  // ---- 「PMO から」 ---------------------------------------------------------------------------
+  // ---- 「ルーターから」 ---------------------------------------------------------------------------
   // Markdown body (marked + DOMPurify, same profile as the conversation view); links open in the browser.
   function noticeMd(text) {
     const el = h('div', 'dbx-ntc-md');
@@ -2270,9 +3103,12 @@
       if (folderSel.size && !passFolder(it.folder)) folderSel.clear();
       sel = `.dbx-inbox[data-id="${CSS.escape(it.id)}"]`;
     } else if (n.folder) {
+      // HOME-ROLES: that project's own page
       tab = 'proj';
       projMode = 'cards';
-      if (folderSel.size && !passFolder(n.folder)) folderSel.clear();
+      folderSel.clear();
+      folderSel.add(key(n.folder));
+      store.set('dashFolders', [...folderSel]);
       sel = `.dbx-folder[data-folder="${CSS.escape(key(n.folder))}"]`;
     }
     if (!sel) return false;
@@ -2322,12 +3158,12 @@
     const go = h('button', 'dbx-ntc-go-btn', '進める');
     go.type = 'button';
     go.dataset.usage = 'dash.notice.go'; // UA1
-    go.title = 'PMO に「進める」と伝えます（作業として振り分けられます）';
+    go.title = 'ルーターに「進める」と伝えます（作業として振り分けられます）';
     go.addEventListener('click', () => send('go'));
     const no = h('button', 'dbx-link dim', '却下');
     no.type = 'button';
     no.dataset.usage = 'dash.notice.reject'; // UA1
-    no.title = 'PMO に「却下」と伝えます';
+    no.title = 'ルーターに「却下」と伝えます';
     no.addEventListener('click', () => send('reject'));
     bar.append(box, go, no);
     if (noticeNotes.has(n.id)) bar.append(h('span', 'dbx-qa-note', noticeNotes.get(n.id)));
@@ -2339,11 +3175,11 @@
     notices = list;
     ver.notices++;
     for (const id of [...noticeDrafts.keys()]) if (!notices.some((n) => n.id === id && !n.answer)) noticeDrafts.delete(id);
-    // U4: no desktop notification from here (main's attention raises one when あなたの番 grows; 指摘 are in PMO の記録)
+    // U4: no desktop notification from here (main's attention raises one when あなたの番 grows; 指摘 are in ルーターの記録)
   }
 
   // A folder card (プロジェクト tab): name (opens the folder; drag to reorder), the progress band and counts, PROGRESS.md
-  // line | the task rows 「AT-3 見出し」 with their state | the PMO's outlook (slot; filled by a later stage).
+  // line | the task rows 「AT-3 見出し」 with their state | the ルーター's outlook (slot; filled by a later stage).
   // Rows keep their place: tasks in creation order, then the sessions without a task in the order they were first seen.
   // UIUX U8: 「すべて完了」 (the review found nothing more) / 「見直し中」 on the card; projects.json review
   function reviewMark(rv) {
@@ -2360,7 +3196,7 @@
     }
     if (rv.status === 'stopped') {
       const el = h('div', 'dbx-alldone stopped', `見直し ${rv.round || 3} 回で止めた`);
-      el.title = '見直しのたびに次の作業が出たので、続けての見直しを止めた。続けるかはユーザーの判断（PMO が聞く）';
+      el.title = '見直しのたびに次の作業が出たので、続けての見直しを止めた。続けるかはユーザーの判断（ルーターが聞く）';
       return el;
     }
     return null;
@@ -2368,7 +3204,7 @@
   function folderRow(r) {
     const card = P(h('div', `dbx-folder dbx-card k-${r.kind}${r.open ? '' : ' closed'}`));
     const fk = key(r.folder);
-    card.dataset.folder = fk; // 「PMO の記録」 links scroll here
+    card.dataset.folder = fk; // 「ルーターの記録」 links scroll here
     if (flashing(`.dbx-folder[data-folder="${CSS.escape(fk)}"]`)) card.classList.add('dbx-flash');
     dragTarget(card, fk);
     // left: name, band, counts
@@ -2405,7 +3241,9 @@
     const rm = reviewMark(r.review);
     if (rm) fc.append(rm);
     if (r.progress && window.ProgressView) fc.append(ProgressView.line(r.progress, { id: fk, onToggle: render })); // PROGRESS.md
-    if (r.progress && api.carryoverImport) fc.append(carryoverButton(r.folder)); // AT-carryover: open rows -> 依頼 (hold)
+    if (r.progress && api.carryoverImport) fc.append(carryoverButton(r.folder));
+    const lk = leanKeepButton(r.folder); // TK3
+    if (lk) fc.append(lk); // AT-carryover: open rows -> 依頼 (hold)
     card.append(fc);
     // middle: the tasks (and sessions without one)
     const tc = P(h('div', 'dbx-qcell dbx-tasks'));
@@ -2426,6 +3264,7 @@
       ['pending', qf ? [] : r.pending, W('queue', '待ち')],
       ['failed', failedNew, W('failed', '失敗')],
       ['done', doneAll, W('done', '完了')],
+      ['dropped', r.dropped.filter((i) => (i.doneAt || 0) >= since).sort(newerDone), W('dropped', '取り消し')],
     ];
     const shown = [...new Set(per.flatMap(([st, list]) => list.slice(0, lim(st))))].sort(byTask);
     // a session belongs to the active item on its tab, else to the newest finished one
@@ -2454,9 +3293,14 @@
     if (hidden) tc.append(h('div', 'dbx-none dbx-stale-more', `ほかに${W('stalled', '止まって')}いるもの ${hidden} 件`));
     if (!tc.childNodes.length) tc.append(h('div', 'dbx-none', '—'));
     card.append(tc);
-    // right: the PMO's outlook (projects.json outlook; U2 only makes the place)
+    // right: the ルーター's outlook (projects.json outlook; U2 only makes the place)
     const ol = h('div', `dbx-outlook${r.outlook ? '' : ' empty'}`);
-    if (r.outlook) ol.append(h('div', 'dbx-outlook-t', 'PMO の見立て'), h('div', 'dbx-outlook-b', r.outlook));
+    if (r.outlook) {
+      // UX12: the ルーター's outlook is the card's この後 (outbox outlook -> projects.json outlook / outlookAt)
+      const t = h('div', 'dbx-outlook-t', `${W('afterThis', 'この後')}（ルーターの見立て）`);
+      if (r.outlookAt) t.append(document.createTextNode(' '), agoSpan(h('span', 'dbx-time', ''), r.outlookAt));
+      ol.append(t, h('div', 'dbx-outlook-b', r.outlook));
+    }
     card.append(ol);
     const pt = r.progress && window.ProgressView ? ProgressView.table(r.progress, { id: fk }) : null;
     if (pt) card.append(pt); // expanded PROGRESS.md table, full width under the card
@@ -2467,7 +3311,7 @@
     }
     return card;
   }
-  // AT-carryover: PROGRESS.md の未完了の行（と docs/roadmap.md の PROGRESS.md に無い行）を依頼に保留で出し、PMO に仕分けさせる。
+  // AT-carryover: PROGRESS.md の未完了の行（と docs/roadmap.md の PROGRESS.md に無い行）を依頼に保留で出し、ルーターに仕分けさせる。
   // 取り込み済み・依頼にある・バックログにある番号は出ない（main の carryover:import）。
   // The result text is kept per folder for 4 s across redraws (the new inbox items redraw the cards right away, NG 2d).
   const carryoverShown = new Map(); // key(folder) -> { text: string|null (null while importing), until }
@@ -2476,7 +3320,7 @@
     const k = key(folder);
     const b = h('button', 'dbx-link dbx-carryover', CARRYOVER_LABEL);
     b.type = 'button';
-    b.title = '積み残しを取り込む: PROGRESS.md の 進行中・確認待ち・保留・未着手 の行を、依頼に保留で出して PMO に仕分けさせる（取り込み済みのものは出ない）';
+    b.title = '積み残しを取り込む: PROGRESS.md の 進行中・確認待ち・保留・未着手 の行を、依頼に保留で出して ルーターに仕分けさせる（取り込み済みのものは出ない）';
     b.dataset.folderKey = k;
     b.__carryoverShow = () => {
       const st = carryoverShown.get(k);
@@ -2584,7 +3428,7 @@
       line.append(p);
     }
     const no = it ? taskNo(it) : '';
-    const mark = h('span', 'dbx-qmark', no || (it ? { active: '▶', pending: '·', failed: '✕', done: '✓' }[it.status] || '' : ''));
+    const mark = h('span', 'dbx-qmark', no || (it ? { active: '▶', pending: '·', failed: '✕', done: '✓', dropped: '–' }[it.status] || '' : ''));
     line.append(mark);
     // the title: opens the session (open tab), or the closed finished session (会話を開く), else only text
     const closedDone = it && it.status === 'done' && it.tabId && !s;
@@ -2595,7 +3439,7 @@
     lab.title = it ? `${taskName(it)}\n\n${it.text}${it.note ? `\n\n${it.note}` : ''}` : s.label || '';
     if (s) {
       lab.dataset.usage = 'dash.card.open-session'; // UA1
-      lab.addEventListener('click', () => api.dashboardFocus?.({ wcId: s.wcId, tabId: s.tabId, from: 'project' }));
+      lab.addEventListener('click', () => openConv({ wcId: s.wcId, tabId: s.tabId, folder, title: it ? taskTitle(it) : s.label || '', from: 'project' })); // UX13
       // 完了 opens to read only (PROGRESS 44); 休止中 (31) wakes when opened
       if (s.kind === 'fin' && s.rest !== 'done') lab.title += '\n\nクリックで会話を開く（作業完了で終わったセッション）';
       else if (s.kind === 'fin') lab.title += '\n\nクリックで会話を開く（止めたまま見られます。送ると再開します）';
@@ -2603,7 +3447,7 @@
       else lab.title += '\n\nクリックで会話を開く';
     } else if (closedDone) {
       lab.title += '\n\nクリックで会話を開く（止めたまま見られます。送ると再開します）';
-      lab.addEventListener('click', () => api.dashboardOpenSession?.({ folder, tabId: it.tabId }));
+      lab.addEventListener('click', () => openConv({ folder, tabId: it.tabId, title: taskTitle(it), from: 'project' })); // UX13
     }
     line.append(lab);
     // MP4 18: the row is a grid (title | marks | state | model | actions, dashboard.css .dbx-q): the marks and the
@@ -2645,8 +3489,8 @@
       stEl.dataset.whyId = it.id;
     }
     line.append(stEl);
-    // AT-6: the model / effort its session starts / started with (small; the PMO's own choice stands out)
-    const mm = it && (it.status === 'pending' || it.status === 'active') && window.Labels?.modelMark ? window.Labels.modelMark(it, modelCfg && modelCfg.session) : null;
+    // AT-6: the model / effort its session starts / started with (small; the ルーター's own choice stands out)
+    const mm = it && (it.status === 'pending' || it.status === 'active') && window.Labels?.modelMark ? window.Labels.modelMark(it, modelCfg && ((it.kind && modelCfg.kinds && modelCfg.kinds[it.kind]) || modelCfg.session)) : null;
     if (mm) {
       const m = h('span', `dbx-qmodel${mm.own ? ' own' : ''}`, mm.text);
       m.title = mm.title;
@@ -2657,9 +3501,9 @@
     const sf = it ? staleOf('backlog', it.id, folder) : null;
     if (sf) marks.append(staleMark(sf));
     if (s) {
-      const mem = s.rest ? restMem() : memMark(s.memMb, s.memHeavy, s.status, () => api.dashboardRestart?.({ wcId: s.wcId, tabId: s.tabId }));
+      const mem = s.rest ? restMem() : memMark(s.memMb, s.memHeavy, s.status, null); // UX15: 再起動 is in 「この作業」 (open the conversation)
       if (mem) acts.append(mem);
-      // 休止 (PROGRESS 31): stop its claude now (the owning window refuses while it works); not the PMO's own session
+      // 休止 (PROGRESS 31): stop its claude now (the owning window refuses while it works); not the ルーター's own session
       if (!s.rest && s.status === 'idle' && s.kind !== 'fin' && s.folderName !== 'ダッシュボード' && api.dashboardRest) {
         const b = h('button', 'dbx-link dim dbx-rest', '休止');
         b.type = 'button';
@@ -2679,20 +3523,24 @@
     }
     if (q && q.position) acts.append(...moveButtons(folder, it, q));
     if (it && it.status === 'pending') acts.append(dropButton(folder, it));
+    const rm = it ? rowMenuButton(folder, it) : null;
+    if (rm) acts.append(rm);
     if (closedDone) {
       const b = h('button', 'dbx-link dim dbx-qopen', '会話を開く');
       b.type = 'button';
       b.dataset.usage = 'dash.card.open-closed'; // UA1
-      b.title = 'このフォルダのウィンドウでこの作業のセッションを開く（止めたまま会話を見られます。送ると再開します）';
+      b.title = 'この窓の中でこの作業の会話を開く（閉じたセッションは読むだけ。送るには「作業台で開く」）';
       b.addEventListener('click', (ev) => {
         ev.stopPropagation();
-        api.dashboardOpenSession?.({ folder, tabId: it.tabId });
+        openConv({ folder, tabId: it.tabId, title: taskTitle(it), from: 'project' }); // UX13
       });
       acts.append(b);
     }
     if (marks.childNodes.length) line.append(marks);
     if (acts.childNodes.length) line.append(acts);
     el.append(line);
+    if (it && rowMenu === `${key(folder)}|${it.id}`) el.append(rowMenuList(folder, it));
+    if (it && titleEdit === `${key(folder)}|${it.id}`) el.append(cardTitleBox(folder, it));
     // queue order: why it does not start yet and what it waits for (前提: AT-5（2 番目）, 重なり: AT-3（動作中）)
     if (q) {
       const parts = q.tab ? (q.reason ? [q.reason.text] : []) : Array.isArray(q.info) ? q.info : q.reason && !q.next && q.state !== 'start' ? [q.reason.text] : [];
@@ -2702,13 +3550,45 @@
         el.append(inf);
       }
     }
+    // UX12: a waiting task's 「この後」 (what starts it)
+    if (!s && it && it.status === 'pending' && window.Reassure) {
+      const nx = window.Reassure.afterOf(null, it, (q && q.reason) || schedWhy(folder, it.id));
+      if (nx && !(q && q.next)) {
+        const a = h('div', 'dbx-qinfo dbx-after', `${W('afterThis', 'この後')}: ${nx.short}`);
+        a.title = nx.full;
+        el.append(a);
+      }
+    }
     if (!s) return el;
+    const mv = moveLine(s, it);
+    if (mv) el.append(mv);
     const text = s.kind === 'input' ? s.question || s.text : s.kind === 'error' || s.kind === 'done' ? s.text : '';
     if (text) el.append(h('div', 'dbx-stext', firstLine(text)));
     const wl = waitLine(s);
     if (wl) el.append(wl);
     // UX5: answers only on あなたの番 (one place); the row points there
     if (s.kind === 'input' && s.options && s.options.length) el.append(turnLink());
+    return el;
+  }
+
+  // UX12 (J4 段 2): a session row's 「最後の動き 40 秒前 · この後: …」 (src/renderer/reassure.js lastMove / afterOf)
+  function moveLine(s, it) {
+    const R = window.Reassure;
+    if (!R || s.rest || s.kind === 'fin' || s.kind === 'off' || s.kind === 'input') return null;
+    const at = R.lastMove(s);
+    const nx = R.afterOf(s, it || null);
+    if (!at && !nx) return null;
+    const el = h('div', 'dbx-qinfo dbx-move');
+    if (at) {
+      el.append(document.createTextNode(`${W('lastMove', '最後の動き')} `), agoSpan(h('span', 'dbx-move-ago', ''), at));
+      el.title = `最後の動き: ${md(at)}（会話の記録か状態の変化）`;
+    }
+    if (nx) {
+      if (at) el.append(document.createTextNode(' · '));
+      const a = h('span', 'dbx-after', `${W('afterThis', 'この後')}: ${nx.short}`);
+      a.title = nx.full;
+      el.append(a);
+    }
     return el;
   }
 
@@ -2746,7 +3626,7 @@
     }, 8100);
   }
   // the waiting tasks of a card in the order they are sent: 1, 2, 3 … with 次に始まる / the reason, ↑ ↓, and the
-  // PMO's last reorder, the user's lock and 「PMO に順番を見直してもらう」 above them
+  // ルーター's last reorder, the user's lock and 「ルーターに順番を見直してもらう」 above them
   function queueBlock(r, qf) {
     const fk = key(r.folder);
     const box = h('div', 'dbx-queue');
@@ -2757,13 +3637,13 @@
     head.append(t);
     if (qf.orderLock) {
       const lk = h('span', 'dbx-qlock', `${W('orderLocked', '手で並べた順')}（残り ${qf.orderLock.leftText}）`);
-      lk.title = `↑ ↓ で並べ替えたので、24 時間は PMO が並べ替えません（残り ${qf.orderLock.leftText}）。「${W('askPmoOrder', '順番の見直し')}」で送ると外れます`;
+      lk.title = `↑ ↓ で並べ替えたので、24 時間は ルーターが並べ替えません（残り ${qf.orderLock.leftText}）。「${W('askPmoOrder', '順番の見直し')}」で送ると外れます`;
       head.append(lk);
     }
     const ab = h('button', 'dbx-link dbx-qask', W('askPmoOrder', '順番の見直し'));
     ab.type = 'button';
     ab.dataset.usage = 'dash.card.ask-order'; // UA1
-    ab.title = `PMO に順番の見直しを頼みます。ひとこと書いて送ります（依頼に入ります）${qf.orderLock ? '。手で並べた順の固定は外れます' : ''}`;
+    ab.title = `ルーターに順番の見直しを頼みます。ひとこと書いて送ります（依頼に入ります）${qf.orderLock ? '。手で並べた順の固定は外れます' : ''}`;
     ab.addEventListener('click', () => {
       if (qAsk.has(fk)) qAsk.delete(fk);
       else qAsk.set(fk, '');
@@ -2773,7 +3653,7 @@
     head.append(ab);
     box.append(head);
     if (qf.lastReorder) {
-      const pm = h('div', 'dbx-qpmo', `${W('pmoReordered', 'PMO の並べ替え')}${qf.lastReorder.at ? `（${rel(qf.lastReorder.at)}）` : ''}: ${qf.lastReorder.reason}`);
+      const pm = h('div', 'dbx-qpmo', `${W('pmoReordered', 'ルーターの並べ替え')}${qf.lastReorder.at ? `（${rel(qf.lastReorder.at)}）` : ''}: ${qf.lastReorder.reason}`);
       pm.title = qf.lastReorder.reason;
       box.append(pm);
     }
@@ -2880,7 +3760,7 @@
       const b = h('button', `dbx-link dim dbx-qmove ${dir < 0 ? 'up' : 'down'}`, txt);
       b.type = 'button';
       b.dataset.usage = 'dash.card.move'; // UA1
-      b.title = `${tip}（24 時間は PMO が並べ替えません）`;
+      b.title = `${tip}（24 時間は ルーターが並べ替えません）`;
       b.disabled = dir < 0 ? q.position <= 1 : !!q.last;
       b.addEventListener('click', async (ev) => {
         ev.stopPropagation();
@@ -2901,12 +3781,74 @@
     return [mk(-1, '↑', '1 つ前へ'), mk(1, '↓', '1 つ後ろへ')];
   }
 
+  // UX15: the row menu (⋯) of a task on the card — what the バックログ panel had: 完了にする (a running task, done by hand)
+  // and 戻す (a done / failed / cancelled task waits again). main backlog:set; the folder's window does it when open.
+  const rowActs = (it) => (it.status === 'pending' ? [['title', W('fixTitle', '見出しを直す'), '一覧に出す短い見出しを直す（空なら本文の先頭から）']] : it.status === 'active' ? [['done', '完了にする', '対応が終わったことにする（セッションはそのまま）']] : ['done', 'failed', 'dropped'].includes(it.status) ? [['reopen', '戻す', 'もう一度待ちに入れる（始まる順は ルーターと送る順の決まりどおり）']] : []);
+  function rowMenuButton(folder, it) {
+    const list = rowActs(it);
+    if (!list.length) return null;
+    const k = `${key(folder)}|${it.id}`;
+    const m = h('button', `dbx-link dim dbx-imenu dbx-qmenu${rowMenu === k ? ' on' : ''}`, '⋯');
+    m.type = 'button';
+    m.dataset.usage = 'dash.card.menu';
+    m.title = list.map((a) => a[1]).join('・');
+    m.setAttribute('aria-expanded', String(rowMenu === k));
+    m.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      rowMenu = rowMenu === k ? '' : k;
+      render();
+    });
+    return m;
+  }
+  function rowMenuList(folder, it) {
+    const menu = h('div', 'dbx-imenu-list dbx-qmenu-list');
+    for (const [op, label, title] of rowActs(it)) {
+      const b = h('button', `dbx-link dbx-q${op === 'title' ? 'retitle' : op}`, label);
+      b.type = 'button';
+      b.title = title;
+      b.dataset.usage = op === 'done' ? 'dash.card.done' : op === 'title' ? 'dash.card.title' : 'dash.card.reopen';
+      b.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        if (op === 'title') {
+          titleEdit = `${key(folder)}|${it.id}`;
+          rowMenu = '';
+          render();
+          root.querySelector('.dbx-ititle-input')?.focus();
+          return;
+        }
+        b.disabled = true;
+        let res = null;
+        try {
+          res = await api.backlogSet?.({ folder, id: it.id, op });
+        } catch (err) {
+          res = { ok: false, error: String(err) };
+        }
+        rowMenu = '';
+        if (!res || !res.ok) qNote(key(folder), `${op === 'done' ? '完了にできませんでした' : '戻せませんでした'}: ${(res && res.error) || '不明なエラー'}`, true);
+        refresh();
+      });
+      menu.append(b);
+    }
+    return menu;
+  }
+
+  // 見出しを直す on a waiting task (the same field as the request's): main backlog:set op title
+  function cardTitleBox(folder, it) {
+    return titleBox(it, {
+      key: `${key(folder)}|${it.id}`,
+      save: async (v) => {
+        const res = await api.backlogSet?.({ folder, id: it.id, op: 'title', title: v });
+        if (!res || !res.ok) qNote(key(folder), `見出しを直せませんでした: ${(res && res.error) || '不明なエラー'}`, true);
+      },
+    });
+  }
+
   // 取り消す: the item never starts; it stays in the folder's backlog as 取り消し (history, its inbox tie kept)
   function dropButton(folder, it) {
     const x = h('button', 'dbx-link dim dbx-qdrop', '取り消す');
     x.type = 'button';
     x.dataset.usage = 'dash.card.drop'; // UA1
-    x.title = '始めずに取り消す（タスクは履歴として残り、そのフォルダの待ちの一覧の「戻す」で戻せる）';
+    x.title = '始めずに取り消す（タスクは「取り消し」としてカードに残り、行の ⋯ の「戻す」で戻せる）';
     x.addEventListener('click', async (ev) => {
       ev.stopPropagation();
       if (!window.confirm(`「${baseName(folder)}」の待ちのタスクを取り消しますか？\n\n${taskName(it)}\n\n始めずに「取り消し」として残します。`)) return;
@@ -3280,11 +4222,11 @@
   function ownLine() {
     const o = ownHooks.own ? ownHooks.own() : null;
     if (!o) return null;
-    // a chip in the band: 「PMO 動作中」 while it works, its memory (orange + 再起動 over the mark)
+    // a chip in the band: 「ルーター動作中」 while it works, its memory (orange + 再起動 over the mark)
     const busy = o.status === 'running' || o.status === 'starting';
     const el = h('span', `dbx-own dbx-chip${busy ? ' busy' : ''}`);
-    el.append(h('span', 'dbx-wrlabel', `${W('pmo', 'PMO')}${busy ? ` ${W('running', '動作中')}` : ''}`));
-    el.title = 'PMO（右の欄の会話）。全部のプロジェクトを見て振り分け・順番・後押しをします';
+    el.append(h('span', 'dbx-wrlabel', `${W('pmo', 'ルーター')}${busy ? ` ${W('running', '動作中')}` : ''}`));
+    el.title = 'ルーター（右の欄の会話）。全部のプロジェクトを見て振り分け・順番・後押しをします';
     const m = o.memMb == null ? null : memMark(o.memMb, o.heavy, o.status, () => ownHooks.restart && ownHooks.restart());
     if (m) el.append(m);
     return el;
@@ -3321,6 +4263,8 @@
     'dashboard:progress': 'dashboardProgress',
     'queue:order': 'queueOrder',
     'attention:list': 'attentionList',
+    'pmo:heartbeat': 'pmoHeartbeat', // UX12
+    'reviews:list': 'reviewsList', // UX12
   };
   const snapSigs = new Map(); // name -> sig of the value this page holds
   // a push from main replaced the value: the next snapshot must not answer 「same」 against the older sig
@@ -3395,13 +4339,15 @@
     const open = new Set((listed.open || []).map(key));
     const list = [...(listed.recent || [])];
     for (const s of sessions) if (s.folder && !list.some((f) => key(f) === key(s.folder))) list.push(s.folder);
-    // + the PMO's projects (projects.json): a folder routed to but not opened yet (its window starts with its first task)
-    // has a card too; its outlook (PMO の見立て, a later stage) comes along
+    // + the ルーター's projects (projects.json): a folder routed to but not opened yet (its window starts with its first task)
+    // has a card too; its outlook (ルーターの見立て, a later stage) comes along
     const outlook = new Map();
+    const outlookAt = new Map(); // UX12
     const reviews = new Map(); // U8: projects.json review { status, round, at, allDone? }
     for (const pr of projectsNow) {
       if (!pr || typeof pr.folder !== 'string' || !pr.folder) continue;
       if (typeof pr.outlook === 'string' && pr.outlook.trim()) outlook.set(key(pr.folder), pr.outlook.trim().slice(0, 300));
+      if (Number(pr.outlookAt) > 0) outlookAt.set(key(pr.folder), Number(pr.outlookAt));
       if (pr.review && typeof pr.review.status === 'string') reviews.set(key(pr.folder), pr.review);
       if (!list.some((f) => key(f) === key(pr.folder))) list.push(pr.folder);
     }
@@ -3433,9 +4379,9 @@
         changed = true;
       }
       folderData.set(k, d);
-      out.push({ folder, open: open.has(k), backlog: d.backlog, progress: d.progress, outlook: outlook.get(k) || '', review: reviews.get(k) || null });
+      out.push({ folder, open: open.has(k), backlog: d.backlog, progress: d.progress, outlook: outlook.get(k) || '', outlookAt: outlookAt.get(k) || 0, review: reviews.get(k) || null });
     }
-    const shape = JSON.stringify(out.map((f) => [f.folder, f.open, f.outlook, f.review]));
+    const shape = JSON.stringify(out.map((f) => [f.folder, f.open, f.outlook, f.outlookAt, f.review]));
     if (shape !== foldersShape) changed = true;
     foldersShape = shape;
     const names = JSON.stringify(out.map((f) => f.folder));
@@ -3531,7 +4477,10 @@
       projects: ['dashboard:projects'],
       attention: ['attention:list'],
     };
-    // PMO の記録 (U4): read once, then while its tab is shown (main pushes its changes: pmo:logChanged)
+    // UX12: the ルーター's heartbeat (安心の 1 行) and the 事後の確認
+    if (api.pmoHeartbeat) calls.heartbeat = ['pmo:heartbeat'];
+    if (api.reviewsList) calls.reviews = ['reviews:list'];
+    // ルーターの記録 (U4): read once, then while its tab is shown (main pushes its changes: pmo:logChanged)
     if (api.pmoLog && (pmoLog === null || tab === 'log')) calls.log = ['pmo:log'];
     // the sessions: read until the first list came; then main pushes every change (dashboard:sessions). Reading them
     // again made main resend an unchanged list (widget.js dashFresh) in a form that redrew nothing
@@ -3554,6 +4503,8 @@
     if (r.leftovers) leftover = r.leftovers;
     if (r.remote && typeof r.remote === 'object') remote = { running: !!r.remote.running };
     if (r.attention !== undefined) setAttn(r.attention);
+    if (r.heartbeat !== undefined) heartbeat = r.heartbeat && typeof r.heartbeat === 'object' ? r.heartbeat : null;
+    if (r.reviews && Array.isArray(r.reviews.items)) setReviews(r.reviews);
     await loadFolders({ picker: r.picker, projects: r.projects });
     ensureSettings();
     settingsData();
@@ -3562,7 +4513,7 @@
     if (!tabChosen) {
       tabChosen = true;
       if (attnShown().length) tab = 'turn';
-      else if (tab === 'turn') tab = 'proj';
+      else if (tab === 'turn' && oneFolder()) tab = 'proj'; // HOME-ROLES: the home's いま stays (its 要対応 is one section)
     }
     renderSoon();
   }
@@ -3620,6 +4571,10 @@
       exclude = (o && o.exclude) || '';
       root = (o && o.root) || null;
       ownHooks = { own: o && o.own, restart: o && o.restart };
+      nav = (o && o.nav) || null; // UX14
+      crumbEl = (o && o.crumb) || null;
+      if (nav) watchComposition(nav);
+      api.onDashboardOpenConv?.((x) => x && typeof x.tabId === 'string' && openConv({ wcId: x.wcId, tabId: x.tabId, folder: x.folder || '', from: 'notif' }));
       if (root) {
         watchComposition(root);
         watchScroll(root);
@@ -3673,6 +4628,7 @@
         sessions = st.sessions;
         sessionsSeen = true;
         unsig('sessions');
+        takeWanted(); // UX14: a session asked for from ＋
         // a folder that just got its first session: reload the folder list; otherwise only redraw
         if (sessions.some((s) => !before.has(key(s.folder)))) loadFoldersSoon();
         else renderSoon();
@@ -3701,13 +4657,34 @@
         renderSoon();
       });
       Promise.resolve(api.updateState?.()).then((st) => st && setUpdate(st)).catch(() => {});
+      // UX12: the heartbeat and the 事後の確認 are pushed when they change
+      api.onPmoHeartbeat?.((hb) => {
+        heartbeat = hb && typeof hb === 'object' ? hb : null;
+        unsig('heartbeat');
+        renderSoon();
+      });
+      api.onReviewsChanged?.((st) => {
+        if (!st || !Array.isArray(st.items)) return;
+        setReviews(st);
+        unsig('reviews');
+        renderSoon();
+      });
+      // 留守の間: left = hidden or the window lost focus; back = shown and focused
+      backFromAway();
+      window.addEventListener('blur', markSeen);
+      window.addEventListener('focus', () => {
+        backFromAway();
+        renderSoon();
+      });
+      window.addEventListener('beforeunload', markSeen);
       // the rest (PROGRESS.md, projects.json, the stale marks, …) has no push: read every 30 s while shown (one
       // snapshot, unchanged parts answer 「same」). The relative times follow the clock, without a redraw (§5.5.3)
       setInterval(refresh, 30_000);
       setInterval(() => !pageHidden() && tickAgo(root), 30_000);
       // §5.5.2: hidden, nothing is read or drawn; shown again: what was skipped, once
-      document.addEventListener('visibilitychange', () => {
-        if (pageHidden()) return;
+      const onShown = () => {
+        if (pageHidden()) return markSeen();
+        backFromAway();
         tickAgo(root);
         if (hiddenStale) {
           hiddenStale = false;
@@ -3716,17 +4693,37 @@
           hiddenDirty = false;
           renderSoon();
         }
-      });
+      };
+      document.addEventListener('visibilitychange', onShown);
+      window.addEventListener('bantodesk:seen', onShown); // SCH-FR2 (preload, main's win:seen)
       refresh();
     },
     refresh,
     renderOwn: () => root && renderSoon(), // core: the own session's memory / status changed
+    // UX14: the session view opened / closed (session-view.js): the nav's mark and the breadcrumb
+    viewChanged: () => {
+      if (!root) return;
+      paintNav();
+      paintCrumb();
+    },
+    showFolder: (folder) => selectFolder(folder || ''), // tests, UX15 (Ctrl+Shift+B -> the home on that folder)
+    paletteItems: () => paletteItems(), // UX16 the command palette
+    paletteFolder: () => paletteFolder(),
+    newSession: () => (startShown() ? render() : toggleStart()), // UX16 the palette's 新しいセッション (opens the ＋ panel)
+    home: () => goHome(),
     turnLink: () => turnLink(), // 関係図 (agents-view.js): a waiting box points to あなたの番 (UX5)
     openWaiting: () => openWaiting(),
     showTab: (t) => switchTab(t), // 'turn' | 'proj' | 'req' | 'log'
     tab: () => tab,
     setUpdate: (st) => setUpdate(st), // core (renderer.js showUpdate): app:update status
-    _schedSig: (st, t) => schedSig(st, t), // tests (tmp/at147/unit.js): what the signature keeps of sched:state
+    _schedSig: (st, t) => schedSig(st, t),
+    _away: (since) => {
+      // tests (tmp/reassure/e2e.mjs): as if the user had left the page at `since`
+      store.set('dashSeenAt', since);
+      backFromAway();
+      renderSoon();
+      return awayFrom;
+    }, // tests (tmp/at147/unit.js): what the signature keeps of sched:state
     // tests (tmp/ux6): cumulative counts of draws / reads / swapped elements
     _stats: () => ({ ...stats }),
     _folders: () => folders.map((f) => ({ folder: f.folder, items: (f.backlog || []).map((i) => [i.id, i.no || '', i.status]) })),

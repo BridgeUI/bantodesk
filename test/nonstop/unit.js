@@ -3,7 +3,7 @@
 //      deny -> ask -> allow order on sample commands (SEC5 shapes stay denied, risky shapes ask, the work runs)
 //   2. main picks the file by the kind of claude (settingsPathFor)
 //   3. the routed prompt (docs/prompts/routed-session.md + fallback): no AskUserQuestion, 仮説で決めたこと, SEC5 in short
-//   4. the PMO template: qa and route together, no waiting on asking, proposals with a default and a deadline
+//   4. the ルーター template: qa and route together, no waiting on asking, proposals with a default and a deadline
 //   5. handoff.js: a routed session hands off as auto (also with an active item, which moves to the new tab)
 // Command names the SEC5 rules block are built from pieces (CLAUDE.md "マルウェアと判定される動きをしない").
 'use strict';
@@ -259,8 +259,8 @@ t('3b the prompts are safe on a command line (no double quote, no blocked name, 
   }
 });
 
-// ---- 4. PMO template --------------------------------------------------------------------------------------------------
-t('4a PMO template v28+: qa and route together, no waiting on asking, proposals with a default and a deadline', () => {
+// ---- 4. ルーター template --------------------------------------------------------------------------------------------------
+t('4a ルーター template v28+: qa and route together, no waiting on asking, proposals with a default and a deadline', () => {
   const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'at-nonstop-m-'));
   try {
     manager.ensureManagerDir(dir);
@@ -298,7 +298,7 @@ function loadHandoff() {
   vm.runInContext(fs.readFileSync(path.join(app, 'src', 'renderer', 'handoff.js'), 'utf8'), ctx);
   return { H: ctx.window.Handoff, win: ctx.window, timers };
 }
-t('5a modeOf: routed -> auto (unless off), a hand-opened tab and the PMO keep the setting', () => {
+t('5a modeOf: routed -> auto (unless off), a hand-opened tab and the ルーター keep the setting', () => {
   const { H } = loadHandoff();
   H.init({ isManager: false });
   assert.strictEqual(H.settings().mode, 'confirm', 'default');

@@ -1,0 +1,66 @@
+/* ---- external-view.js (shell of the iOS Simulator / built-in browser panes) + sim-view.js ---- */
+.ev-host { height: 100%; display: flex; flex-direction: column; min-height: 0; background: var(--raised); color: var(--text); }
+.ev-view { height: 100%; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.ev-bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1) var(--s3); padding: var(--s1) var(--s3); font-size: var(--fs-s); color: var(--muted); border-bottom: 1px solid var(--line); background: var(--raised); min-width: 0; }
+.ev-left, .ev-right { display: inline-flex; align-items: center; gap: var(--s2); flex: none; }
+.ev-status { flex: 1 1 auto; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ev-btn { font: inherit; font-size: var(--fs-s); color: var(--run); background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; flex: none; }
+.ev-btn:hover { text-decoration: underline; }
+.ev-btn:disabled { color: var(--faint); cursor: default; text-decoration: none; }
+.ev-btn[aria-pressed="true"] { color: var(--text); }
+.ev-select { font: inherit; font-size: var(--fs-s); color: var(--text); background: var(--raised); border: 1px solid var(--line); border-radius: var(--r1); max-width: 220px; }
+.ev-msg { flex: 1 1 auto; display: grid; place-items: center; padding: 0 var(--s4); text-align: center; color: var(--faint); font-size: var(--fs-s); }
+.sim-body { flex: 1 1 auto; min-height: 0; position: relative; background: #111; display: flex; }
+.sim-canvas { flex: 1 1 auto; width: 100%; height: 100%; object-fit: contain; display: block; min-height: 0; }
+.sim-over { position: absolute; inset: 0; display: flex; flex-direction: column; gap: var(--s3); align-items: center; justify-content: center; padding: 0 var(--s4); text-align: center; color: #bbb; font-size: var(--fs-s); }
+.sim-over[hidden] { display: none; }
+/* 内蔵ブラウザ (browser-view.js): the page is a native view laid over .br-body */
+.br-body { flex: 1 1 auto; min-height: 0; position: relative; background: var(--raised); }
+.br-hint { position: absolute; inset: 0; display: grid; place-items: center; padding: 0 var(--s4); text-align: center; color: var(--faint); font-size: var(--fs-s); }
+.br-hint[hidden] { display: none; }
+.br-address { font: inherit; font-size: var(--fs-s); color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r1); padding: 2px var(--s2); flex: 1 1 260px; min-width: 120px; }
+.br-address:focus { outline: 1px solid var(--run); }
+
+/* 15 場所を指定したコメント (pin-comment.js): a picture of the place with pins, and a panel on the right */
+.pc-layer { position: absolute; inset: 0; z-index: 20; display: flex; background: rgba(0,0,0,.55); color: var(--text); font-size: var(--fs-s); min-height: 0; }
+.pc-stage { position: relative; flex: 1 1 auto; min-width: 0; display: grid; place-items: center; overflow: hidden; padding: var(--s2); }
+.pc-stage { --pc-w: 100%; }
+.pc-overlay { position: absolute; pointer-events: none; }
+.pc-img { max-width: 100%; max-height: 100%; display: block; cursor: crosshair; user-select: none; -webkit-user-drag: none; touch-action: none; }
+.pc-mark { position: absolute; pointer-events: none; box-sizing: border-box; }
+.pc-pin { width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: var(--run); border: 2px solid #fff; display: grid; place-items: center; color: #fff; font-size: 10px; }
+.pc-pin::after, .pc-area::after { content: attr(data-n); }
+.pc-area { border: 2px solid var(--run); background: rgba(80,140,255,.15); color: var(--run); font-size: 10px; line-height: 1; }
+.pc-pending { border-style: dashed; opacity: .85; }
+.pc-panel { flex: none; width: 280px; max-width: 45%; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3); background: var(--raised); border-left: 1px solid var(--line); overflow: auto; }
+.pc-title { font-weight: 600; }
+.pc-help, .pc-status { color: var(--faint); }
+.pc-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--s1); }
+.pc-item { display: flex; gap: var(--s2); align-items: baseline; justify-content: space-between; }
+.pc-item-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-edit { display: flex; flex-direction: column; gap: var(--s1); }
+.pc-edit[hidden] { display: none; }
+.pc-text { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r1); padding: var(--s1) var(--s2); resize: vertical; }
+.pc-text:focus, .pc-page:focus { outline: 1px solid var(--run); }
+.pc-page { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r1); padding: 2px var(--s2); width: 90px; }
+.pc-page[hidden] { display: none; }
+.pc-row { display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap; }
+
+/* 18 資料パネル (present-view.js): one slide large, a strip of thumbnails below */
+.pr-view { outline: none; }
+.pr-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; background: #111; }
+.pr-stage { flex: 1 1 auto; min-height: 0; position: relative; display: grid; place-items: center; padding: var(--s2); overflow: hidden; }
+.pr-big { max-width: 100%; max-height: 100%; display: block; box-shadow: 0 2px 16px rgba(0,0,0,.5); background: #fff; user-select: none; }
+.pr-big[hidden] { display: none; }
+.pr-stage .pc-layer { background: #111; }
+.pr-over { position: absolute; inset: 0; display: flex; flex-direction: column; gap: var(--s3); align-items: center; justify-content: center; padding: 0 var(--s4); text-align: center; color: #bbb; font-size: var(--fs-s); pointer-events: none; }
+.pr-over .ev-btn { pointer-events: auto; }
+.pr-over[hidden] { display: none; }
+.pr-pos { color: var(--muted); font-size: var(--fs-s); min-width: 4.5em; text-align: center; }
+.pr-strip { flex: none; display: flex; gap: var(--s2); overflow-x: auto; padding: var(--s2); background: var(--raised); border-top: 1px solid var(--line); }
+.pr-strip[hidden] { display: none; }
+.pr-thumb { flex: none; position: relative; width: 128px; aspect-ratio: 16 / 9; padding: 0; border: 2px solid transparent; border-radius: var(--r1); background: #222; cursor: pointer; overflow: hidden; }
+.pr-thumb-img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.pr-thumb-n { position: absolute; left: 2px; bottom: 2px; font-size: 10px; line-height: 1; padding: 1px 4px; border-radius: 3px; background: rgba(0,0,0,.6); color: #fff; }
+.pr-thumb.pr-cur { border-color: var(--run); }
+.pr-thumb.pr-fresh { box-shadow: 0 0 0 2px var(--run) inset; }

@@ -13,24 +13,25 @@
 //   holds(tab)           – true while the backlog must not send to this tab (handoff in progress)
 //   statusText(tab)      – '' or a short Japanese line for the panel
 //   threshold()          – current threshold in % (panel shows its button from min(80, threshold))
-//   settings() / setSettings(patch) – localStorage 'handoffSettings' { mode, threshold, memMb, pmoAuto, pmoPct, pmoMemMb }
-//                          (global; memMb = the session-memory mark of roadmap 22, default 800; pmo* = the PMO's
-//                          automatic handoff below, default on / 70 % / 800 MB)
+//   settings() / setSettings(patch) – localStorage 'handoffSettings' { mode, threshold, memMb, pmoAuto, pmoPct, pmoMemMb, pmoMaxTok }
+//                          (global; memMb = the session-memory mark of roadmap 22, default 800; pmo* = the ルーター's
+//                          automatic handoff below, default on / 70 % / 800 MB / 200000 tokens, pmoMaxTok 0 = off)
 //   pmoStatus()          – manager window: { lastAt, last: { at, reason } } of the automatic handoffs (tests)
 //
-// The PMO (the manager window's resident session, PROGRESS 45) hands off by itself when it gets heavy: context >= pmoPct
-// or its claude >= pmoMemMb. Only between turns: not while the user types in its input box, a dialog / Auto-yes is up,
+// The ルーター (the manager window's resident session, PROGRESS 45) hands off by itself when it gets heavy: context >= pmoPct,
+// context tokens >= pmoMaxTok (TK1, docs/plan-token.md §5: on a 1M window 70 % is 700k, so the token mark is what
+// keeps the ルーター's conversation near 200k; 0 turns it off) or its claude >= pmoMemMb. Only between turns: not while the user types in its input box, a dialog / Auto-yes is up,
 // a turn runs (an app request being answered, an outbox being written) or a backlog item of it is active. At most once
 // an hour (localStorage 'pmoHandoffAt'). Memory alone also hands off (not --resume): the long conversation is the weight.
-// When the memo went over, 「PMO から」 gets an info notice (hooks.notice).
+// When the memo went over, 「ルーターから」 gets an info notice (hooks.notice).
 //   attachBar(tab)       – core calls after Conversation.create: the confirm bar in the composer dock
 // hooks: { tabs(), summary(tab), ready(tab, now), blocked(tab), send(tab, text), createTab(opts),
 //          closeTab(id), activate(id), activeId(), raise(tab, kind, text), render(tab), ptyClose(id),
 //          markExited(tab, note), isManager, mem(tab) -> MB | null, typing(tab) -> bool, notice({ kind, title, text, key }),
 //          carryDraft(old, next) }
 (() => {
-  const DEFAULTS = { mode: 'confirm', threshold: 85, memMb: 800, pmoAuto: true, pmoPct: 70, pmoMemMb: 800 };
-  const PMO_EVERY_MS = 60 * 60_000; // automatic PMO handoffs: at most one per hour
+  const DEFAULTS = { mode: 'confirm', threshold: 85, memMb: 800, pmoAuto: true, pmoPct: 70, pmoMemMb: 800, pmoMaxTok: 200000 };
+  const PMO_EVERY_MS = 60 * 60_000; // automatic ルーター handoffs: at most one per hour
   const PMO_AT_KEY = 'pmoHandoffAt';
   const MODES = ['auto', 'confirm', 'notify', 'off'];
   const STABLE_MS = 3000; // idle on the main screen this long before a handoff starts / the memo is sent
@@ -68,7 +69,10 @@
     const pm = Math.round(Number(s.pmoMemMb));
     const pmoMemMb = Number.isFinite(pm) && pm >= 50 && pm <= 32000 ? pm : DEFAULTS.pmoMemMb;
     const pmoAuto = typeof s.pmoAuto === 'boolean' ? s.pmoAuto : DEFAULTS.pmoAuto;
-    return { mode, threshold, memMb, pmoAuto, pmoPct, pmoMemMb };
+    // TK1: 0 = off, else 10000..2000000 tokens (a number outside -> the default)
+    const pt = Math.round(Number(s.pmoMaxTok));
+    const pmoMaxTok = pt === 0 || (Number.isFinite(pt) && pt >= 10000 && pt <= 2000000) ? pt : DEFAULTS.pmoMaxTok;
+    return { mode, threshold, memMb, pmoAuto, pmoPct, pmoMemMb, pmoMaxTok };
   }
   // UX9 (docs/ux-journey.md §4 A): a session the app started for a routed item (tab.forBacklog) runs unattended, so a
   // confirm bar / notice would stop it until the user looks: it hands off by itself ('auto') unless handoff is 'off'.
@@ -90,6 +94,10 @@
   const pctOf = (tab) => {
     const p = Number(hooks.summary?.(tab)?.contextPct);
     return Number.isFinite(p) ? p : 0;
+  };
+  const tokOf = (tab) => {
+    const t = Number(hooks.summary?.(tab)?.contextTokens);
+    return Number.isFinite(t) && t > 0 ? t : 0;
   };
   const busy = (st) => st && (st.phase === 'queued' || st.phase === 'writing' || st.phase === 'starting');
 
@@ -195,7 +203,7 @@
   function begin(tab, how, reason = '') {
     const why = hooks.blocked?.(tab);
     if (why) return why;
-    // UA1: the app / PMO handed off by itself (not the user's 引き継ぐ)
+    // UA1: the app / ルーター handed off by itself (not the user's 引き継ぐ)
     if (how === 'auto' || how === 'pmo') {
       try {
         window.Usage?.track?.('auto', 'auto.handoff');
@@ -220,9 +228,9 @@
     if (!memo) return fail(tab, '引き継ぎメモを読み取れませんでした（返答が短すぎます）');
     const wasActive = hooks.activeId?.() === tab.id;
     const label = continuedLabel(tab.label);
-    // the PMO keeps a name the user gave it (otherwise core shows 「PMO」 for every resident session)
+    // the ルーター keeps a name the user gave it (otherwise core shows 「ルーター」 for every resident session)
     const manual = hooks.isManager && tab.manualLabel && tab.manualText ? tab.manualText : '';
-    const next = hooks.createTab?.({ cwd: tab.cwd, team: !!tab.team, delegate: !!tab.delegate, forBacklog: !!tab.forBacklog, model: tab.model || null, effort: tab.effort || null, label: manual || label, manualLabel: !!manual, background: !wasActive && !hooks.isManager });
+    const next = hooks.createTab?.({ cwd: tab.cwd, team: !!tab.team, delegate: !!tab.delegate, forBacklog: !!tab.forBacklog, model: tab.model || null, effort: tab.effort || null, kind: tab.kind || null, label: manual || label, manualLabel: !!manual, background: !wasActive && !hooks.isManager });
     if (!next) return fail(tab, '新しいセッションを開けませんでした');
     if (!manual) next.promptLabel = label; // keep the label: the first prompt is the long handoff text
     next.handoffFrom = tab.id;
@@ -263,6 +271,8 @@
       if (act) {
         act.tabId = next.id;
         act.startedAt = Date.now();
+        // SCH-HO 1: the item is this session's to end (its mark), not a new send to confirm within 60 s
+        act.handoff = { from: old.id, at: act.startedAt };
       }
       // also saves the reassignment. An auto send stopped by API errors is not carried: a new session, a new context
       // (autosend.js handoff); one switched off by hand is
@@ -280,8 +290,8 @@
       lastPmo = { at: Date.now(), reason };
       safe(() => hooks.notice?.({
         kind: 'info',
-        title: `PMO を引き継ぎました。理由: ${reason}`,
-        text: `PMO のセッションが重くなったので、引き継ぎメモを書かせて新しいセッションに移りました（自動、1 時間に 1 回まで）。相談は「PMO に相談」の欄でそのまま続けられます。前のセッションの記録は履歴に残っています。\n\n**理由**: ${reason}`,
+        title: `ルーターを引き継ぎました。理由: ${reason}`,
+        text: `ルーターのセッションが重くなったので、引き継ぎメモを書かせて新しいセッションに移りました（自動、1 時間に 1 回まで）。相談は「ルーターに相談」の欄でそのまま続けられます。前のセッションの記録は履歴に残っています。\n\n**理由**: ${reason}`,
         key: `app:pmo-handoff:${old.id}`,
       }));
     }
@@ -335,7 +345,7 @@
       deliver(next, tab, now);
       return;
     }
-    // the PMO's own automatic handoff (manager window): before the generic offer / notice
+    // the ルーター's own automatic handoff (manager window): before the generic offer / notice
     if (hooks.isManager && s.pmoAuto && pmoTick(tab, now, s)) return;
     // trigger check
     const pct = pctOf(tab);
@@ -366,22 +376,24 @@
     }
   }
 
-  // ---- the PMO's automatic handoff (PROGRESS 45) ------------------------------------------------
+  // ---- the ルーター's automatic handoff (PROGRESS 45) ------------------------------------------------
   let lastPmo = null;
   const pmoAt = () => {
     const v = Number(localStorage.getItem(PMO_AT_KEY));
     return Number.isFinite(v) ? v : 0;
   };
-  // why the PMO is heavy ('' = it is not): 'コンテキスト 72%' / 'メモリ 830MB' / both
+  // why the ルーター is heavy ('' = it is not): 'コンテキスト 72%' / 'コンテキスト 210k トークン' (TK1) / 'メモリ 830MB' / both
   function pmoReason(tab, s) {
     const pct = pctOf(tab);
+    const tok = tokOf(tab);
     const mb = Number(hooks.mem?.(tab));
     const out = [];
     if (pct >= s.pmoPct) out.push(`コンテキスト ${Math.round(pct)}%`);
+    else if (s.pmoMaxTok > 0 && tok >= s.pmoMaxTok) out.push(`コンテキスト ${Math.round(tok / 1000)}k トークン`);
     if (Number.isFinite(mb) && mb > 0 && mb >= s.pmoMemMb) out.push(`メモリ ${Math.round(mb)}MB`);
     return out.join('、');
   }
-  // true = this tick belongs to the PMO path (waiting or started); false = let the generic trigger run
+  // true = this tick belongs to the ルーター path (waiting or started); false = let the generic trigger run
   function pmoTick(tab, now, s) {
     if (tab.handoffFrom && !tab.handoffDelivered) return false;
     const st = tab.handoff;
@@ -524,5 +536,6 @@
     attachBar,
     MODES,
     _extractMemo: extractMemo, // tests
+    _pmoReason: (tab) => pmoReason(tab, settings()), // tests (TK1)
   };
 })();

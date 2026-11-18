@@ -91,7 +91,7 @@ function readProgress(folder) {
   let value = null;
   try {
     const p = parseProgress(fs.readFileSync(file, 'utf8').replace(/^﻿/, ''));
-    value = p ? { ...p, mtime: st.mtimeMs } : null;
+    value = p ? { ...p, mtime: st.mtimeMs, cards: heldCards(p.rows) } : null; // UX12: the home's two cards
   } catch {
     value = null;
   }
@@ -109,6 +109,27 @@ const listed = (rows, state) =>
     .filter((r) => r.state === state)
     .slice(0, LISTED_MAX)
     .map((r) => ({ n: r.n.slice(0, 12), item: r.item.slice(0, ITEM_MAX), next: r.next.slice(0, NEXT_MAX), updated: /^\d{4}-\d{2}-\d{2}$/.test(r.updated) ? r.updated : '' }));
+
+// UX12 (docs/ux-journey.md §1.6 row 21, J6 段 3): the 保留 rows only a person can close, for the home's two cards.
+//   windows  「Windows の PC が要るもの」: the next step needs the Windows PC (「Windows の PC で」「Windows の会社の PC」
+//            「Windows で」) — the Mac half is done, the rest waits for that PC
+//   manual   「手で見てほしいもの」: the next step is a person's look (手で・目で・見た目・手の確認)
+// A row is in one card at most (windows first). -> { windows: Row[], manual: Row[] } (table order, ≤ LISTED_MAX each,
+// short texts like listed())
+const WIN_RE = /Windows\s*の\s*(?:会社の\s*)?PC|Windows\s*で|Windows\s*の実機|Windows\s*だけ/i;
+const MANUAL_RE = /手で|目で|見た目|手の確認|触って確かめ/;
+function heldCards(rows) {
+  const out = { windows: [], manual: [], windowsCount: 0, manualCount: 0 };
+  const short = (r) => ({ n: String(r.n || '').slice(0, 12), item: String(r.item || '').slice(0, ITEM_MAX), next: String(r.next || '').slice(0, NEXT_MAX), updated: /^\d{4}-\d{2}-\d{2}$/.test(r.updated) ? r.updated : '' });
+  for (const r of Array.isArray(rows) ? rows : []) {
+    if (!r || r.state !== '保留') continue;
+    const k = WIN_RE.test(r.next || '') ? 'windows' : MANUAL_RE.test(r.next || '') ? 'manual' : null;
+    if (!k) continue;
+    out[`${k}Count`]++;
+    if (out[k].length < LISTED_MAX) out[k].push(short(r));
+  }
+  return out;
+}
 
 // Small summary for projects.json: { done, total, inProgress: string[] ≤ 5, updated, waiting, waitingCount, held, heldCount } | null
 // waiting = 確認待ち rows, held = 保留 rows: [{ n, item, next, updated }] (≤ LISTED_MAX, table order; updated = YYYY-MM-DD or '').
@@ -128,4 +149,4 @@ function progressSummary(folder) {
   };
 }
 
-module.exports = { FILE, MAX_BYTES, MAX_ROWS, STATES, OTHER, LISTED_MAX, parseProgress, readProgress, progressSummary, cellsOf, isSep, plain, normState };
+module.exports = { FILE, MAX_BYTES, MAX_ROWS, STATES, OTHER, LISTED_MAX, heldCards, WIN_RE, MANUAL_RE, parseProgress, readProgress, progressSummary, cellsOf, isSep, plain, normState };

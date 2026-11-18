@@ -1,4 +1,4 @@
-// Pre-answered QA per queued task (2026-11-03): the manager agent (PMO) prepares a QA table for a backlog item
+// Pre-answered QA per queued task (2026-11-03): the manager agent (ルーター) prepares a QA table for a backlog item
 // (or an inbox item not routed yet) ahead of time, the user answers it on the dashboard whenever, and the
 // answers are appended to the prompt when the item is actually sent, so the session does not stop to ask.
 // Stored by main in userData/qa.json = { entries: { [key]: QaEntry } }.

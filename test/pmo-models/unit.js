@@ -1,6 +1,6 @@
 // Unit test for PM1 段 2 (docs/plan-pmo-models.md): node tmp/pmo-models/unit.js   (AT_APP_ROOT = another app root)
-//   T  the PMO template v30+: the section on subagent models (haiku: read / summarize / compare with evidence,
-//      sonnet: drafts, outbox only by PMO, the actions only PMO decides), and 誤報の見込み in 終わらない待ち
+//   T  the ルーター template v30+: the section on subagent models (haiku: read / summarize / compare with evidence,
+//      sonnet: drafts, outbox only by ルーター, the actions only ルーター decides), and 誤報の見込み in 終わらない待ち
 //   U  an old v29 CLAUDE.md is upgraded and the user's part below the marker is kept
 //   H  src/main/wait-hints.js: pipe / file output / a newer command after a gone one / the session moved on; nothing for
 //      a plain command, a '|' inside quotes, 2>&1 alone or deadlock; the block under the waits lines
@@ -34,10 +34,10 @@ try {
   const sec = (md.split('## サブエージェントのモデルの使い分け')[1] || '').split('\n## ')[0];
   ok('T2 the section exists', sec.length > 100);
   ok('T3 haiku: reading / summary / comparing, with evidence, no proposals', /"model": "haiku"/.test(sec) && /読み取り・要約・突き合わせ/.test(sec) && /根拠/.test(sec) && /提案や結論は書かせない/.test(sec));
-  ok('T4 sonnet: drafts of instructions and QA, PMO checks', /"model": "sonnet"/.test(sec) && /指示文と事前 QA/.test(sec) && /下書き/.test(sec) && /直してから使う/.test(sec));
-  ok('T5 outbox only by PMO (opus); subagents read only', /outbox に書くのはあなた（opus の PMO）だけ/.test(sec) && /読むだけと伝える/.test(sec));
-  ok('T6 actions only PMO decides: route create reorder answer nudge release proposal qa warn', ['route', 'create', 'reorder', 'answer', 'nudge', 'release', 'proposal', 'qa', 'warn'].every((w) => sec.includes(w)) && /あなただけが決めて書く/.test(sec));
-  ok('T7 PMO checks the summary before an action', /要点を 1 回自分で確かめる/.test(sec));
+  ok('T4 sonnet: drafts of instructions and QA, ルーター checks', /"model": "sonnet"/.test(sec) && /指示文と事前 QA/.test(sec) && /下書き/.test(sec) && /直してから使う/.test(sec));
+  ok('T5 outbox only by ルーター (opus); subagents read only', /outbox に書くのはあなた（opus の ルーター）だけ/.test(sec) && /読むだけと伝える/.test(sec));
+  ok('T6 actions only ルーター decides: route create reorder answer nudge release proposal qa warn', ['route', 'create', 'reorder', 'answer', 'nudge', 'release', 'proposal', 'qa', 'warn'].every((w) => sec.includes(w)) && /あなただけが決めて書く/.test(sec));
+  ok('T7 ルーター checks the summary before an action', /要点を 1 回自分で確かめる/.test(sec));
   const wsec = (md.split('## 終わらない待ち（waits.json と nudge）')[1] || '').split('\n## ')[0];
   ok('T8 終わらない待ち explains 誤報の見込み (pipe / file / newer command gone) and not to nudge a false one', /誤報の見込み/.test(wsec) && /パイプ/.test(wsec) && /ファイル/.test(wsec) && /gone が残っているだけ/.test(wsec) && /誤報なら nudge しない/.test(wsec));
 

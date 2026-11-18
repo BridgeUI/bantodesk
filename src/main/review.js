@@ -6,7 +6,7 @@
 //
 // Guards: a review is queued only after work (not a review) finished since the last look, the folder stayed idle for
 // IDLE_MS and nothing of it is open in the inbox; reviews whose proposals were done chain, at most MAX_ROUNDS in a row
-// (then the PMO is told and the user decides); a failed review is not retried.
+// (then the ルーター is told and the user decides); a failed review is not retried.
 //
 // State per folder (<userData>/review.json): { folder, status: idle|running|reviewed|allDone|stopped, round, since,
 //   idleAt, reviewId, inboxId, reviewIds: [...], reviewInboxIds: [...], at, doneAt? }.
@@ -17,7 +17,7 @@ const { META_DIR, LEGACY_META_DIR } = require('./names');
 const crypto = require('crypto');
 
 const MAX_ROUNDS = 3; // 「同じフォルダで続けて 3 回まで」
-const IDLE_MS = 60 * 1000; // the folder stays idle this long first (the PMO may still route the next work)
+const IDLE_MS = 60 * 1000; // the folder stays idle this long first (the ルーター may still route the next work)
 const GRACE_MS = 10 * 1000; // after the review is done, proposals still on their way (outbox poll 2 s + 1 s settle)
 const IDS_KEEP = 20;
 const OPEN_INBOX = new Set(['new', 'asking', 'routed']); // 依頼にそのフォルダの未完了（new・asking・routed）が無いこと
@@ -38,7 +38,7 @@ function ofFolder(i, folder) {
 }
 
 // Is something of the folder still to do? backlog pending / active, or an open inbox item of the folder; unrouted new
-// requests (no folder yet) hold the queuing too (unrouted: true), since the PMO may route them here; they do not take a
+// requests (no folder yet) hold the queuing too (unrouted: true), since the ルーター may route them here; they do not take a
 // mark off. skip = inbox ids not to count (the reviews' own items, routed until their done reaches the inbox).
 function busyOf(folder, items, inboxItems, { skip = [], unrouted = false } = {}) {
   if ((items || []).some((i) => i && (i.status === 'pending' || i.status === 'active'))) return true;
@@ -64,7 +64,7 @@ function fresh(folder, now) {
 // -> { action, state, round?, proposals? }
 //   action: 'none' | 'baseline' (first look: only work finished from now on counts) | 'wait' (idle timer started / reset)
 //   | 'queue' (put review number `round` on it) | 'all-done' | 'reviewed' (the review proposed `proposals`) | 'review-failed'
-//   | 'stop' (MAX_ROUNDS reviews in a row; tell the PMO) | 'clear' (new work: the mark is taken off)
+//   | 'stop' (MAX_ROUNDS reviews in a row; tell the ルーター) | 'clear' (new work: the mark is taken off)
 function decide(st, items, inboxItems, o = {}) {
   const now = o.now ?? Date.now();
   const idleMs = o.idleMs ?? IDLE_MS;
@@ -96,7 +96,7 @@ function decide(st, items, inboxItems, o = {}) {
   if (s.status === 'allDone' || s.status === 'stopped') return { action: 'none', state: s };
   const newDone = (items || []).filter((i) => i && i.status === 'done' && (num(i.doneAt) ?? 0) > (s.since || 0) && !s.reviewIds.includes(i.id));
   if (!newDone.length) {
-    // the PMO dropped every proposal of the last review: nothing more to do after all
+    // the ルーター dropped every proposal of the last review: nothing more to do after all
     if (s.status === 'reviewed' && s.reviewId) {
       const props = proposalsOf(s.reviewId, inboxItems);
       if (props.length && props.every((p) => p.status === 'dropped')) return { action: 'all-done', state: { ...s, status: 'allDone', round: 0, idleAt: null, at: now } };
@@ -132,8 +132,8 @@ function template(file) {
   return REVIEW_FALLBACK;
 }
 
-// The user's own words for the folder: inbox items routed / done there (originalText before the PMO's edits), newest last.
-// Items the PMO added (route inbox: true, often on the user's behalf) come too, marked; the app's (carry-over, reviews)
+// The user's own words for the folder: inbox items routed / done there (originalText before the ルーター's edits), newest last.
+// Items the ルーター added (route inbox: true, often on the user's behalf) come too, marked; the app's (carry-over, reviews)
 // and the sessions' proposals do not.
 function requestsOf(folder, inboxItems, { max = 10, each = 800 } = {}) {
   const list = (inboxItems || [])
@@ -141,7 +141,7 @@ function requestsOf(folder, inboxItems, { max = 10, each = 800 } = {}) {
     .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
     .slice(-max);
   if (!list.length) return '（このフォルダに来た依頼は記録に無い。README・PROGRESS.md・docs から目的を読み取る）';
-  return list.map((i) => `- ${i.reqNo || i.id}${i.source === 'manager' ? '（PMO が足した）' : ''}${i.title ? ' ' + i.title : ''}: ${String(i.originalText || i.text).replace(/\s+/g, ' ').trim().slice(0, each)}`).join('\n');
+  return list.map((i) => `- ${i.reqNo || i.id}${i.source === 'manager' ? '（ルーターが足した）' : ''}${i.title ? ' ' + i.title : ''}: ${String(i.originalText || i.text).replace(/\s+/g, ' ').trim().slice(0, each)}`).join('\n');
 }
 
 function render(tpl, vars) {
