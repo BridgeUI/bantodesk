@@ -55,8 +55,8 @@ BantoDesk is a desktop app that takes that juggling off your hands:
 ## Screenshots
 
 <p align="center">
-  <img src="docs/media/screenshot-dashboard.png" alt="The dashboard's Projects tab: three folders, each with a running Claude Code session and a queue behind it, and the Router conversation on the right" width="100%">
-  <br><b>Dashboard</b> — every project with its running session and queue (3 running, limit 3); the Router explains its routing on the right.
+  <img src="docs/media/screenshot-dashboard.png" alt="The dashboard's Home view: a card waiting for your answer, the running sessions of three folders, the Router's notices, the folders in the left navigation and the Router conversation on the right" width="100%">
+  <br><b>Dashboard</b> — what needs you, what is running (3 running, limit 3) and what the Router did; the projects are in the left navigation and the Router explains its routing on the right.
 </p>
 
 <table>
